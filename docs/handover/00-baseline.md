@@ -50,6 +50,10 @@ Self-hosted only · single user (workspace of one) · GitHub + Jira + **both** G
 - [x] Step 0 — baseline & plan
 - [x] Step 1 — frontend MVP screens (`01-frontend.md`) — browser-verified
 - [x] Step 2 — backend skeleton (`02-backend.md`) — Docker-verified end-to-end
-- [ ] Step 3 — backend feature logic
-- [ ] Step 4 — integrations (fixtures)
-- [ ] Step 5 — full stack + final handover (frontend Dockerfile/nginx.conf + root docker-compose.yml already written)
+- [x] **Live Jira integration** (`03-jira-live.md`) — real on-prem issues in the WorkItem model
+- [x] **Frontend↔backend wired** — real Jira issues render in the UI (Vue → Vite proxy → Spring Boot → Postgres → jira.critical.pt). Screenshot: `frontend/screenshots/fullstack-work-jira.png`
+- [ ] Step 3 — remaining backend feature logic (build-failure correlation via LlmPort, handoff gen from a build, what-changed, audit, retention/delete, cost budgets, Langfuse bridge)
+- [ ] More connectors — GitHub (live via `sarasnt`), calendars, Notion (once pages shared); Ollama adapter
+- [ ] Full containerized compose (frontend nginx image) end-to-end + final handover
+
+**Repo:** github.com/sarasnt/dev-loom (private). Latest: `5f4d10d`. Secrets live in `backend/.env` (gitignored) — **rotate the Jira PAT + Notion token** shared in chat.
