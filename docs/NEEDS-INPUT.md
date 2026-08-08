@@ -9,12 +9,8 @@ Secrets always go in **`backend/.env`** (gitignored) — never in code or chat.
 ## 1. Notion — ✅ DONE (2026-08-08)
 Connected the DevLoom integration to the "Messaging & Event-Driven Cheat Sheet" page; it now syncs as a `doc` work item (Integrations shows *Notion · connected · 1 item*). To add more, connect additional pages/databases (page → `•••` → **Connections** → **DevLoom**) and re-sync (`POST /api/v1/integrations/notion/sync`).
 
-## 2. Ollama — confirm it's running with a pulled model  ⏳ quick
-**Why partial:** the adapter + router are built and auto-pick whatever model you've pulled, with graceful fallback. To get **real local-model** build-failure/brainstorm analysis (instead of the curated fallback), Ollama must be reachable from the backend *with a model pulled*.
-**Do this:**
-- If using the bundled container: `docker compose --profile ai up -d ollama` then `docker compose exec ollama ollama pull qwen2.5-coder` (or your model). The backend already points at `ollama:11434`.
-- If Ollama runs on your host instead: set `DEVLOOM_OLLAMA_URL=http://host.docker.internal:11434` in `backend/.env`.
-**Tell me:** which model you pulled (I'll set `DEVLOOM_AI_MODEL`, though it auto-detects the first available).
+## 2. Ollama — ✅ DONE (2026-08-08)
+Ollama container running with `qwen2.5-coder` pulled. Verified: build-failure analysis is produced by the local model (`provider=ollama model=qwen2.5-coder:latest`, ~15s on CPU), nothing leaves the machine, redaction intact. The router auto-detects the model and falls back to the offline stub if Ollama is ever down. (Optional: pull `llama3.2:3b` for faster/lower-quality triage; the router will pick whatever's available.)
 
 ## 3. Microsoft / Outlook calendar  (excluded from iteration 1)
 When you want it: provide a **private ICS feed URL** (Outlook → Calendar → Share → Publish → ICS) and I'll add it exactly like Google — or we do full Microsoft Graph OAuth (heavier). Google Calendar is already live.
@@ -39,8 +35,8 @@ All of these were pasted in chat, so treat them as compromised and rotate, then 
 - **Google ICS URL** — Calendar settings → *Reset* the private URL, paste the new one into `DEVLOOM_GOOGLE_ICS_URL`.
 
 ## 8. Minor confirmations (SPEC §39)
-- Data residency/compliance: confirm "data stays on my machine" is sufficient for now (no formal GDPR/region requirement).
-- Default local model to ship (currently `Qwen3-Coder-30B-A3B` in config; auto-detect overrides).
+- ✅ **Data residency:** confirmed — everything stays on the local machine for now; no formal GDPR/region requirement. **Deferred:** eventual SaaS/hosting + managed keys (revisit when moving off local-only — reopens tenancy/KMS decisions in SPEC §28/§27/§32).
+- ✅ **Default local model:** resolved — `qwen2.5-coder` (auto-detected from Ollama).
 
 ---
 
