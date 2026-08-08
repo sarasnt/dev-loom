@@ -2,6 +2,7 @@ package com.devloom;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * DevLoom — calm engineering command center.
@@ -11,6 +12,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * {@code ai} (provider ports), {@code common} (redaction, shared), {@code api} (transport).
  */
 @SpringBootApplication
+@EnableScheduling
 public class DevLoomApplication {
     public static void main(String[] args) {
         SpringApplication.run(DevLoomApplication.class, args);

@@ -25,13 +25,15 @@ async function send() {
   const text = draft.value.trim()
   if (!text || sending.value || !data.value) return
   const session = data.value.active
+  // Capture the prior conversation BEFORE adding this turn, so the model has context.
+  const history = session.messages.map((m) => ({ role: m.role, text: m.text }))
   session.messages.push({ role: 'you', text })
   draft.value = ''
   sending.value = true
   await scrollToEnd()
   try {
     const sourceIds = session.inContext.map((s) => s.id)
-    const reply = await sendBrainstorm(text, sourceIds)
+    const reply = await sendBrainstorm(text, sourceIds, history)
     session.messages.push(reply)
   } catch {
     session.messages.push({

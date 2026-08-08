@@ -57,5 +57,10 @@ devloom:
     default-provider: ${DEVLOOM_AI_PROVIDER:stub}
     ollama-base-url: ${DEVLOOM_OLLAMA_URL:http://localhost:11434}
     default-model: ${DEVLOOM_AI_MODEL:Qwen3-Coder-30B-A3B}
+    # Optional dedicated model for the brainstorm workspace (a stronger general model than
+    # the coder default). Empty => use the default / first available.
+    brainstorm-model: ${DEVLOOM_AI_BRAINSTORM_MODEL:}
+  sync:
+    interval-ms: ${DEVLOOM_SYNC_INTERVAL_MS:300000}
   langfuse:
     enabled: ${DEVLOOM_LANGFUSE_ENABLED:false}

@@ -301,7 +301,11 @@ export function fetchBrainstorm(): Promise<BrainstormData> {
   return delay(BRAINSTORM)
 }
 
-export function sendBrainstorm(message: string, sourceIds: string[]) {
+export function sendBrainstorm(
+  message: string,
+  sourceIds: string[],
+  _history: { role: string; text: string }[] = [],
+) {
   const reply = {
     role: 'ai' as const,
     text: `(offline stub) You asked: "${message}". Attach a backend + local model to get a real reply.`,

@@ -43,6 +43,9 @@ export const fetchIntegrations = () => get<Integration[]>('/integrations')
 export const fetchProviders = () => get<ProvidersData>('/providers')
 export const fetchPrivacy = () => get<PrivacyData>('/privacy')
 export const fetchBrainstorm = () => get<BrainstormData>('/brainstorm')
-export const sendBrainstorm = (message: string, sourceIds: string[]) =>
-  post<BrainstormMessage>('/brainstorm/messages', { message, sourceIds })
+export const sendBrainstorm = (
+  message: string,
+  sourceIds: string[],
+  history: { role: string; text: string }[] = [],
+) => post<BrainstormMessage>('/brainstorm/messages', { message, sourceIds, history })
 export const fetchOnboarding = () => get<OnboardStep[]>('/onboarding')
