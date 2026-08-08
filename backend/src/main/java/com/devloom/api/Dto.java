@@ -78,4 +78,7 @@ public final class Dto {
 
     // ---- Onboarding ----
     public record OnboardStep(String n, String title, String detail, String state, String action) {}
+
+    // ---- Audit ----
+    public record AuditEntry(String action, String target, String metadata, String at) {}
 }

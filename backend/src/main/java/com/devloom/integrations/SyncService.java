@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.devloom.audit.AuditService;
 import com.devloom.workmodel.WorkItemEntity;
 import com.devloom.workmodel.WorkItemRepository;
 
@@ -22,10 +23,12 @@ public class SyncService {
 
     private final List<SourceConnector> connectors;
     private final WorkItemRepository repo;
+    private final AuditService audit;
 
-    public SyncService(List<SourceConnector> connectors, WorkItemRepository repo) {
+    public SyncService(List<SourceConnector> connectors, WorkItemRepository repo, AuditService audit) {
         this.connectors = connectors;
         this.repo = repo;
+        this.audit = audit;
     }
 
     /** Sync a single source by label; returns the number of items ingested. */
@@ -46,6 +49,7 @@ public class SyncService {
         repo.deleteBySource(connector.source());
         repo.saveAll(items);
         log.info("Synced {} items from {}", items.size(), connector.source());
+        audit.record("sync", connector.source(), "ingested=" + items.size());
         return items.size();
     }
 
