@@ -19,6 +19,11 @@ public class PrivacyGate {
         return repo == null || !LOCAL_ONLY.contains(repo);
     }
 
+    /** Repos that may never leave the machine (for the Privacy screen). */
+    public java.util.List<String> localOnlyRepos() {
+        return LOCAL_ONLY.stream().sorted().toList();
+    }
+
     /** Boundary for a request, given the target provider and the repos in context. */
     public Boundary boundaryFor(String provider, Set<String> repos) {
         boolean anyLocalOnly = repos.stream().anyMatch(LOCAL_ONLY::contains);

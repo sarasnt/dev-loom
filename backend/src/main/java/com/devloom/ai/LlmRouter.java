@@ -7,6 +7,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import com.devloom.audit.AuditService;
+
 /**
  * The single place feature code obtains an LLM (SPEC.md §20). Prefers the first available
  * real provider (local Ollama, or a BYO adapter later); falls back to the deterministic
@@ -20,10 +22,16 @@ public class LlmRouter {
 
     private final List<LlmPort> ports;
     private final LangfuseTracer tracer;
+    private final AuditService audit;
 
-    public LlmRouter(List<LlmPort> ports, LangfuseTracer tracer) {
+    public LlmRouter(List<LlmPort> ports, LangfuseTracer tracer, AuditService audit) {
         this.ports = ports;
         this.tracer = tracer;
+        this.audit = audit;
+    }
+
+    private static boolean isRemote(String provider) {
+        return provider != null && !provider.equals("stub") && !provider.equals("ollama");
     }
 
     /** Is a real (non-stub) model reachable right now? */
@@ -52,6 +60,10 @@ public class LlmRouter {
                 if (result.text() != null && !result.text().isBlank()) {
                     tracer.trace(request.feature(), result.provider(), result.model(),
                             System.currentTimeMillis() - t0, result.hypothesis());
+                    // Record egress only when data actually left the machine (remote provider).
+                    if (isRemote(result.provider())) {
+                        audit.record("llm-egress", result.provider(), "feature=" + request.feature());
+                    }
                     return result;
                 }
             } catch (Exception e) {

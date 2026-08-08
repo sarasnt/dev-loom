@@ -43,12 +43,13 @@ const dollars = (c?: number) => (c == null ? '' : `$${(c / 100).toFixed(2)}`)
           <h3>Anthropic <span class="opt mono">· optional · your key</span></h3>
           <span class="boundary remote mono"><span aria-hidden="true">◉</span> {{ data.anthropic.boundaryLabel }}</span>
         </div>
-        <div class="row">
+        <div class="row" v-if="data.anthropic.hasKey">
           <span class="mono lbl">key ••••••</span>
           <button class="btn">Test</button>
           <span v-if="data.anthropic.valid" class="tag ok mono">✓ valid</span>
         </div>
-        <div class="row" v-if="data.anthropic.capCents">
+        <button v-else class="btn ghost">+ Add key</button>
+        <div class="row" v-if="data.anthropic.hasKey && data.anthropic.capCents">
           <span class="mono lbl">cap {{ dollars(data.anthropic.capCents) }} · used</span>
           <span class="meter"><i :style="{ width: usedPct + '%' }"></i></span>
           <span class="mono">{{ dollars(data.anthropic.usedCents) }}</span>

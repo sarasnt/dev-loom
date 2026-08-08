@@ -39,6 +39,9 @@ public class ApiController {
     private final ChangesService changesService;
     private final IntegrationsService integrationsService;
     private final BrainstormService brainstormService;
+    private final ProvidersService providersService;
+    private final PrivacyService privacyService;
+    private final OnboardingService onboardingService;
     private final AuditService audit;
 
     public ApiController(TodayService todayService, WorkModelService workModel,
@@ -46,7 +49,8 @@ public class ApiController {
                          RetentionService retention, HandoffService handoffService,
                          BuildFailureService buildFailureService, ChangesService changesService,
                          IntegrationsService integrationsService, BrainstormService brainstormService,
-                         AuditService audit) {
+                         ProvidersService providersService, PrivacyService privacyService,
+                         OnboardingService onboardingService, AuditService audit) {
         this.todayService = todayService;
         this.workModel = workModel;
         this.fixtures = fixtures;
@@ -57,6 +61,9 @@ public class ApiController {
         this.changesService = changesService;
         this.integrationsService = integrationsService;
         this.brainstormService = brainstormService;
+        this.providersService = providersService;
+        this.privacyService = privacyService;
+        this.onboardingService = onboardingService;
         this.audit = audit;
     }
 
@@ -125,12 +132,12 @@ public class ApiController {
 
     @GetMapping("/providers")
     public Dto.Providers providers() {
-        return fixtures.providers();
+        return providersService.providers();
     }
 
     @GetMapping("/privacy")
     public Dto.Privacy privacy() {
-        return fixtures.privacy();
+        return privacyService.privacy();
     }
 
     @GetMapping("/brainstorm")
@@ -146,6 +153,6 @@ public class ApiController {
 
     @GetMapping("/onboarding")
     public List<Dto.OnboardStep> onboarding() {
-        return fixtures.onboarding();
+        return onboardingService.steps();
     }
 }

@@ -40,5 +40,11 @@ All of these were pasted in chat, so treat them as compromised and rotate, then 
 
 ---
 
+## 9. Deferred by design (not blocking)
+- **OIDC login** — scaffolding intentionally **not** added yet: Spring Security OIDC intercepts all requests and, without a valid client id/secret, would lock you out of the running app you're testing. Add it together with the GitHub/Google client creds (item 5). Until then the app is single-user/open on localhost.
+- **Bitbucket / GitLab connectors** — you use GitHub + on-prem Jira, so there's no account to build/test against. The `SourceConnector` port makes these a ~1-file add whenever a real instance exists. Left out to avoid shipping untestable code.
+
+---
+
 ### For reference — what's proceeding WITHOUT your input
 Live already: Jira (25 issues), Google Calendar (real events), GitHub (ready), unified work model, deterministic priority engine, secret redaction, audit trail, retention/delete, generated handoffs, what-changed, cost-budget scaffolding, the AI router with Ollama support + graceful fallback, the full containerized stack. Still buildable without input (queued): wiring more UI actions, onboarding status from real integration state, Bitbucket/GitLab connectors (Next scope), and OIDC *scaffolding* (activates once you supply a client id/secret in item 5).

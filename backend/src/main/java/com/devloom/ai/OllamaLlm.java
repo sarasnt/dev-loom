@@ -45,7 +45,7 @@ public class OllamaLlm implements LlmPort {
     @Override
     public boolean available() {
         // Reachable AND has at least one pulled model.
-        return !availableModels().isEmpty();
+        return !models().isEmpty();
     }
 
     @Override
@@ -64,7 +64,7 @@ public class OllamaLlm implements LlmPort {
 
     /** Names of models pulled into this Ollama instance (empty if unreachable). */
     @SuppressWarnings("unchecked")
-    private List<String> availableModels() {
+    public List<String> models() {
         try {
             Map<String, Object> tags = http.get().uri("/api/tags").retrieve().body(MAP);
             Object models = tags == null ? null : tags.get("models");
@@ -82,7 +82,7 @@ public class OllamaLlm implements LlmPort {
 
     /** Use the requested/default model if it's actually pulled; otherwise the first available. */
     private String resolveModel(String requested) {
-        List<String> models = availableModels();
+        List<String> models = models();
         String preferred = (requested != null && !requested.isBlank()) ? requested : defaultModel;
         for (String m : models) {
             if (m.equalsIgnoreCase(preferred) || m.startsWith(preferred + ":")) {
