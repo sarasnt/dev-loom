@@ -14,4 +14,5 @@ export const fetchIntegrations = api.fetchIntegrations
 export const fetchProviders = api.fetchProviders
 export const fetchPrivacy = api.fetchPrivacy
 export const fetchBrainstorm = api.fetchBrainstorm
+export const sendBrainstorm = api.sendBrainstorm
 export const fetchOnboarding = api.fetchOnboarding

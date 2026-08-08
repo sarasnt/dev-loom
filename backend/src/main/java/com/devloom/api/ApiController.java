@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -37,13 +38,15 @@ public class ApiController {
     private final BuildFailureService buildFailureService;
     private final ChangesService changesService;
     private final IntegrationsService integrationsService;
+    private final BrainstormService brainstormService;
     private final AuditService audit;
 
     public ApiController(TodayService todayService, WorkModelService workModel,
                          FixtureData fixtures, SyncService syncService,
                          RetentionService retention, HandoffService handoffService,
                          BuildFailureService buildFailureService, ChangesService changesService,
-                         IntegrationsService integrationsService, AuditService audit) {
+                         IntegrationsService integrationsService, BrainstormService brainstormService,
+                         AuditService audit) {
         this.todayService = todayService;
         this.workModel = workModel;
         this.fixtures = fixtures;
@@ -53,6 +56,7 @@ public class ApiController {
         this.buildFailureService = buildFailureService;
         this.changesService = changesService;
         this.integrationsService = integrationsService;
+        this.brainstormService = brainstormService;
         this.audit = audit;
     }
 
@@ -132,6 +136,12 @@ public class ApiController {
     @GetMapping("/brainstorm")
     public Dto.Brainstorm brainstorm() {
         return fixtures.brainstorm();
+    }
+
+    /** Send a brainstorm message + attached sources → local-model reply (SPEC §Brainstorming). */
+    @PostMapping("/brainstorm/messages")
+    public Dto.BrainstormMessage brainstormSend(@RequestBody Dto.BrainstormSend body) {
+        return brainstormService.reply(body);
     }
 
     @GetMapping("/onboarding")

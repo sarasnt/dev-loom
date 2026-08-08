@@ -7,6 +7,7 @@ import type {
   ProvidersData,
   PrivacyData,
   BrainstormData,
+  BrainstormMessage,
   OnboardStep,
 } from '../types'
 
@@ -22,6 +23,18 @@ async function get<T>(path: string): Promise<T> {
   return (await res.json()) as T
 }
 
+async function post<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    throw new Error(`POST ${path} → ${res.status}`)
+  }
+  return (await res.json()) as T
+}
+
 export const fetchToday = () => get<TodayData>('/today')
 export const fetchWork = () => get<WorkRow[]>('/work')
 export const fetchBuildFailure = (id: string) => get<BuildFailure>(`/builds/${id}`)
@@ -30,4 +43,6 @@ export const fetchIntegrations = () => get<Integration[]>('/integrations')
 export const fetchProviders = () => get<ProvidersData>('/providers')
 export const fetchPrivacy = () => get<PrivacyData>('/privacy')
 export const fetchBrainstorm = () => get<BrainstormData>('/brainstorm')
+export const sendBrainstorm = (message: string, sourceIds: string[]) =>
+  post<BrainstormMessage>('/brainstorm/messages', { message, sourceIds })
 export const fetchOnboarding = () => get<OnboardStep[]>('/onboarding')

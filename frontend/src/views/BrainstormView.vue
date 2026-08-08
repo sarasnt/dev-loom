@@ -1,16 +1,49 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { nextTick, onMounted, ref } from 'vue'
 import type { BrainstormData } from '../types'
-import { fetchBrainstorm } from '../api'
+import { fetchBrainstorm, sendBrainstorm } from '../api'
 import SourceChip from '../components/SourceChip.vue'
 import BoundaryToken from '../components/BoundaryToken.vue'
 
 const data = ref<BrainstormData | null>(null)
 const loading = ref(true)
+const draft = ref('')
+const sending = ref(false)
+const chatEl = ref<HTMLElement | null>(null)
+
 onMounted(async () => {
   data.value = await fetchBrainstorm()
   loading.value = false
 })
+
+async function scrollToEnd() {
+  await nextTick()
+  if (chatEl.value) chatEl.value.scrollTop = chatEl.value.scrollHeight
+}
+
+async function send() {
+  const text = draft.value.trim()
+  if (!text || sending.value || !data.value) return
+  const session = data.value.active
+  session.messages.push({ role: 'you', text })
+  draft.value = ''
+  sending.value = true
+  await scrollToEnd()
+  try {
+    const sourceIds = session.inContext.map((s) => s.id)
+    const reply = await sendBrainstorm(text, sourceIds)
+    session.messages.push(reply)
+  } catch {
+    session.messages.push({
+      role: 'ai',
+      text: 'Could not reach the model. Is the backend (and Ollama) running?',
+      hypothesis: false,
+    })
+  } finally {
+    sending.value = false
+    await scrollToEnd()
+  }
+}
 </script>
 
 <template>
@@ -28,20 +61,34 @@ onMounted(async () => {
 
     <!-- conversation -->
     <main class="chat">
-      <div v-for="(m, i) in data.active.messages" :key="i" class="msg" :class="m.role">
-        <div class="who mono">{{ m.role === 'you' ? 'you' : `DevLoom · ${m.model}` }}</div>
-        <div class="bub">
-          {{ m.text }}
-          <span v-if="m.hypothesis" class="reason-mark" aria-label="model reasoning">reasoning°</span>
+      <div ref="chatEl" class="stream">
+        <div v-for="(m, i) in data.active.messages" :key="i" class="msg" :class="m.role">
+          <div class="who mono">{{ m.role === 'you' ? 'you' : `DevLoom · ${m.model ?? 'local'}` }}</div>
+          <div class="bub">
+            {{ m.text }}
+            <span v-if="m.hypothesis" class="reason-mark" aria-label="model reasoning">reasoning°</span>
+          </div>
+          <div v-if="m.sources?.length" class="thread mono">
+            └ thread → <SourceChip v-for="s in m.sources" :key="s.id" :ref-item="s" />
+          </div>
         </div>
-        <div v-if="m.sources?.length" class="thread mono">
-          └ thread → <SourceChip v-for="s in m.sources" :key="s.id" :ref-item="s" />
+        <div v-if="sending" class="msg ai">
+          <div class="who mono">DevLoom · {{ data.active.model }}</div>
+          <div class="bub thinking mono">thinking…</div>
         </div>
       </div>
 
-      <div class="spring"></div>
       <div class="composer">
-        <span>Type a message…</span><span class="kbd mono">⏎</span>
+        <input
+          v-model="draft"
+          class="composer-input"
+          type="text"
+          placeholder="Type a message…"
+          :disabled="sending"
+          @keydown.enter="send"
+          aria-label="Message"
+        />
+        <button class="send" :disabled="sending || !draft.trim()" @click="send">Send ⏎</button>
       </div>
       <div class="saveas mono">
         Save as:
@@ -74,15 +121,22 @@ onMounted(async () => {
 .s.on { background: var(--warp-weft); color: var(--ink); }
 .spring { margin-top: auto; }
 .vis { font-size: 12px; color: var(--faint-text); }
-.chat { display: flex; flex-direction: column; padding: 16px 18px; overflow: auto; }
+.chat { display: flex; flex-direction: column; padding: 16px 18px; min-height: 0; }
+.stream { flex: 1; overflow: auto; min-height: 0; }
 .msg { margin-bottom: 16px; max-width: 58ch; }
+.thinking { color: var(--faint-text); }
+.thinking::after { content: ''; animation: none; }
 .who { font-size: 11px; color: var(--faint-text); margin-bottom: 4px; }
 .bub { font-size: 14px; color: var(--ink); line-height: 1.55; }
 .msg.ai .bub { color: var(--dim); }
 .reason-mark { font-family: var(--mono); font-size: 10px; color: var(--warp); border: 1px solid var(--warp); border-radius: 4px; padding: 1px 5px; margin-left: 6px; }
 .thread { font-size: 11px; color: var(--warp-hi); margin-top: 8px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-.composer { border: 1px solid var(--line); border-radius: 10px; padding: 11px 13px; color: var(--faint-text); font-size: 13px; display: flex; align-items: center; justify-content: space-between; }
-.kbd { border: 1px solid var(--line); border-radius: 5px; padding: 2px 6px; font-size: 11px; }
+.composer { border: 1px solid var(--line); border-radius: 10px; padding: 8px 8px 8px 13px; display: flex; align-items: center; gap: 10px; }
+.composer:focus-within { border-color: var(--warp); }
+.composer-input { flex: 1; background: transparent; border: 0; outline: none; color: var(--ink); font-family: var(--sans); font-size: 14px; }
+.composer-input::placeholder { color: var(--faint-text); }
+.send { border: 1px solid var(--warp); background: var(--warp); color: var(--on-warp); border-radius: 6px; padding: 6px 12px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.send:disabled { opacity: 0.45; cursor: default; }
 .saveas { display: flex; gap: 8px; margin-top: 12px; font-size: 12px; color: var(--faint-text); align-items: center; }
 .chip { font-size: 11px; color: var(--dim); border: 1px solid var(--line); border-radius: 5px; padding: 3px 7px; background: var(--chip-bg); }
 .tray { border-left: 1px solid var(--line); padding: 16px; background: var(--surface); display: flex; flex-direction: column; }

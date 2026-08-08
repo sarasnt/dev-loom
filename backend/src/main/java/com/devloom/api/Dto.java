@@ -81,4 +81,7 @@ public final class Dto {
 
     // ---- Audit ----
     public record AuditEntry(String action, String target, String metadata, String at) {}
+
+    // ---- Brainstorm send ----
+    public record BrainstormSend(String message, List<String> sourceIds) {}
 }

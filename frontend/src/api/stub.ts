@@ -301,6 +301,17 @@ export function fetchBrainstorm(): Promise<BrainstormData> {
   return delay(BRAINSTORM)
 }
 
+export function sendBrainstorm(message: string, sourceIds: string[]) {
+  const reply = {
+    role: 'ai' as const,
+    text: `(offline stub) You asked: "${message}". Attach a backend + local model to get a real reply.`,
+    model: 'stub-deterministic',
+    hypothesis: true,
+    sources: sourceIds.map((id) => ({ id, boundary: 'local' as const })),
+  }
+  return delay(reply, 500)
+}
+
 // ---- Onboarding ----
 const ONBOARDING: OnboardStep[] = [
   { n: '✓', title: 'Sign in', detail: 'via GitHub · sara.santos', state: 'done' },
