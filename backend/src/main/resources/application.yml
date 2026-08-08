@@ -37,6 +37,11 @@ devloom:
     pat: ${DEVLOOM_JIRA_PAT:}
     max-issues: ${DEVLOOM_JIRA_MAX:25}
     sync-on-startup: ${DEVLOOM_JIRA_SYNC_ON_STARTUP:true}
+  github:
+    # Empty token => connector disabled (fixture GitHub rows kept).
+    base-url: ${DEVLOOM_GITHUB_BASE_URL:https://api.github.com}
+    token: ${DEVLOOM_GITHUB_TOKEN:}
+    max-issues: ${DEVLOOM_GITHUB_MAX:25}
   ai:
     # local-first: which provider the ModelRouter prefers. "stub" until Ollama is reachable.
     default-provider: ${DEVLOOM_AI_PROVIDER:stub}
