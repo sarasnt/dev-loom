@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.devloom.audit.AuditService;
+import com.devloom.integrations.IntegrationsService;
 import com.devloom.integrations.RetentionService;
 import com.devloom.integrations.SyncService;
 import com.devloom.workmodel.WorkModelService;
@@ -35,13 +36,14 @@ public class ApiController {
     private final HandoffService handoffService;
     private final BuildFailureService buildFailureService;
     private final ChangesService changesService;
+    private final IntegrationsService integrationsService;
     private final AuditService audit;
 
     public ApiController(TodayService todayService, WorkModelService workModel,
                          FixtureData fixtures, SyncService syncService,
                          RetentionService retention, HandoffService handoffService,
                          BuildFailureService buildFailureService, ChangesService changesService,
-                         AuditService audit) {
+                         IntegrationsService integrationsService, AuditService audit) {
         this.todayService = todayService;
         this.workModel = workModel;
         this.fixtures = fixtures;
@@ -50,6 +52,7 @@ public class ApiController {
         this.handoffService = handoffService;
         this.buildFailureService = buildFailureService;
         this.changesService = changesService;
+        this.integrationsService = integrationsService;
         this.audit = audit;
     }
 
@@ -113,7 +116,7 @@ public class ApiController {
 
     @GetMapping("/integrations")
     public List<Dto.Integration> integrations() {
-        return fixtures.integrations();
+        return integrationsService.list();
     }
 
     @GetMapping("/providers")
