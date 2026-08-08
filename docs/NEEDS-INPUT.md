@@ -6,10 +6,8 @@ Secrets always go in **`backend/.env`** (gitignored) — never in code or chat.
 
 ---
 
-## 1. Notion — connect the integration to your pages  ⏳ quick
-**Why blocked:** the token is valid ("DevLoom" integration), but an internal Notion integration can't see a page until it's explicitly connected. Your page URL alone returns `404 object_not_found`.
-**Do this:** open the page in Notion → `•••` (top-right) → **Connections** → search **DevLoom** → add it. Repeat for any pages/databases you want in DevLoom.
-**Then:** tell me, or `POST /api/v1/integrations/notion/sync` — the pages appear as `doc` work items. Connector is already built.
+## 1. Notion — ✅ DONE (2026-08-08)
+Connected the DevLoom integration to the "Messaging & Event-Driven Cheat Sheet" page; it now syncs as a `doc` work item (Integrations shows *Notion · connected · 1 item*). To add more, connect additional pages/databases (page → `•••` → **Connections** → **DevLoom**) and re-sync (`POST /api/v1/integrations/notion/sync`).
 
 ## 2. Ollama — confirm it's running with a pulled model  ⏳ quick
 **Why partial:** the adapter + router are built and auto-pick whatever model you've pulled, with graceful fallback. To get **real local-model** build-failure/brainstorm analysis (instead of the curated fallback), Ollama must be reachable from the backend *with a model pulled*.
