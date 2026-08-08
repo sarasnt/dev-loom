@@ -57,6 +57,10 @@ Self-hosted only · single user (workspace of one) · GitHub + Jira + **both** G
 - [x] **GitHub connector** (live-capable; 0 items for `sarasnt`).
 - [x] **Google Calendar (ICS) connector** — real upcoming events (verified: "Reservation at IZAKAYA ONI"). Outlook excluded from iteration 1.
 - [x] **Notion connector** — built; needs the page **connected to the DevLoom integration** (URL alone → 404 object_not_found). Works once connected.
-- [ ] Ollama `LlmPort` adapter + wire build-failure/brainstorm to it; what-changed; cost budgets; Langfuse.
+- [x] **Step 3 complete (no-input parts):** Ollama `LlmPort` adapter + `LlmRouter` (real-model-when-up, graceful stub fallback) wired into build-failure; **what-changed** from the audit trail (wired into Today + `GET /changes`); **cost-budget** scaffolding; **Langfuse tracer seam** (flagged). Handover `04`.
+- [ ] Remaining (no input): onboarding status from real integration state; providers/privacy from config; OIDC login *scaffolding*; Bitbucket/GitLab connectors (Next scope); more UI action wiring.
+- [ ] **Blocked-on-user items → see [`docs/NEEDS-INPUT.md`](../NEEDS-INPUT.md)** (Notion page-connect, Ollama model, Outlook, GitHub org, OIDC client creds, Langfuse infra, token rotation).
 
-**Repo:** github.com/sarasnt/dev-loom (private). Latest: `1a1019c`. Live sources: **Jira (25), Google Calendar (real), GitHub (ready)**. Secrets in `backend/.env` (gitignored) — **rotate the Jira PAT, GitHub token, Notion token, and reset the Google ICS URL** (all shared in chat).
+**Goal (set by user):** complete every spec buildable without input; anything needing input goes to `docs/NEEDS-INPUT.md`.
+
+**Repo:** github.com/sarasnt/dev-loom (private). Latest: `9f95849`. Live sources: **Jira (25), Google Calendar (real), GitHub (ready)**. Secrets in `backend/.env` (gitignored) — **rotate the Jira PAT, GitHub token, Notion token, and reset the Google ICS URL** (all shared in chat).
