@@ -1,0 +1,199 @@
+// Domain types for the Today screen — mirror the unified model in SPEC.md §15.
+
+export type WorkItemType = 'pr' | 'build' | 'stale' | 'task' | 'review'
+
+export type ChipTone = 'neutral' | 'warn' | 'fail' | 'stale'
+
+export interface SignalChip {
+  label: string // mono value, e.g. "wait:51h"
+  tone?: ChipTone
+}
+
+export interface EvidenceRef {
+  id: string // e.g. "PR #482", "TICKET-91"
+  title?: string
+  boundary: 'local' | 'remote'
+}
+
+export interface SignalComponent {
+  name: string
+  value: string // mono, e.g. "51h"
+  normalized: number // 0..1 → bar width
+  weight: number
+}
+
+export interface Recommendation {
+  id: string
+  rank: number
+  type: WorkItemType
+  title: string
+  source: string // e.g. "acme/billing"
+  why: string // grotesque reasoning
+  isHypothesis: boolean
+  chips: SignalChip[]
+  lead?: boolean
+  signals?: SignalComponent[]
+  evidence?: EvidenceRef[]
+  score?: number
+  actions: string[]
+}
+
+export interface SyncSource {
+  key: string
+  label: string
+  state: 'healthy' | 'syncing' | 'partial' | 'error'
+}
+
+export interface Boundary {
+  mode: 'local' | 'remote' | 'mixed'
+  label: string
+}
+
+export interface TodayData {
+  workspace: string
+  user: string
+  now: string
+  changed: { text: string; since: string } | null
+  sync: { sources: SyncSource[]; updated: string }
+  model: { name: string; local: boolean }
+  boundary: Boundary
+  next: Recommendation[]
+  everythingCount: number
+  snoozedCount: number
+}
+
+// ---- Work browser ----
+export interface WorkRow {
+  id: string
+  type: WorkItemType
+  glyph: string
+  title: string
+  status: string
+  statusTone: 'warn' | 'fail' | 'stale' | 'healthy' | 'info'
+  meta: string[]
+  source: string
+}
+
+// ---- Build-failure analysis (SPEC §23) ----
+export type Confidence = 'high' | 'med' | 'low'
+export interface LogLine {
+  text: string
+  kind?: 'normal' | 'fail' | 'omitted' | 'redacted'
+}
+export interface Hypothesis {
+  rank: number
+  text: string
+  confidence: Confidence
+  evidence: EvidenceRef[]
+  uncited?: boolean
+}
+export interface BuildFailure {
+  id: string
+  repo: string
+  branch: string
+  pr?: string
+  run: string
+  failedAgo: string
+  boundary: Boundary
+  summary: string
+  summaryConfidence: Confidence
+  failingJob: string
+  failingStep: string
+  failingTest: string
+  redacted: boolean
+  log: LogLine[]
+  causes: Hypothesis[]
+  related: EvidenceRef[]
+  diagnostics: string[]
+  fixes: string[]
+}
+
+// ---- Coding-agent handoff (SPEC §24) ----
+export interface Handoff {
+  id: string
+  title: string
+  target: string
+  version: number
+  boundary: Boundary
+  rendered: string // the mono artifact body
+  safety: { allow: string[]; forbid: string[] }
+  sources: EvidenceRef[]
+}
+
+// ---- Integrations ----
+export interface Integration {
+  key: string
+  name: string
+  state: 'connected' | 'partial' | 'not_connected'
+  detail?: string
+  scopes?: string[]
+  note?: string
+  actions: string[]
+}
+
+// ---- Model providers ----
+export interface LocalProvider {
+  name: string
+  defaultModel: string
+  models: string[]
+  loaded: boolean
+}
+export interface KeyProvider {
+  name: string
+  boundaryLabel: string
+  hasKey: boolean
+  valid?: boolean
+  capCents?: number
+  usedCents?: number
+  note?: string
+}
+export interface ProvidersData {
+  local: LocalProvider
+  anthropic: KeyProvider
+  openai: KeyProvider
+  fallbackOn: boolean
+}
+
+// ---- Privacy & data boundary ----
+export interface EgressEntry {
+  time: string
+  action: string
+  to: string
+  tokens: string
+}
+export interface PrivacyData {
+  defaultBoundary: string
+  localOnlyRepos: string[]
+  egress: EgressEntry[]
+}
+
+// ---- Brainstorm ----
+export interface BrainstormMessage {
+  role: 'you' | 'ai'
+  text: string
+  model?: string
+  hypothesis?: boolean
+  sources?: EvidenceRef[]
+}
+export interface BrainstormSession {
+  id: string
+  title: string
+  visibility: 'personal' | 'workspace'
+  model: string
+  boundary: Boundary
+  inContext: EvidenceRef[]
+  messages: BrainstormMessage[]
+}
+export interface BrainstormData {
+  sessions: { id: string; title: string }[]
+  active: BrainstormSession
+}
+
+// ---- Onboarding ----
+export interface OnboardStep {
+  n: number | string
+  title: string
+  detail: string
+  state: 'done' | 'now' | 'todo'
+  action?: string
+}

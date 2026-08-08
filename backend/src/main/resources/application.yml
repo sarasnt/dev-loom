@@ -1,0 +1,40 @@
+spring:
+  application:
+    name: devloom-backend
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/devloom}
+    username: ${SPRING_DATASOURCE_USERNAME:devloom}
+    password: ${SPRING_DATASOURCE_PASSWORD:devloom}
+  jpa:
+    hibernate:
+      ddl-auto: none          # Flyway owns the schema
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+
+server:
+  port: ${SERVER_PORT:8080}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: when-authorized
+
+devloom:
+  # Comma-separated origins allowed to call the API (the Vite dev server).
+  cors-allowed-origins: ${DEVLOOM_CORS_ORIGINS:http://localhost:5173,http://localhost:5174,http://localhost:5175}
+  ai:
+    # local-first: which provider the ModelRouter prefers. "stub" until Ollama is reachable.
+    default-provider: ${DEVLOOM_AI_PROVIDER:stub}
+    ollama-base-url: ${DEVLOOM_OLLAMA_URL:http://localhost:11434}
+    default-model: ${DEVLOOM_AI_MODEL:Qwen3-Coder-30B-A3B}
+  langfuse:
+    enabled: ${DEVLOOM_LANGFUSE_ENABLED:false}

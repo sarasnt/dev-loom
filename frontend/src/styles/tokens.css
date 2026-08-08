@@ -1,0 +1,93 @@
+/* DevLoom design tokens — the single source of truth (see DESIGN.md).
+   Components must reference var(--…) only; no hard-coded hex in component styles. */
+
+:root,
+[data-theme='dark'] {
+  --bg: #14161c;
+  --surface: #1b1e26;
+  --raised: #232732;
+  --line: #2e3340;
+  --line-hi: #39404e;
+
+  --ink: #e6e8ec;
+  --dim: #9aa1ae;
+  --faint-text: #808896; /* AA fix: small labels (5.06:1) */
+  --faint: #6b7280;       /* decorative/graphical only */
+
+  --warp: #c6902f;
+  --warp-hi: #e0a94a;
+  --warp-weft: rgba(198, 144, 47, 0.14);
+  --on-warp: #1a1204;
+
+  --blocked: #a65d57;
+  --failed: #b04a45;
+  --healthy: #6e8b6a;
+  --stale: #6c7689;
+  --info: #5f7e93;
+
+  /* surface variants (tokenized so theming propagates — DESIGN.md §7) */
+  --rail-bg: #101217;
+  --nav-hover: #171b22;
+  --chip-bg: #191c23;
+  --btn-bg: #1a1d24;
+  --changed-a: #1b1e26;
+  --changed-b: #181b22;
+  --chip-fail: #e79a95;
+  --chip-stale: #9aa6bd;
+
+  --sans: 'Hanken Grotesk', system-ui, sans-serif;
+  --mono: 'Commit Mono', 'JetBrains Mono', ui-monospace, monospace;
+
+  --r-ctl: 6px;
+  --r-card: 10px;
+  --r-drw: 14px;
+
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-6: 24px; --sp-10: 40px;
+
+  --motion-fast: 120ms;
+  --motion: 180ms;
+  --motion-slow: 200ms;
+  --ease-out: cubic-bezier(0.2, 0.7, 0.2, 1);
+
+  --focus: 0 0 0 2px var(--warp);
+  --shadow-pop: 0 20px 50px -30px #000;
+
+  color-scheme: dark;
+}
+
+[data-theme='paper'] {
+  --bg: #e7e9e5;
+  --surface: #f1f2ee;
+  --raised: #fbfbf8;
+  --line: #cfd3cc;
+  --line-hi: #b9beb4;
+
+  --ink: #1b1e26;
+  --dim: #565c68;
+  --faint-text: #6e7480;
+  --faint: #8a9098;
+
+  --warp: #a9761e;
+  --warp-hi: #8a5e12;
+  --warp-weft: rgba(169, 118, 30, 0.12);
+  --on-warp: #fbfbf8;
+
+  --rail-bg: #edeeea;
+  --nav-hover: #e4e6e0;
+  --chip-bg: #e7e9e3;
+  --btn-bg: #edeeea;
+  --changed-a: #f1f2ee;
+  --changed-b: #ebece7;
+  --chip-fail: #8f3d38;
+  --chip-stale: #4f586b;
+
+  color-scheme: light;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-fast: 0ms;
+    --motion: 0ms;
+    --motion-slow: 0ms;
+  }
+}

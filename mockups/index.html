@@ -1,0 +1,748 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DevLoom — Mockups</title>
+<!-- Fonts: Hanken Grotesk (prose/UI) + JetBrains Mono (evidence/data).
+     Final build uses Commit Mono for the mono role; JetBrains Mono stands in here. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#14161C; --surface:#1B1E26; --raised:#232732; --line:#2E3340;
+  --ink:#E6E8EC; --dim:#9AA1AE; --faint:#6B7280;
+  --warp:#C6902F; --warp-hi:#E0A94A; --warp-weft:rgba(198,144,47,.14);
+  --blocked:#A65D57; --failed:#B04A45; --healthy:#6E8B6A; --stale:#6C7689; --info:#5F7E93;
+  --mono:"JetBrains Mono",ui-monospace,monospace;
+  --sans:"Hanken Grotesk",system-ui,sans-serif;
+  --r-ctl:6px; --r-card:10px; --r-drw:14px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:#0d0f13;color:var(--ink);font-family:var(--sans);
+  -webkit-font-smoothing:antialiased;font-size:15px;line-height:1.5}
+h1,h2,h3{margin:0;font-weight:600;letter-spacing:-.01em}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.reason::after{content:"reasoning°";font-family:var(--mono);font-size:10px;color:var(--warp);
+  border:1px solid var(--warp);border-radius:4px;padding:1px 4px;margin-left:8px;vertical-align:2px;opacity:.9}
+.eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint)}
+
+/* page scaffold */
+.page{max-width:1180px;margin:34px auto;padding:0 20px}
+.caption{color:var(--dim);font-size:13px;margin:0 0 10px}
+.caption b{color:var(--ink);font-weight:600}
+.win{border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--bg);
+  box-shadow:0 20px 50px -30px #000;margin-bottom:44px}
+.win-bar{display:flex;align-items:center;gap:8px;padding:9px 14px;background:#101217;border-bottom:1px solid var(--line)}
+.dot{width:10px;height:10px;border-radius:50%}
+.win-bar .t{margin-left:8px;color:var(--faint);font-family:var(--mono);font-size:12px}
+.app{display:grid;grid-template-columns:212px 1fr;min-height:620px}
+
+/* RAIL */
+.rail{background:#101217;border-right:1px solid var(--line);padding:16px 12px;display:flex;flex-direction:column;gap:6px}
+.brand{display:flex;align-items:center;gap:9px;padding:2px 6px 14px}
+.brand .mark{width:22px;height:22px;border-radius:6px;background:
+  repeating-linear-gradient(90deg,var(--warp) 0 2px,transparent 2px 5px);border:1px solid var(--warp)}
+.brand b{font-size:15px;letter-spacing:-.02em}
+.brand small{display:block;color:var(--faint);font-size:11px;font-weight:400;letter-spacing:.02em}
+.nav a{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;color:var(--dim);
+  text-decoration:none;font-size:14px;font-weight:500}
+.nav a .ic{width:18px;text-align:center;opacity:.9}
+.nav a.on{background:var(--warp-weft);color:var(--ink);box-shadow:inset 2px 0 0 var(--warp)}
+.nav a .badge{margin-left:auto;font-family:var(--mono);font-size:10px;background:var(--failed);
+  color:#fff;border-radius:20px;padding:0 6px}
+.sep{height:1px;background:var(--line);margin:12px 4px}
+.meta{padding:2px 8px}
+.meta .k{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint)}
+.meta .v{font-size:13px;color:var(--ink);margin-top:3px}
+.meta .v.dimv{color:var(--dim)}
+.hd{display:flex;gap:6px;margin-top:5px}
+.hd i{width:8px;height:8px;border-radius:50%;background:var(--healthy);display:inline-block}
+.hd i.p{background:var(--warp)} .hd i.e{background:var(--failed)}
+.boundary{display:flex;align-items:center;gap:8px;padding:8px;border:1px solid var(--line);border-radius:8px;margin-top:4px}
+.boundary .glyph{font-size:15px}
+.boundary.local{color:var(--dim)} .boundary.local .glyph{color:var(--healthy)}
+.boundary.remote{border-color:var(--warp);color:var(--warp-hi)} .boundary.remote .glyph{color:var(--warp)}
+.spring{margin-top:auto}
+.kbd{font-family:var(--mono);font-size:11px;color:var(--faint);border:1px solid var(--line);border-radius:5px;padding:3px 7px;display:inline-block}
+
+/* MAIN */
+.main{padding:22px 26px;overflow:auto}
+.head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:18px}
+.head h1{font-size:26px}
+.head .when{font-family:var(--mono);font-size:12px;color:var(--faint)}
+
+/* changed strip */
+.changed{border:1px solid var(--line);border-radius:var(--r-card);padding:12px 14px;background:linear-gradient(180deg,#1b1e26,#181b22);
+  display:flex;align-items:center;gap:14px;margin-bottom:22px}
+.changed .lab{font-family:var(--mono);font-size:11px;letter-spacing:.1em;color:var(--faint);text-transform:uppercase}
+.changed .txt{font-size:14px;color:var(--dim)} .changed .txt b{color:var(--ink);font-weight:600}
+.changed .go{margin-left:auto;color:var(--warp-hi);font-size:13px}
+
+.sectlab{display:flex;align-items:center;gap:10px;margin:4px 0 12px}
+.sectlab .l{font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint)}
+.sectlab .r{margin-left:auto;font-size:12px;color:var(--faint)}
+
+/* WARP list */
+.warp{position:relative;padding-left:26px}
+.warp::before{content:"";position:absolute;left:9px;top:6px;bottom:26px;width:2px;
+  background:linear-gradient(180deg,var(--warp),rgba(198,144,47,.25))}
+.item{position:relative;margin-bottom:14px}
+.item .rank{position:absolute;left:-26px;top:14px;width:20px;height:20px;border-radius:50%;
+  background:var(--bg);border:1.5px solid var(--warp);color:var(--warp-hi);font-family:var(--mono);
+  font-size:11px;display:flex;align-items:center;justify-content:center}
+.card{border:1px solid var(--line);border-radius:var(--r-card);background:var(--surface);padding:14px 16px}
+.card.lead{box-shadow:inset 2px 0 0 var(--warp);background:linear-gradient(90deg,var(--warp-weft),transparent 40%),var(--surface)}
+.card .ct{display:flex;align-items:center;gap:10px}
+.card .ct h3{font-size:17px}
+.card .src{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--faint)}
+.card .why{color:var(--dim);font-size:14px;margin:7px 0 10px;max-width:60ch}
+.card .why b{color:var(--ink);font-weight:600}
+.chips{display:flex;flex-wrap:wrap;gap:7px}
+.chip{font-family:var(--mono);font-size:11px;color:var(--dim);border:1px solid var(--line);
+  border-radius:5px;padding:3px 7px;background:#191c23}
+.chip.warn{color:var(--warp-hi);border-color:rgba(198,144,47,.5)}
+.chip.fail{color:#e79a95;border-color:rgba(176,74,69,.55)}
+.chip.stale{color:#9aa6bd;border-color:rgba(108,118,137,.5)}
+.acts{display:flex;gap:8px;margin-top:12px}
+.btn{font-family:var(--sans);font-size:13px;font-weight:500;border-radius:var(--r-ctl);padding:6px 12px;
+  border:1px solid var(--line);background:#1a1d24;color:var(--ink);cursor:pointer}
+.btn.pri{background:var(--warp);border-color:var(--warp);color:#1a1204;font-weight:600}
+.btn.ghost{background:transparent;color:var(--dim)}
+.mini{display:flex;align-items:center;gap:10px;padding:10px 14px;border:1px dashed var(--line);border-radius:var(--r-card);color:var(--stale)}
+.mini .chip{color:#9aa6bd}
+.more{display:flex;gap:20px;margin-top:16px;color:var(--faint);font-size:13px}
+.more span{cursor:pointer}
+
+/* INSPECTOR / generic panels */
+.grid2{display:grid;grid-template-columns:1fr 340px;gap:0;min-height:620px}
+.insp{border-left:1px solid var(--line);background:#161920;padding:20px;overflow:auto}
+.insp h3{font-size:16px}
+.insp .sub{font-family:var(--mono);font-size:11px;color:var(--faint);margin:3px 0 16px}
+.blk{margin-bottom:20px}
+.blk .lab{font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin-bottom:8px}
+.prose{color:var(--dim);font-size:14px;line-height:1.55}
+.prose b{color:var(--ink)}
+.thread{font-family:var(--mono);font-size:11px;color:var(--warp-hi);margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.thread .c{border-bottom:1px dashed var(--warp);padding-bottom:1px}
+.sig{display:grid;grid-template-columns:1fr 96px 40px;gap:8px 10px;align-items:center;font-family:var(--mono);font-size:12px}
+.sig .n{color:var(--dim)} .sig .w{color:var(--faint);text-align:right}
+.bar{height:7px;border-radius:4px;background:#20242d;overflow:hidden}
+.bar i{display:block;height:100%;background:linear-gradient(90deg,var(--warp),var(--warp-hi))}
+.score{font-family:var(--mono);font-size:12px;color:var(--ink);border-top:1px solid var(--line);margin-top:10px;padding-top:8px}
+.srow{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--dim);padding:6px 0}
+.srow .id{color:var(--ink)} .srow .b{margin-left:auto;color:var(--healthy)} .srow .b.r{color:var(--warp)}
+
+/* build-failure */
+.bf{padding:22px 26px;overflow:auto}
+.bf .step{border:1px solid var(--line);border-radius:var(--r-card);background:var(--surface);padding:14px 16px;margin-bottom:14px}
+.bf .step .n{font-family:var(--mono);font-size:11px;color:var(--warp-hi);letter-spacing:.08em}
+.bf .step h3{font-size:15px;margin:6px 0}
+.log{font-family:var(--mono);font-size:12px;background:#0f1116;border:1px solid var(--line);border-radius:8px;
+  padding:12px;color:#c4cbd6;line-height:1.7;overflow:auto;white-space:pre-wrap}
+.log .fail{color:#e79a95} .log .om{color:var(--faint)} .log .red{color:var(--warp-hi)}
+.tag{font-family:var(--mono);font-size:10px;border:1px solid var(--line);border-radius:5px;padding:2px 6px;color:var(--dim)}
+.tag.ok{color:var(--healthy);border-color:rgba(110,139,106,.5)}
+.cause{display:flex;gap:10px;padding:8px 0;border-bottom:1px solid #23262f}
+.cause:last-child{border:0}
+.cause .rk{font-family:var(--mono);font-size:12px;color:var(--warp-hi)}
+.cause .conf{font-family:var(--mono);font-size:10px;color:var(--dim);margin-left:auto}
+.pill{font-family:var(--mono);font-size:10px;padding:2px 8px;border-radius:6px;border:1px solid;display:inline-block;white-space:nowrap;line-height:1.4}
+.pill.hi{color:var(--warp-hi);border-color:var(--warp)} .pill.lo{color:var(--stale);border-color:var(--stale)}
+.cause .conf{align-self:flex-start}
+.handoffbar{border:1px solid var(--warp);border-radius:var(--r-card);padding:14px 16px;background:var(--warp-weft);
+  display:flex;align-items:center;gap:12px;margin-top:6px}
+.handoffbar .txt{font-weight:600} .handoffbar .btn{margin-left:auto}
+
+/* handoff artifact */
+.artifact{font-family:var(--mono);font-size:12.5px;line-height:1.7;background:#0f1116;border:1px solid var(--line);
+  border-radius:var(--r-card);padding:16px;color:#c4cbd6;white-space:pre-wrap}
+.artifact .h{color:var(--ink)} .artifact .k{color:var(--warp-hi)}
+.safety{border:1px solid var(--warp);border-radius:8px;padding:12px 14px;margin-top:12px;background:rgba(198,144,47,.06)}
+.safety .st{font-family:var(--mono);font-size:11px;letter-spacing:.12em;color:var(--warp-hi);text-transform:uppercase;margin-bottom:8px}
+.safety div{font-family:var(--mono);font-size:12.5px;color:var(--dim);padding:2px 0}
+.safety .yes{color:var(--healthy)} .safety .no{color:#e79a95}
+
+/* settings / providers */
+.prov{border:1px solid var(--line);border-radius:var(--r-card);background:var(--surface);padding:16px;margin-bottom:14px}
+.prov .ph{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.prov .ph h3{font-size:15px}
+.meter{height:8px;border-radius:5px;background:#20242d;overflow:hidden;width:160px;display:inline-block;vertical-align:middle}
+.meter i{display:block;height:100%;background:var(--warp)}
+.select{font-family:var(--mono);font-size:12px;border:1px solid var(--line);border-radius:6px;padding:5px 9px;background:#191c23;color:var(--ink)}
+
+/* egress modal */
+.modal{border:1px solid var(--warp);border-radius:var(--r-drw);background:#181b22;max-width:460px;
+  box-shadow:0 30px 60px -20px #000;overflow:hidden}
+.modal .mh{padding:12px 16px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px}
+.modal .mh .glyph{color:var(--warp);font-size:16px}
+.modal .mh b{font-size:14px}
+.modal .mb{padding:16px}
+.kv{display:grid;grid-template-columns:70px 1fr;gap:6px 12px;font-size:13px;margin-bottom:12px}
+.kv .k{color:var(--faint);font-family:var(--mono);font-size:11px;padding-top:2px}
+.kv .v{color:var(--ink)} .kv .v.mono{font-family:var(--mono);font-size:12px;color:var(--dim)}
+.modal .mf{display:flex;gap:10px;justify-content:flex-end;padding:12px 16px;border-top:1px solid var(--line)}
+
+.legend{display:flex;gap:22px;flex-wrap:wrap;margin:0 auto 30px;max-width:1180px;padding:14px 18px;
+  border:1px solid var(--line);border-radius:12px;background:var(--surface);align-items:center}
+.legend .sw{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--dim)}
+.legend .sw b{width:14px;height:14px;border-radius:4px;display:inline-block}
+.legend .t{font-size:12px;color:var(--faint);font-family:var(--mono)}
+.pagehead{max-width:1180px;margin:26px auto 6px;padding:0 20px}
+.pagehead h1{font-size:22px;letter-spacing:-.02em}
+.pagehead p{color:var(--dim);font-size:13px;max-width:70ch}
+</style>
+</head>
+<body>
+
+<div class="pagehead">
+  <h1><span style="color:var(--warp-hi)">DevLoom</span> — visual mockups</h1>
+  <p>Low-to-mid fidelity. Dark-first indigo-ink · one muted-brass <b style="color:var(--warp-hi)">warp</b> accent · <span class="mono" style="color:var(--ink)">mono&nbsp;=&nbsp;evidence</span>, grotesque = reasoning · the <b>warp</b> ranks the Next list and <span style="color:var(--warp-hi)">threads</span> tie claims to sources. Status color is deliberately quiet.</p>
+</div>
+
+<div class="legend">
+  <span class="t">palette</span>
+  <span class="sw"><b style="background:#14161C;border:1px solid #2E3340"></b>ink base</span>
+  <span class="sw"><b style="background:#C6902F"></b>warp</span>
+  <span class="sw"><b style="background:#A65D57"></b>blocked</span>
+  <span class="sw"><b style="background:#B04A45"></b>failed</span>
+  <span class="sw"><b style="background:#6E8B6A"></b>healthy</span>
+  <span class="sw"><b style="background:#6C7689"></b>stale</span>
+  <span class="t" style="margin-left:auto">type</span>
+  <span class="sw" style="font-family:var(--sans)">Hanken Grotesk — prose</span>
+  <span class="sw mono" style="color:var(--ink)">JetBrains Mono — evidence</span>
+</div>
+
+<!-- ============ SCREEN 1 — TODAY ============ -->
+<div class="page">
+  <p class="caption"><b>1 · Today</b> — the home screen. The warp ranks “Next”; each card shows a grotesque <i>why</i> and mono evidence chips. Nothing shouts.</p>
+  <div class="win">
+    <div class="win-bar"><span class="dot" style="background:#B04A45"></span><span class="dot" style="background:#C6902F"></span><span class="dot" style="background:#6E8B6A"></span><span class="t">devloom · today</span></div>
+    <div class="app">
+      <!-- rail -->
+      <aside class="rail">
+        <div class="brand"><span class="mark"></span><span><b>DevLoom</b><small>sara’s workspace</small></span></div>
+        <nav class="nav">
+          <a class="on"><span class="ic">◉</span> Today</a>
+          <a><span class="ic">▤</span> Work</a>
+          <a><span class="ic">⚡</span> Builds <span class="badge">2</span></a>
+          <a><span class="ic">✎</span> Brainstorm</a>
+          <a><span class="ic">⇥</span> Handoffs</a>
+        </nav>
+        <div class="sep"></div>
+        <div class="meta"><div class="k">Sync</div>
+          <div class="hd"><i title="GitHub"></i><i title="Jira"></i><i class="p" title="Google"></i><i title="Microsoft"></i></div>
+          <div class="v dimv mono" style="font-size:11px;margin-top:6px">updated 2m ago</div>
+        </div>
+        <div class="sep"></div>
+        <div class="meta"><div class="k">Model</div><div class="v">Qwen3-Coder <span class="mono" style="color:var(--faint);font-size:11px">· local</span></div></div>
+        <div class="meta" style="margin-top:10px"><div class="k">Boundary</div>
+          <div class="boundary local"><span class="glyph">⌂</span><span>On your machine</span></div>
+        </div>
+        <div class="spring"></div>
+        <div class="meta" style="display:flex;justify-content:space-between;align-items:center"><span class="v dimv">⚙ Settings</span><span class="kbd">⌘K</span></div>
+      </aside>
+      <!-- main -->
+      <main class="main">
+        <div class="head"><h1>Today</h1><span class="when">Tue 8 Aug · 09:14</span></div>
+
+        <div class="changed">
+          <span class="lab">What changed</span>
+          <span class="txt"><b>3 PRs</b> merged · <b>1 build</b> broke &amp; recovered · <b>2 reviews</b> now waiting on you</span>
+          <span class="go">since Mon 17:30 ›</span>
+        </div>
+
+        <div class="sectlab"><span class="l">Next</span><span class="r">sorted: priority ▾</span></div>
+        <div class="warp">
+          <div class="item">
+            <div class="rank">1</div>
+            <div class="card lead">
+              <div class="ct"><h3>Review PR #482</h3><span class="src mono">⎇ acme/billing</span></div>
+              <p class="why reason">A teammate has been <b>blocked 2 days</b>, CI is green, and it’s tagged for Thursday’s release. Clearing it unblocks them and de-risks the cut.</p>
+              <div class="chips">
+                <span class="chip warn">blocks:1</span><span class="chip">wait:51h</span><span class="chip warn">release ⚑</span><span class="chip">ci:green</span>
+              </div>
+              <div class="acts"><button class="btn pri">Open ▸</button><button class="btn">Why</button><button class="btn ghost">Snooze</button><button class="btn ghost">⇧ Override</button></div>
+            </div>
+          </div>
+          <div class="item">
+            <div class="rank">2</div>
+            <div class="card">
+              <div class="ct"><h3>Fix CI on feature/pricing</h3><span class="src mono">⎇ acme/billing</span></div>
+              <p class="why reason">First failure on this branch — your last commit <span class="mono" style="color:var(--ink)">d4e5f6</span> is the only change touching the failing test.</p>
+              <div class="chips"><span class="chip fail">build #1893 ⚑</span><span class="chip">age:22m</span><span class="chip">1 test</span></div>
+              <div class="acts"><button class="btn pri">Analyze ▸</button><button class="btn">Why</button><button class="btn ghost">Snooze</button></div>
+            </div>
+          </div>
+          <div class="item">
+            <div class="rank">3</div>
+            <div class="mini">
+              <span style="color:var(--ink);font-weight:500">Stale PR #455</span>
+              <span class="chip stale">idle 4d</span>
+              <span style="font-size:13px">going cold — no reviewer activity</span>
+              <button class="btn ghost" style="margin-left:auto">Nudge</button>
+            </div>
+          </div>
+        </div>
+        <div class="more"><span>▸ Everything (37)</span><span>▸ Snoozed (5)</span></div>
+      </main>
+    </div>
+  </div>
+</div>
+
+<!-- ============ SCREEN 2 — RECOMMENDATION / EVIDENCE ============ -->
+<div class="page">
+  <p class="caption"><b>2 · Why this is #1</b> — the evidence view. Deterministic <b>signals</b> with weights (mono + bars) drive the rank; the LLM only explains. Every claim threads to its sources.</p>
+  <div class="win">
+    <div class="win-bar"><span class="dot" style="background:#B04A45"></span><span class="dot" style="background:#C6902F"></span><span class="dot" style="background:#6E8B6A"></span><span class="t">devloom · recommendation #482</span></div>
+    <div class="grid2">
+      <main class="main">
+        <div class="head"><h1 style="font-size:20px">Review PR #482</h1><span class="when">acme/billing · #482 · opened 3d</span></div>
+        <div class="card lead" style="max-width:none">
+          <div class="ct"><h3>Checkout returns 500 under tier discount</h3><span class="src mono">⎇ github · ⌂</span></div>
+          <p class="why reason" style="max-width:70ch">A teammate is blocked on this and can’t ship the checkout fix until it merges. CI is green and it’s on the release. This is the single highest-leverage thing you can do this morning.</p>
+          <div class="chips"><span class="chip warn">blocks:1</span><span class="chip">wait:51h</span><span class="chip warn">release ⚑</span><span class="chip">ci:green</span></div>
+          <div class="acts"><button class="btn pri">Open PR ▸</button><button class="btn">⇧ Override priority</button><button class="btn ghost">Snooze</button></div>
+        </div>
+        <div style="height:16px"></div>
+        <div class="blk">
+          <div class="lab">What changed on it</div>
+          <p class="prose">Two new commits since you last looked; the failing check went green after <span class="mono" style="color:var(--ink)">e5f6a1</span>.</p>
+        </div>
+      </main>
+      <aside class="insp">
+        <h3>Why this is #1</h3>
+        <div class="sub">score 0.86 · algo v3</div>
+
+        <div class="blk">
+          <div class="lab">Reasoning</div>
+          <p class="prose reason">Clearing this unblocks a teammate and removes a release risk — higher leverage than your own in-progress work today.</p>
+          <div class="thread">└ thread → <span class="c">⧉ #482</span><span class="c">⧉ TICKET-91</span></div>
+        </div>
+
+        <div class="blk">
+          <div class="lab">Signals (deterministic)</div>
+          <div class="sig">
+            <span class="n">blocks teammate</span><span class="bar"><i style="width:92%"></i></span><span class="w">×0.9</span>
+            <span class="n">review wait 51h</span><span class="bar"><i style="width:70%"></i></span><span class="w">×0.7</span>
+            <span class="n">release impact</span><span class="bar"><i style="width:80%"></i></span><span class="w">×0.8</span>
+            <span class="n">freshness 2m</span><span class="bar"><i style="width:100%"></i></span><span class="w">×1.0</span>
+          </div>
+          <div class="score">Σ weighted → 0.86</div>
+        </div>
+
+        <div class="blk">
+          <div class="lab">Evidence (in this reasoning)</div>
+          <div class="srow"><span class="mono id">⧉ PR #482</span><span>acme/billing</span><span class="b">⌂ local</span></div>
+          <div class="srow"><span class="mono id">⧉ TICKET-91</span><span>Checkout 500s</span><span class="b">⌂ local</span></div>
+        </div>
+      </aside>
+    </div>
+  </div>
+</div>
+
+<!-- ============ SCREEN 3 — BUILD FAILURE ============ -->
+<div class="page">
+  <p class="caption"><b>3 · Build-failure analysis</b> — the 10-part contract, streamed. Log excerpts show <b>truncation</b> and <b>redaction</b> markers; each cause carries its evidence; a guess is labelled <i>uncited · low</i>.</p>
+  <div class="win">
+    <div class="win-bar"><span class="dot" style="background:#B04A45"></span><span class="dot" style="background:#C6902F"></span><span class="dot" style="background:#6E8B6A"></span><span class="t">devloom · build #1893</span></div>
+    <div class="app">
+      <aside class="rail">
+        <div class="brand"><span class="mark"></span><span><b>DevLoom</b><small>sara’s workspace</small></span></div>
+        <nav class="nav">
+          <a><span class="ic">◉</span> Today</a>
+          <a><span class="ic">▤</span> Work</a>
+          <a class="on"><span class="ic">⚡</span> Builds <span class="badge">2</span></a>
+          <a><span class="ic">✎</span> Brainstorm</a>
+          <a><span class="ic">⇥</span> Handoffs</a>
+        </nav>
+        <div class="sep"></div>
+        <div class="meta"><div class="k">Model</div><div class="v">Qwen3-Coder <span class="mono" style="color:var(--faint);font-size:11px">· local</span></div></div>
+        <div class="meta" style="margin-top:10px"><div class="k">Boundary</div>
+          <div class="boundary local"><span class="glyph">⌂</span><span>On your machine</span></div></div>
+        <div class="spring"></div>
+        <div class="meta"><span class="kbd">⌘K</span></div>
+      </aside>
+      <main class="bf">
+        <div class="head"><h1 style="font-size:20px">Build failure · run <span class="mono">#1893</span></h1><span class="when">feature/pricing · PR #482 · failed 22m ago</span></div>
+
+        <div class="step">
+          <div class="n">① SUMMARY</div>
+          <p class="prose reason">The <span class="mono" style="color:var(--ink)">test</span> job failed on one assertion in <span class="mono" style="color:var(--ink)">PricingServiceTest</span>. Your commit <span class="mono" style="color:var(--ink)">d4e5f6</span> is the only change touching that path — most likely a tier-boundary off-by-one. <span class="pill hi">conf: high</span></p>
+        </div>
+
+        <div class="step">
+          <div class="n">② FAILING STEP · ③ LOG EXCERPT</div>
+          <div style="display:flex;gap:8px;margin:8px 0 10px"><span class="tag ok">redacted ✓</span><span class="tag">first-failure region</span><span class="tag" style="margin-left:auto">full log ↗</span></div>
+          <div class="log"><span class="om">job: test → step: ./gradlew test</span>
+test: PricingServiceTest.appliesTierDiscount
+<span class="fail">expected: 90.00 but was: 100.00        ← first failure</span>
+  at PricingServiceTest.appliesTierDiscount(:211)
+<span class="om">[… 340 lines omitted …]</span>
+<span class="red">‹SECRET REDACTED: env token›</span></div>
+        </div>
+
+        <div class="step">
+          <div class="n">④ RANKED CAUSES</div>
+          <div class="cause"><span class="rk">1</span><div><div style="color:var(--ink)">Tier-boundary off-by-one in <span class="mono">discount()</span> <span class="reason" style="font-size:0"></span></div><div class="thread" style="margin-top:5px">evidence → <span class="c">⧉ assert L211</span><span class="c">⧉ commit d4e5f6</span></div></div><span class="pill hi conf">high</span></div>
+          <div class="cause"><span class="rk">2</span><div><div style="color:var(--dim)">Stale test fixture</div><div class="thread" style="margin-top:5px;color:var(--stale)">evidence → <span style="border:0">(none in diff) · uncited</span></div></div><span class="pill lo conf">low</span></div>
+        </div>
+
+        <div class="step">
+          <div class="n">⑤ RELATED · ⑥ DIAGNOSTICS · ⑦ FIXES</div>
+          <div class="chips" style="margin-bottom:10px"><span class="chip">⧉ PR #482</span><span class="chip">⧉ d4e5f6</span><span class="chip">⧉ prior fail #1120</span><span class="chip">⧉ TICKET-91</span></div>
+          <p class="prose"><b style="color:var(--ink)">1.</b> Run only the failing test locally <span class="chip" style="cursor:pointer">copy cmd ⧉</span> &nbsp; <b style="color:var(--ink)">2.</b> Inspect the boundary at <span class="mono" style="color:var(--ink)">qty=10</span>.</p>
+        </div>
+
+        <div class="handoffbar"><span style="color:var(--warp-hi)">⇥</span><span class="txt">Generate agent handoff</span><button class="btn pri">Generate ▸</button></div>
+      </main>
+    </div>
+  </div>
+</div>
+
+<!-- ============ SCREEN 4 — HANDOFF ============ -->
+<div class="page">
+  <p class="caption"><b>4 · Coding-agent handoff</b> — a mono artifact, editable. The <b>safety constraints</b> are boxed and always visible. No “Run” button in MVP — DevLoom prepares work, it doesn’t perform it.</p>
+  <div class="win">
+    <div class="win-bar"><span class="dot" style="background:#B04A45"></span><span class="dot" style="background:#C6902F"></span><span class="dot" style="background:#6E8B6A"></span><span class="t">devloom · handoff v1 (draft)</span></div>
+    <div style="padding:22px 26px">
+      <div class="head"><h1 style="font-size:20px">Agent handoff — Fix CI on feature/pricing</h1>
+        <span class="when">target: Claude Code ▾ · <span style="color:var(--warp-hi)">⌂ local</span></span></div>
+      <div class="artifact"><span class="h"># Agent Handoff — Fix failing CI on feature/pricing</span>
+<span class="k">Repo:</span> acme/billing @ feature/pricing  <span class="k">PR</span> #482  <span class="k">Commits</span> a1b2c3..d4e5f6
+<span class="k">Failing:</span> `test` → PricingServiceTest.appliesTierDiscount
+
+<span class="h">## Reproduce</span>
+1. ./gradlew test --tests PricingServiceTest.appliesTierDiscount
+
+<span class="h">## Evidence</span>
+- expected 90.00 but was 100.00 (log L211)
+- commit d4e5f6 changed discount() — only change on this path
+
+<span class="h">## Ranked hypotheses</span>
+1. (high) tier-boundary off-by-one in discount()
+2. (low)  stale fixture — no evidence in diff
+
+<span class="h">## Constraints &amp; acceptance</span>
+- Fix must make the failing test pass without weakening assertions.
+- Expected output: a diff + a passing test run.</div>
+      <div class="safety">
+        <div class="st">Safety — locked defaults, editable</div>
+        <div class="yes">✓ Verify the fix with tests before claiming done</div>
+        <div class="no">✗ Do NOT push / merge / deploy / delete without approval</div>
+        <div class="yes">✓ Allowed: read repo, ./gradlew test, edit src/tests</div>
+        <div class="no">✗ Forbidden: network, deploy, destructive git</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:14px">
+        <div class="chips"><span class="chip">⧉ #482</span><span class="chip">⧉ d4e5f6</span><span class="chip">⧉ log (redacted)</span><span class="chip">⧉ TICKET-91</span></div>
+        <div style="margin-left:auto;display:flex;gap:8px">
+          <button class="btn pri">Copy</button><button class="btn">Export .md</button>
+          <button class="btn ghost" title="Direct agent execution is a future, approval-gated capability" style="opacity:.5">Run ▸</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ SCREEN 5 — PROVIDERS + EGRESS ============ -->
+<div class="page">
+  <p class="caption"><b>5 · Model providers &amp; the data boundary</b> — local is first &amp; free; paid keys are optional and each carries a <span style="color:var(--warp-hi)">◉ leaves for…</span> token. Before anything leaves, the egress preview enumerates exactly what.</p>
+  <div class="win">
+    <div class="win-bar"><span class="dot" style="background:#B04A45"></span><span class="dot" style="background:#C6902F"></span><span class="dot" style="background:#6E8B6A"></span><span class="t">devloom · settings · model providers</span></div>
+    <div style="display:grid;grid-template-columns:1.15fr .85fr;gap:0">
+      <div style="padding:22px 26px;border-right:1px solid var(--line)">
+        <div class="head"><h1 style="font-size:20px">Model providers</h1></div>
+
+        <div class="prov">
+          <div class="ph"><span class="dot" style="background:#6E8B6A"></span><h3>Local · Ollama</h3><span class="boundary local" style="margin-left:auto;padding:4px 8px"><span class="glyph">⌂</span>nothing leaves</span></div>
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px"><span class="mono" style="color:var(--dim);font-size:12px">default</span><span class="select">Qwen3-Coder-30B-A3B ▾</span><span class="tag ok">● loaded</span></div>
+          <div class="mono" style="color:var(--faint);font-size:11.5px">available: gpt-oss-20b · Gemma 3 12B · Mistral 3.2 24B · + pull</div>
+        </div>
+
+        <div class="prov">
+          <div class="ph"><span class="dot" style="background:#C6902F"></span><h3>Anthropic <span class="mono" style="color:var(--faint);font-size:11px">· optional · your key</span></h3><span class="boundary remote" style="margin-left:auto;padding:4px 8px"><span class="glyph">◉</span>leaves for Anthropic</span></div>
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px"><span class="mono" style="color:var(--dim);font-size:12px">key ••••••</span><button class="btn" style="padding:4px 10px">Test</button><span class="tag ok">✓ valid</span></div>
+          <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--dim)"><span class="mono">cap $20 · used</span><span class="meter"><i style="width:32%"></i></span><span class="mono" style="color:var(--ink)">$6.40</span></div>
+        </div>
+
+        <div class="prov" style="opacity:.85">
+          <div class="ph"><span class="dot" style="background:#6B7280"></span><h3>OpenAI <span class="mono" style="color:var(--faint);font-size:11px">· optional · your key</span></h3><button class="btn ghost" style="margin-left:auto">+ Add key</button></div>
+          <div class="mono" style="color:var(--faint);font-size:11.5px">Uses the Responses API · stateless</div>
+        </div>
+
+        <div class="prov" style="border-style:dashed">
+          <div class="ph"><span style="color:var(--faint)">○</span><h3>Fallback</h3><span style="margin-left:auto;color:var(--faint);font-size:12px">off by default</span></div>
+          <p class="prose" style="font-size:13px">If enabled, you choose <b>exactly</b> when to fall back to a paid model — never silent.</p>
+        </div>
+      </div>
+
+      <div style="padding:22px 26px;background:#161920;display:flex;flex-direction:column;gap:16px;align-items:center;justify-content:center">
+        <div class="mono" style="color:var(--faint);font-size:11px;letter-spacing:.14em;align-self:flex-start">PRE-ACTION EGRESS PREVIEW</div>
+        <div class="modal">
+          <div class="mh"><span class="glyph">◉</span><b>This will leave your machine</b></div>
+          <div class="mb">
+            <div class="kv">
+              <span class="k">Action</span><span class="v">Analyze build #1893</span>
+              <span class="k">To</span><span class="v">Anthropic <span class="mono" style="color:var(--faint);font-size:11px">(your key)</span></span>
+              <span class="k">Sends</span><span class="v mono">summary + redacted log excerpt · ~2.1k tok · secrets stripped ✓</span>
+              <span class="k">Not sent</span><span class="v mono">source code · other repos</span>
+            </div>
+          </div>
+          <div class="mf"><button class="btn ghost">Keep local instead</button><button class="btn pri">Send ▸</button></div>
+        </div>
+        <p class="prose" style="font-size:12.5px;text-align:center;max-width:38ch">A local-only repo can never reach this modal — its actions route local or are refused.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+/* ---- expansion screens (A) ---- */
+.steps{display:flex;flex-direction:column;gap:2px;max-width:600px;margin:0 auto}
+.stp{display:flex;gap:14px;align-items:center;padding:15px 0;border-bottom:1px solid var(--line)}
+.stp:last-child{border:0}
+.stp .num{flex:none;width:26px;height:26px;border-radius:50%;border:1.5px solid var(--line);color:var(--faint);
+  font-family:var(--mono);font-size:12px;display:flex;align-items:center;justify-content:center}
+.stp.done .num{border-color:var(--healthy);color:var(--healthy)}
+.stp.now .num{border-color:var(--warp);color:var(--warp-hi);background:var(--warp-weft)}
+.stp h3{font-size:15px} .stp p{margin:3px 0 0;color:var(--dim);font-size:13px}
+.stp .side{margin-left:auto}
+.filters{display:flex;gap:8px;align-items:center;margin-bottom:16px;flex-wrap:wrap}
+.fchip{font-size:12.5px;padding:5px 11px;border:1px solid var(--line);border-radius:20px;color:var(--dim)}
+.fchip.on{background:var(--warp-weft);border-color:var(--warp);color:var(--ink)}
+.fsearch{margin-left:auto;font-family:var(--mono);font-size:12px;color:var(--faint);border:1px solid var(--line);border-radius:6px;padding:6px 10px;min-width:180px}
+.wi{display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:var(--surface);margin-bottom:8px}
+.wi .g{width:20px;text-align:center;color:var(--faint);font-family:var(--mono)}
+.wi .ti{color:var(--ink);font-weight:500;font-size:14px}
+.wi .mt{font-family:var(--mono);font-size:11px;color:var(--faint);margin-left:auto;display:flex;gap:12px;align-items:center;white-space:nowrap}
+.st-dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+.app.brain{grid-template-columns:212px 182px 1fr 250px}
+.sess{border-right:1px solid var(--line);padding:14px 12px;background:#141720}
+.sess .nb{font-size:13px;color:var(--warp-hi);padding:6px 10px;margin-bottom:6px}
+.sess .s{padding:8px 10px;border-radius:8px;color:var(--dim);font-size:13px}
+.sess .s.on{background:var(--warp-weft);color:var(--ink)}
+.sess .vis{margin-top:auto;font-size:12px;color:var(--faint)}
+.chat{display:flex;flex-direction:column;padding:16px 18px}
+.msg{margin-bottom:16px;max-width:58ch}
+.msg .who{font-family:var(--mono);font-size:11px;color:var(--faint);margin-bottom:4px}
+.msg .bub{font-size:14px;color:var(--ink);line-height:1.55}
+.msg.ai .bub{color:var(--dim)}
+.composer{margin-top:auto;border:1px solid var(--line);border-radius:10px;padding:11px 13px;color:var(--faint);font-size:13px;display:flex;align-items:center;justify-content:space-between}
+.saveas{display:flex;gap:8px;margin-top:12px;font-size:12px;color:var(--faint);align-items:center}
+.tray{border-left:1px solid var(--line);padding:16px;background:#161920;display:flex;flex-direction:column}
+.tray .lab{font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin-bottom:10px}
+.trow{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--dim);padding:6px 0}
+.trow .x{margin-left:auto;color:var(--faint)}
+.states{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.stcard{border:1px solid var(--line);border-radius:12px;background:var(--surface);padding:18px;min-height:150px}
+.stcard .lab{font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin-bottom:14px}
+.bignum{font-family:var(--mono);font-size:44px;color:var(--faint);line-height:1;margin-bottom:8px}
+.errbar{border:1px solid rgba(176,74,69,.5);background:rgba(176,74,69,.08);border-radius:8px;padding:12px 14px;color:#e7b0ac;font-size:13px;display:flex;align-items:center;gap:10px}
+.psbar{border:1px solid var(--line);background:#1a1d24;border-radius:8px;padding:11px 14px;color:var(--dim);font-size:13px;display:flex;align-items:center;gap:10px}
+.skel{height:12px;border-radius:6px;background:linear-gradient(90deg,#20242d,#262b35,#20242d);margin:9px 0}
+.phone{width:392px;margin:0 auto;border:1px solid var(--line);border-radius:28px;overflow:hidden;background:var(--bg);box-shadow:0 24px 60px -28px #000}
+.phone .status{height:28px;background:#101217;display:flex;align-items:center;justify-content:center;color:var(--faint);font-family:var(--mono);font-size:10px}
+.phone .pmain{padding:14px}
+.tabbar{display:flex;border-top:1px solid var(--line);background:#101217}
+.tabbar a{flex:1;text-align:center;padding:11px 0;color:var(--faint);font-size:11px}
+.tabbar a.on{color:var(--warp-hi)}
+</style>
+
+<!-- ============ SCREEN 6 — ONBOARDING ============ -->
+<div class="page">
+  <p class="caption"><b>6 · First run</b> — connect your work, choose a local model, mark local-only repos. Read-only by default; nothing leaves unless you add a key.</p>
+  <div class="win">
+    <div class="win-bar"><span class="dot" style="background:#B04A45"></span><span class="dot" style="background:#C6902F"></span><span class="dot" style="background:#6E8B6A"></span><span class="t">devloom · welcome</span></div>
+    <div style="padding:36px 26px 40px">
+      <div style="text-align:center;margin-bottom:26px">
+        <div class="brand" style="justify-content:center;padding-bottom:0"><span class="mark"></span><span><b style="font-size:20px">Welcome to DevLoom</b></span></div>
+        <p class="prose" style="max-width:44ch;margin:10px auto 0">Connect your work; keep it on your machine. About three minutes.</p>
+      </div>
+      <div class="steps">
+        <div class="stp done"><span class="num">✓</span><div><h3>Sign in</h3><p>via GitHub · sara.santos</p></div><span class="side"><span class="tag ok">done</span></span></div>
+        <div class="stp done"><span class="num">✓</span><div><h3>Connect GitHub</h3><p>GitHub App · 6 repos · read-only</p></div><span class="side"><span class="tag ok">connected</span></span></div>
+        <div class="stp now"><span class="num">3</span><div><h3>Connect Jira &amp; calendars</h3><p>Jira · Google Calendar · Microsoft Calendar</p></div><span class="side"><button class="btn pri">Connect ▸</button></span></div>
+        <div class="stp"><span class="num">4</span><div><h3>Choose a model</h3><p>Local &amp; free via Ollama — or add a key later</p></div><span class="side"><span class="select">Qwen3-Coder ▾</span></span></div>
+        <div class="stp"><span class="num">5</span><div><h3>Mark local-only repos</h3><p>These never leave your machine</p></div><span class="side"><span class="boundary local" style="padding:5px 9px"><span class="glyph">⌂</span>optional</span></span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ SCREEN 7 — WORK BROWSER ============ -->
+<div class="page">
+  <p class="caption"><b>7 · Work</b> — browse everything, filterable. Type glyph + mono meta; status is a quiet dot + label, never a loud fill.</p>
+  <div class="win">
+    <div class="win-bar"><span class="dot" style="background:#B04A45"></span><span class="dot" style="background:#C6902F"></span><span class="dot" style="background:#6E8B6A"></span><span class="t">devloom · work</span></div>
+    <div class="app">
+      <aside class="rail">
+        <div class="brand"><span class="mark"></span><span><b>DevLoom</b><small>sara’s workspace</small></span></div>
+        <nav class="nav">
+          <a><span class="ic">◉</span> Today</a>
+          <a class="on"><span class="ic">▤</span> Work</a>
+          <a><span class="ic">⚡</span> Builds <span class="badge">2</span></a>
+          <a><span class="ic">✎</span> Brainstorm</a>
+          <a><span class="ic">⇥</span> Handoffs</a>
+        </nav>
+        <div class="sep"></div>
+        <div class="meta"><div class="k">Model</div><div class="v">Qwen3-Coder <span class="mono" style="color:var(--faint);font-size:11px">· local</span></div></div>
+        <div class="meta" style="margin-top:10px"><div class="k">Boundary</div><div class="boundary local"><span class="glyph">⌂</span><span>On your machine</span></div></div>
+        <div class="spring"></div><div class="meta"><span class="kbd">⌘K</span></div>
+      </aside>
+      <main class="main">
+        <div class="head"><h1 style="font-size:20px">Work</h1><span class="when mono">128 items · 4 sources</span></div>
+        <div class="filters">
+          <span class="fchip on">All</span><span class="fchip">PRs</span><span class="fchip">Reviews</span><span class="fchip">Tasks</span><span class="fchip">Builds</span><span class="fchip">Calendar</span>
+          <span class="fchip">mine</span><span class="fchip">stale</span><span class="fsearch">⌕ filter…</span>
+        </div>
+        <div class="wi"><span class="g">⎇</span><span class="ti">#482 · Checkout returns 500 under tier discount</span><span class="mt"><span class="st-dot" style="background:var(--warp)"></span> review · mine <span>wait 51h</span> <span>acme/billing</span></span></div>
+        <div class="wi"><span class="g">⚡</span><span class="ti">Build #1893 · test job failed</span><span class="mt"><span class="st-dot" style="background:var(--failed)"></span> failed <span>22m</span> <span>feature/pricing</span></span></div>
+        <div class="wi"><span class="g">◆</span><span class="ti">TICKET-91 · Checkout 500s under discount</span><span class="mt"><span class="st-dot" style="background:var(--info)"></span> in progress <span>P1</span> <span>Jira</span></span></div>
+        <div class="wi"><span class="g">⎇</span><span class="ti">#455 · Refactor pricing tiers</span><span class="mt"><span class="st-dot" style="background:var(--stale)"></span> stale <span>idle 4d</span> <span>acme/billing</span></span></div>
+        <div class="wi"><span class="g">◷</span><span class="ti">Release planning · standup</span><span class="mt"><span class="st-dot" style="background:var(--info)"></span> today 15:00 <span>Google</span></span></div>
+        <div class="wi"><span class="g">⎇</span><span class="ti">#478 · Add idempotency keys to webhooks</span><span class="mt"><span class="st-dot" style="background:var(--healthy)"></span> merged <span>yesterday</span> <span>acme/core</span></span></div>
+      </main>
+    </div>
+  </div>
+</div>
+
+<!-- ============ SCREEN 8 — BRAINSTORM ============ -->
+<div class="page">
+  <p class="caption"><b>8 · Brainstorm</b> — blank start; attach sources (the tray shows exactly what’s in context + each one’s boundary); switch models; save output as note/task/decision/spec.</p>
+  <div class="win">
+    <div class="win-bar"><span class="dot" style="background:#B04A45"></span><span class="dot" style="background:#C6902F"></span><span class="dot" style="background:#6E8B6A"></span><span class="t">devloom · brainstorm</span></div>
+    <div class="app brain">
+      <aside class="rail">
+        <div class="brand"><span class="mark"></span><span><b>DevLoom</b><small>sara’s workspace</small></span></div>
+        <nav class="nav">
+          <a><span class="ic">◉</span> Today</a><a><span class="ic">▤</span> Work</a>
+          <a><span class="ic">⚡</span> Builds <span class="badge">2</span></a>
+          <a class="on"><span class="ic">✎</span> Brainstorm</a><a><span class="ic">⇥</span> Handoffs</a>
+        </nav>
+        <div class="spring"></div>
+        <div class="meta"><div class="k">Boundary</div><div class="boundary local"><span class="glyph">⌂</span><span>all local</span></div></div>
+      </aside>
+      <div class="sess">
+        <div class="nb">+ New session</div>
+        <div class="s on">Pricing refactor</div>
+        <div class="s">Release plan</div>
+        <div class="s">Idempotency notes</div>
+        <div class="spring"></div>
+        <div class="vis">visibility: ● personal ○ workspace</div>
+      </div>
+      <main class="chat">
+        <div class="msg you"><div class="who">you</div><div class="bub">Should discount() be tier-aware or flat?</div></div>
+        <div class="msg ai"><div class="who">DevLoom · Qwen3-Coder</div><div class="bub reason">Given TICKET-91 and the failing test at the tier boundary, tier-aware is safer — the 500 came from a flat calc ignoring the qty=10 threshold. Keep it tier-aware and add a boundary test.</div>
+          <div class="thread">└ thread → <span class="c">⧉ TICKET-91</span><span class="c">⧉ build #1893</span></div></div>
+        <div class="composer"><span>Type a message…</span><span class="kbd">⏎</span></div>
+        <div class="saveas">Save as: <span class="chip">Note</span><span class="chip">Task</span><span class="chip">Decision</span><span class="chip">Draft spec</span></div>
+      </main>
+      <aside class="tray">
+        <div class="lab">In context (3)</div>
+        <div class="trow"><span>⧉ PR #482</span><span class="b" style="color:var(--healthy)">⌂</span><span class="x">✕</span></div>
+        <div class="trow"><span>⧉ TICKET-91</span><span class="b" style="color:var(--healthy)">⌂</span><span class="x">✕</span></div>
+        <div class="trow"><span>⧉ build #1893</span><span class="b" style="color:var(--healthy)">⌂</span><span class="x">✕</span></div>
+        <div style="margin:8px 0 18px"><span class="chip" style="cursor:pointer">+ Add source</span></div>
+        <div class="lab">Model</div>
+        <div class="select" style="width:100%;text-align:left">Qwen3-Coder ▾</div>
+        <div class="boundary local" style="margin-top:12px"><span class="glyph">⌂</span><span>On your machine</span></div>
+      </aside>
+    </div>
+  </div>
+</div>
+
+<!-- ============ SCREEN 9 — INTEGRATIONS ============ -->
+<div class="page">
+  <p class="caption"><b>9 · Integrations</b> — plain-language scopes, read-only, per-repo consent. States: connected · partial · not connected · reauth.</p>
+  <div class="win">
+    <div class="win-bar"><span class="dot" style="background:#B04A45"></span><span class="dot" style="background:#C6902F"></span><span class="dot" style="background:#6E8B6A"></span><span class="t">devloom · settings · integrations</span></div>
+    <div style="padding:22px 26px">
+      <div class="head"><h1 style="font-size:20px">Integrations</h1><span class="when">DevLoom reads these to build your view — it writes nothing back.</span></div>
+      <div class="prov">
+        <div class="ph"><span class="dot" style="background:#6E8B6A"></span><h3>GitHub</h3><span class="mono" style="color:var(--faint);font-size:11px;margin-left:8px">GitHub App · 6 repos</span><span class="tag ok" style="margin-left:auto">● connected · 2m ago</span></div>
+        <div class="mono" style="color:var(--faint);font-size:11.5px;margin-bottom:10px">scopes (read): Contents · Pull requests · Issues · Checks · Actions · Deployments</div>
+        <div style="display:flex;gap:8px"><button class="btn">Manage repos</button><button class="btn">Re-sync</button><button class="btn ghost">Disconnect</button></div>
+      </div>
+      <div class="prov">
+        <div class="ph"><span class="dot" style="background:#C6902F"></span><h3>Jira</h3><span style="margin-left:auto;color:var(--warp-hi);font-size:12px;font-family:var(--mono)">◑ partial — rate limited</span></div>
+        <p class="prose" style="font-size:13px;margin:0 0 10px">Last sync hit an Atlassian rate limit. Retrying automatically in ~3m.</p>
+        <div style="display:flex;gap:8px"><button class="btn">Retry now</button><button class="btn ghost">Details</button></div>
+      </div>
+      <div class="prov">
+        <div class="ph"><span class="dot" style="background:#6E8B6A"></span><h3>Google Calendar</h3><span class="tag ok" style="margin-left:auto">● connected · read · 5m ago</span></div>
+      </div>
+      <div class="prov" style="border-style:dashed">
+        <div class="ph"><span style="color:var(--faint)">○</span><h3>Microsoft Calendar</h3><button class="btn pri" style="margin-left:auto">Connect ▸</button></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ SCREEN 10 — STATES ============ -->
+<div class="page">
+  <p class="caption"><b>10 · States</b> — loading, empty, error, stale, partial-sync. States are direction, not mood: say what happened and the next action, in the interface’s voice.</p>
+  <div class="win">
+    <div class="win-bar"><span class="dot" style="background:#B04A45"></span><span class="dot" style="background:#C6902F"></span><span class="dot" style="background:#6E8B6A"></span><span class="t">devloom · state gallery</span></div>
+    <div style="padding:20px">
+      <div class="states">
+        <div class="stcard"><div class="lab">Empty · first run</div>
+          <div class="bignum">0</div>
+          <p class="prose" style="font-size:14px">Nothing tracked yet.</p>
+          <div style="margin-top:12px"><button class="btn pri">Connect GitHub ▸</button></div>
+        </div>
+        <div class="stcard"><div class="lab">Loading · skeleton</div>
+          <div class="skel" style="width:40%"></div><div class="skel" style="width:85%"></div><div class="skel" style="width:70%"></div><div class="skel" style="width:78%"></div>
+          <p class="mono" style="color:var(--faint);font-size:11px;margin-top:12px">building your view…</p>
+        </div>
+        <div class="stcard"><div class="lab">Error · named + fix</div>
+          <div class="errbar"><span>⚠</span><span>Jira sync failed: rate limit. Retrying in 3m.</span></div>
+          <div style="margin-top:12px"><button class="btn">Retry now</button></div>
+        </div>
+        <div class="stcard"><div class="lab">Stale + partial-sync</div>
+          <div class="psbar"><span class="st-dot" style="background:var(--warp)"></span><span>Showing GitHub + Google. Jira is still catching up — some items may be missing.</span></div>
+          <div class="wi" style="margin-top:12px;margin-bottom:0"><span class="g">⎇</span><span class="ti">#455 · Refactor pricing tiers</span><span class="mt"><span class="chip stale">stale · 14m</span></span></div>
+          <p class="prose" style="font-size:12.5px;margin-top:8px">Based on data from 14m ago.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ SCREEN 11 — MOBILE ============ -->
+<div class="page">
+  <p class="caption"><b>11 · Mobile</b> — the focus column goes full-width, the warp still ranks, a bottom tab bar replaces the rail; the data boundary stays in the header (never truncated).</p>
+  <div style="padding:14px 0 30px">
+    <div class="phone">
+      <div class="status">9:41 · devloom · ⌂ local</div>
+      <div class="pmain">
+        <div class="head" style="margin-bottom:12px"><h1 style="font-size:20px">Today</h1><span class="when">Tue · 09:14</span></div>
+        <div class="changed" style="padding:10px 12px;margin-bottom:16px"><span class="txt" style="font-size:13px"><b>2 reviews</b> now waiting on you ›</span></div>
+        <div class="warp" style="padding-left:22px">
+          <div class="item"><div class="rank">1</div>
+            <div class="card lead" style="padding:12px">
+              <div class="ct"><h3 style="font-size:15px">Review PR #482</h3></div>
+              <p class="why reason" style="font-size:13px;margin:6px 0 8px">Teammate blocked 2d · CI green · release.</p>
+              <div class="chips"><span class="chip warn">blocks:1</span><span class="chip">wait:51h</span></div>
+              <div class="acts" style="margin-top:10px"><button class="btn pri">Open ▸</button><button class="btn ghost">Why</button></div>
+            </div>
+          </div>
+          <div class="item"><div class="rank">2</div>
+            <div class="card" style="padding:12px">
+              <div class="ct"><h3 style="font-size:15px">Fix CI · feature/pricing</h3></div>
+              <div class="chips" style="margin-top:8px"><span class="chip fail">build #1893 ⚑</span><span class="chip">22m</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="tabbar"><a class="on">◉ Today</a><a>▤ Work</a><a>⚡ Builds</a><a>✎ Brain</a><a>⋯ More</a></div>
+    </div>
+  </div>
+</div>
+
+<div class="pagehead" style="margin-bottom:50px">
+  <p style="color:var(--faint);font-size:12px;font-family:var(--mono)">mockup · static HTML · not the production Vue app · fonts: Hanken Grotesk + JetBrains Mono (stand-in for Commit Mono)</p>
+</div>
+
+</body>
+</html>

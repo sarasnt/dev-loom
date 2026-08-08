@@ -1,0 +1,22 @@
+# dependencies / build output
+**/node_modules/
+**/dist/
+**/target/
+
+# IDE / editor
+.idea/
+.vscode/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# secrets / local env (never commit)
+**/.env
+**/.env.*
+!**/.env.example
+*.local
+
+# logs
+*.log
