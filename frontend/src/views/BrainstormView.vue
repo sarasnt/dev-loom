@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import type { BrainstormData } from '../types'
-import { fetchBrainstorm } from '../api/stub'
+import { fetchBrainstorm } from '../api'
 import SourceChip from '../components/SourceChip.vue'
 import BoundaryToken from '../components/BoundaryToken.vue'
 

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import type { WorkRow } from '../types'
-import { fetchWork } from '../api/stub'
+import { fetchWork } from '../api'
 
 const rows = ref<WorkRow[]>([])
 const loading = ref(true)

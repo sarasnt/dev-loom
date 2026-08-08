@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import type { PrivacyData } from '../types'
-import { fetchPrivacy } from '../api/stub'
+import { fetchPrivacy } from '../api'
 
 const data = ref<PrivacyData | null>(null)
 const loading = ref(true)

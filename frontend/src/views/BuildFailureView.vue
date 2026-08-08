@@ -2,7 +2,7 @@
 import { onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { BuildFailure } from '../types'
-import { fetchBuildFailure } from '../api/stub'
+import { fetchBuildFailure } from '../api'
 import SourceChip from '../components/SourceChip.vue'
 
 const route = useRoute()

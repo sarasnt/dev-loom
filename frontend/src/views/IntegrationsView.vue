@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import type { Integration } from '../types'
-import { fetchIntegrations } from '../api/stub'
+import { fetchIntegrations } from '../api'
 
 const items = ref<Integration[]>([])
 const loading = ref(true)

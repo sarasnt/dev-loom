@@ -2,7 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import type { OnboardStep } from '../types'
-import { fetchOnboarding } from '../api/stub'
+import { fetchOnboarding } from '../api'
 
 const steps = ref<OnboardStep[]>([])
 const router = useRouter()

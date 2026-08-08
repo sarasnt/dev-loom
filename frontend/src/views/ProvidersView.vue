@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref, computed } from 'vue'
 import type { ProvidersData } from '../types'
-import { fetchProviders } from '../api/stub'
+import { fetchProviders } from '../api'
 
 const data = ref<ProvidersData | null>(null)
 const loading = ref(true)

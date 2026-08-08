@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import type { TodayData } from '../types'
-import { fetchToday } from '../api/stub'
+import { fetchToday } from '../api'
 
 export const useDashboardStore = defineStore('dashboard', () => {
   const today = ref<TodayData | null>(null)

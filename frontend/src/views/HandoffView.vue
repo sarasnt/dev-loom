@@ -2,7 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import type { Handoff } from '../types'
-import { fetchHandoff } from '../api/stub'
+import { fetchHandoff } from '../api'
 import SourceChip from '../components/SourceChip.vue'
 
 const route = useRoute()
