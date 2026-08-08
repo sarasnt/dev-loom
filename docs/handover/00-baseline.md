@@ -52,8 +52,11 @@ Self-hosted only · single user (workspace of one) · GitHub + Jira + **both** G
 - [x] Step 2 — backend skeleton (`02-backend.md`) — Docker-verified end-to-end
 - [x] **Live Jira integration** (`03-jira-live.md`) — real on-prem issues in the WorkItem model
 - [x] **Frontend↔backend wired** — real Jira issues render in the UI (Vue → Vite proxy → Spring Boot → Postgres → jira.critical.pt). Screenshot: `frontend/screenshots/fullstack-work-jira.png`
-- [ ] Step 3 — remaining backend feature logic (build-failure correlation via LlmPort, handoff gen from a build, what-changed, audit, retention/delete, cost budgets, Langfuse bridge)
-- [ ] More connectors — GitHub (live via `sarasnt`), calendars, Notion (once pages shared); Ollama adapter
-- [ ] Full containerized compose (frontend nginx image) end-to-end + final handover
+- [x] **Step 3 (partial)** (`04-fullstack-and-features.md`) — audit log, retention/delete, generated handoff (all real). Remaining: build-failure via LlmPort, what-changed, cost budgets, Langfuse bridge.
+- [x] **Full containerized compose** — nginx frontend + backend + db, real Jira at http://localhost:8088.
+- [x] **GitHub connector** (live-capable; 0 items for `sarasnt`).
+- [x] **Google Calendar (ICS) connector** — real upcoming events (verified: "Reservation at IZAKAYA ONI"). Outlook excluded from iteration 1.
+- [x] **Notion connector** — built; needs the page **connected to the DevLoom integration** (URL alone → 404 object_not_found). Works once connected.
+- [ ] Ollama `LlmPort` adapter + wire build-failure/brainstorm to it; what-changed; cost budgets; Langfuse.
 
-**Repo:** github.com/sarasnt/dev-loom (private). Latest: `5f4d10d`. Secrets live in `backend/.env` (gitignored) — **rotate the Jira PAT + Notion token** shared in chat.
+**Repo:** github.com/sarasnt/dev-loom (private). Latest: `1a1019c`. Live sources: **Jira (25), Google Calendar (real), GitHub (ready)**. Secrets in `backend/.env` (gitignored) — **rotate the Jira PAT, GitHub token, Notion token, and reset the Google ICS URL** (all shared in chat).
