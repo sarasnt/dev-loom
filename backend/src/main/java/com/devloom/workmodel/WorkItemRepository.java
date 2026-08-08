@@ -6,4 +6,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface WorkItemRepository extends JpaRepository<WorkItemEntity, Long> {
     List<WorkItemEntity> findAllByOrderBySortOrderAsc();
+
+    long deleteBySource(String source);
+
+    long countBySource(String source);
 }

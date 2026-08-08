@@ -30,6 +30,9 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    env_file:
+      - path: ./backend/.env
+        required: false          # real secrets (gitignored); optional so the stack runs without it
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/devloom
       SPRING_DATASOURCE_USERNAME: devloom

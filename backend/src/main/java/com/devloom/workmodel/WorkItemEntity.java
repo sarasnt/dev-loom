@@ -43,6 +43,21 @@ public class WorkItemEntity {
     protected WorkItemEntity() {
     }
 
+    /** Build a WorkItem for ingestion from a connector (id is DB-generated). */
+    public static WorkItemEntity create(String extId, String type, String title, String status,
+                                        String statusTone, String metaCsv, String source, int sortOrder) {
+        WorkItemEntity e = new WorkItemEntity();
+        e.extId = extId;
+        e.type = type;
+        e.title = title;
+        e.status = status;
+        e.statusTone = statusTone;
+        e.metaCsv = metaCsv == null ? "" : metaCsv;
+        e.source = source;
+        e.sortOrder = sortOrder;
+        return e;
+    }
+
     public Long getId() { return id; }
     public String getExtId() { return extId; }
     public String getType() { return type; }
