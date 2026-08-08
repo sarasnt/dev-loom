@@ -29,14 +29,17 @@ public class GitHubConnector implements SourceConnector {
 
     private final String token;
     private final int maxIssues;
+    private final int maxBuilds;
     private final RestClient http;
 
     public GitHubConnector(
             @Value("${devloom.github.base-url:https://api.github.com}") String baseUrl,
             @Value("${devloom.github.token:}") String token,
-            @Value("${devloom.github.max-issues:25}") int maxIssues) {
+            @Value("${devloom.github.max-issues:25}") int maxIssues,
+            @Value("${devloom.github.max-builds:3}") int maxBuilds) {
         this.token = token;
         this.maxIssues = maxIssues;
+        this.maxBuilds = maxBuilds;
         this.http = (token == null || token.isBlank())
                 ? null
                 : RestClient.builder()
@@ -82,14 +85,55 @@ public class GitHubConnector implements SourceConnector {
             List<WorkItemEntity> out = new ArrayList<>();
             List<?> items = search == null ? List.of() : asList(search.get("items"));
             int order = 10;
+            java.util.LinkedHashSet<String> repos = new java.util.LinkedHashSet<>();
             for (Object o : items) {
-                out.add(map(asMap(o), login, order++));
+                Map<String, Object> item = asMap(o);
+                out.add(map(item, login, order++));
+                String repo = repoShortName(str(item, "repository_url"));
+                if (!repo.isBlank()) repos.add(repo);
             }
-            log.info("GitHub sync: fetched {} items for {}", out.size(), login);
+
+            // Auto-discover CI from the repos of the user's PRs/issues: surface recent
+            // FAILED workflow runs as build items so they show in Work and are analyzable.
+            int fetchedBuilds = 0;
+            for (String repo : repos.stream().limit(3).toList()) {
+                fetchedBuilds += addFailedRuns(repo, out, order);
+                order += 10;
+            }
+            log.info("GitHub sync: {} items + {} failed CI builds for {}", out.size() - fetchedBuilds, fetchedBuilds, login);
             return out;
         } catch (Exception e) {
             log.warn("GitHub sync failed: {}", e.getMessage());
             return List.of();
+        }
+    }
+
+    /** Recent failed workflow runs for a repo → build WorkItems (repo kept in meta). */
+    private int addFailedRuns(String repo, List<WorkItemEntity> out, int baseOrder) {
+        try {
+            Map<String, Object> runs = http.get()
+                    .uri(uri -> uri.path("/repos/" + repo + "/actions/runs")
+                            .queryParam("status", "failure")
+                            .queryParam("per_page", maxBuilds)
+                            .build())
+                    .retrieve().body(MAP);
+            List<?> list = runs == null ? List.of() : asList(runs.get("workflow_runs"));
+            int i = 0;
+            for (Object o : list) {
+                Map<String, Object> r = asMap(o);
+                String runId = str(r, "id");
+                String name = str(r, "name");
+                String branch = str(r, "head_branch");
+                String runNo = str(r, "run_number");
+                String title = "CI " + (runNo.isBlank() ? "" : "#" + runNo + " ") + "· " + name + " failed";
+                // meta = [branch, repo] — BuildFailureService recovers repo from meta[1].
+                out.add(WorkItemEntity.create(runId, "build", title, "failed", "fail",
+                        branch + "," + repo, source(), baseOrder + i++));
+            }
+            return i;
+        } catch (Exception e) {
+            log.warn("GitHub CI fetch failed for {}: {}", repo, e.getMessage());
+            return 0;
         }
     }
 

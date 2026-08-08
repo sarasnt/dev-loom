@@ -1,9 +1,14 @@
 package com.devloom.api;
 
+import java.util.Optional;
+
 import org.springframework.stereotype.Service;
 
 import com.devloom.ai.LlmPort;
 import com.devloom.ai.LlmRouter;
+import com.devloom.integrations.GitHubBuildAnalyzer;
+import com.devloom.workmodel.WorkItemEntity;
+import com.devloom.workmodel.WorkItemRepository;
 
 /**
  * Assembles the build-failure analysis (SPEC.md §23). The log collection, truncation, and
@@ -22,13 +27,30 @@ public class BuildFailureService {
 
     private final FixtureData fixtures;
     private final LlmRouter llm;
+    private final GitHubBuildAnalyzer ghAnalyzer;
+    private final WorkItemRepository workItems;
 
-    public BuildFailureService(FixtureData fixtures, LlmRouter llm) {
+    public BuildFailureService(FixtureData fixtures, LlmRouter llm,
+                               GitHubBuildAnalyzer ghAnalyzer, WorkItemRepository workItems) {
         this.fixtures = fixtures;
         this.llm = llm;
+        this.ghAnalyzer = ghAnalyzer;
+        this.workItems = workItems;
     }
 
     public Dto.BuildFailure analyze(String id) {
+        // A real GitHub Actions run id (numeric) → analyze the live run; else the sample build.
+        if (id != null && id.matches("\\d{6,}") && ghAnalyzer.enabled()) {
+            Optional<WorkItemEntity> item = workItems.findFirstByExtId(id);
+            String repo = item.map(w -> metaRepo(w)).orElse(null);
+            if (repo != null) {
+                Dto.BuildFailure real = ghAnalyzer.analyze(repo, id);
+                if (real != null) {
+                    return real;
+                }
+            }
+        }
+
         Dto.BuildFailure b = fixtures.buildFailure(id); // real redaction applied here
 
         if (!llm.hasRealModel()) {
@@ -54,4 +76,11 @@ public class BuildFailureService {
                 r.text().trim(), "med", b.failingJob(), b.failingStep(), b.failingTest(),
                 b.redacted(), b.log(), b.causes(), b.related(), b.diagnostics(), b.fixes());
     }
+
+    /** Build items store meta as "branch,owner/repo" — recover the repo (2nd token). */
+    private static String metaRepo(WorkItemEntity w) {
+        String[] parts = w.getMetaCsv().split(",");
+        return parts.length >= 2 ? parts[1].trim() : null;
+    }
 }
+

@@ -10,6 +10,8 @@ import org.springframework.data.repository.query.Param;
 public interface WorkItemRepository extends JpaRepository<WorkItemEntity, Long> {
     List<WorkItemEntity> findAllByOrderBySortOrderAsc();
 
+    java.util.Optional<WorkItemEntity> findFirstByExtId(String extId);
+
     /**
      * Bulk delete, executed immediately against the DB. Must be a bulk @Query (not a
      * derived delete): within replace-on-sync we insert rows with the same natural keys

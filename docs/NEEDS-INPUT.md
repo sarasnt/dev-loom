@@ -15,8 +15,9 @@ Ollama container running with `qwen2.5-coder` pulled. Verified: build-failure an
 ## 3. Microsoft / Outlook calendar  (excluded from iteration 1)
 When you want it: provide a **private ICS feed URL** (Outlook → Calendar → Share → Publish → ICS) and I'll add it exactly like Google — or we do full Microsoft Graph OAuth (heavier). Google Calendar is already live.
 
-## 4. GitHub — where your real work lives
-The connector works but returns 0 for `sarasnt` (no open PRs/issues). If your real GitHub work is under an **org or specific repos**, name them and I'll scope the query there. Otherwise it stays sparse until `sarasnt` has activity (e.g. once `dev-loom` gets PRs).
+## 4. GitHub — ✅ LIVE (2026-08-09)
+The connector pulls the PRs/issues that involve `sarasnt` and auto-discovers CI: it surfaces recent **failed workflow runs** as `build` work items and analyzes them for real. Verified end-to-end against `sarasnt/ration-app` run **#144** (`spec/28-first-launch-wizard`): the analyzer follows GitHub's job-log 302→signed-blob redirect, redacts the tail (46 lines), and the local model (`qwen2.5-coder`) correctly diagnosed the drift `AppDatabase` multiple-instantiation failure — evidence separated from hypothesis, nothing left the machine.
+*Optional:* if more of your work lives under an **org or specific repos**, name them and I'll scope the search query there.
 
 ## 5. Login / authentication  (not yet built — needs an IdP)
 The backend currently has **no auth** (single-user, open on localhost — fine for local self-host, not for exposure). The plan is social OIDC (GitHub/Google, SPEC §26). Building it needs an **OAuth client id/secret**:
