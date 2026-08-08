@@ -42,6 +42,16 @@ devloom:
     base-url: ${DEVLOOM_GITHUB_BASE_URL:https://api.github.com}
     token: ${DEVLOOM_GITHUB_TOKEN:}
     max-issues: ${DEVLOOM_GITHUB_MAX:25}
+  calendar:
+    # Private iCal (ICS) feed URL. Empty => disabled. Outlook excluded in iteration 1.
+    ics-url: ${DEVLOOM_GOOGLE_ICS_URL:}
+    max-events: ${DEVLOOM_CALENDAR_MAX:15}
+    horizon-days: ${DEVLOOM_CALENDAR_HORIZON:28}
+  notion:
+    base-url: ${DEVLOOM_NOTION_BASE_URL:https://api.notion.com}
+    token: ${DEVLOOM_NOTION_TOKEN:}
+    version: ${DEVLOOM_NOTION_VERSION:2022-06-28}
+    max-items: ${DEVLOOM_NOTION_MAX:15}
   ai:
     # local-first: which provider the ModelRouter prefers. "stub" until Ollama is reachable.
     default-provider: ${DEVLOOM_AI_PROVIDER:stub}

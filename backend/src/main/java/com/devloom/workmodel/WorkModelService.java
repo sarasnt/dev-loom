@@ -33,7 +33,8 @@ public class WorkModelService {
         return switch (type) {
             case "build" -> "⚡";
             case "task" -> "◆";
-            case "review" -> "◷";
+            case "review", "calendar" -> "◷";
+            case "doc" -> "▤";
             default -> "⎇"; // pr, stale
         };
     }
