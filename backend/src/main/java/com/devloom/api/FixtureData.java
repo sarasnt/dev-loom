@@ -4,6 +4,7 @@ import java.util.List;
 
 import org.springframework.stereotype.Component;
 
+import com.devloom.ai.CostBudget;
 import com.devloom.common.SecretRedactor;
 
 /**
@@ -16,9 +17,11 @@ import com.devloom.common.SecretRedactor;
 public class FixtureData {
 
     private final SecretRedactor redactor;
+    private final CostBudget budget;
 
-    public FixtureData(SecretRedactor redactor) {
+    public FixtureData(SecretRedactor redactor, CostBudget budget) {
         this.redactor = redactor;
+        this.budget = budget;
     }
 
     private Dto.EvidenceRef ev(String id) {
@@ -101,7 +104,8 @@ public class FixtureData {
         return new Dto.Providers(
                 new Dto.LocalProvider("Ollama", "Qwen3-Coder-30B-A3B",
                         List.of("Qwen3-Coder-30B-A3B", "gpt-oss-20b", "Gemma 3 12B", "Mistral Small 3.2 24B"), true),
-                new Dto.KeyProvider("Anthropic", "leaves for Anthropic", true, true, 2000, 640, null),
+                new Dto.KeyProvider("Anthropic", "leaves for Anthropic", true, true,
+                        budget.capCents("anthropic"), budget.usedCents("anthropic"), null),
                 new Dto.KeyProvider("OpenAI", "leaves for OpenAI", false, null, null, null,
                         "Uses the Responses API · stateless"),
                 false);

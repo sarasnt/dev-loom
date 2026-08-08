@@ -33,11 +33,14 @@ public class ApiController {
     private final SyncService syncService;
     private final RetentionService retention;
     private final HandoffService handoffService;
+    private final BuildFailureService buildFailureService;
+    private final ChangesService changesService;
     private final AuditService audit;
 
     public ApiController(TodayService todayService, WorkModelService workModel,
                          FixtureData fixtures, SyncService syncService,
                          RetentionService retention, HandoffService handoffService,
+                         BuildFailureService buildFailureService, ChangesService changesService,
                          AuditService audit) {
         this.todayService = todayService;
         this.workModel = workModel;
@@ -45,6 +48,8 @@ public class ApiController {
         this.syncService = syncService;
         this.retention = retention;
         this.handoffService = handoffService;
+        this.buildFailureService = buildFailureService;
+        this.changesService = changesService;
         this.audit = audit;
     }
 
@@ -90,7 +95,13 @@ public class ApiController {
 
     @GetMapping({"/builds/{id}", "/builds"})
     public Dto.BuildFailure build(@PathVariable(required = false) String id) {
-        return fixtures.buildFailure(id == null ? "1893" : id);
+        return buildFailureService.analyze(id == null ? "1893" : id);
+    }
+
+    /** "What changed since you last looked" — derived from the audit trail (SPEC §17). */
+    @GetMapping("/changes")
+    public List<Dto.AuditEntry> changes() {
+        return changesService.detail();
     }
 
     @GetMapping({"/handoffs/{id}", "/handoffs"})

@@ -16,9 +16,11 @@ import com.devloom.priority.SignalComponent;
 public class TodayService {
 
     private final PriorityEngine priority;
+    private final ChangesService changes;
 
-    public TodayService(PriorityEngine priority) {
+    public TodayService(PriorityEngine priority, ChangesService changes) {
         this.priority = priority;
+        this.changes = changes;
     }
 
     /** A candidate before ranking: its display payload + the signals that score it. */
@@ -69,9 +71,15 @@ public class TodayService {
                     s.score(), b.actions());
         }).toList();
 
+        // "What changed" comes from the real audit trail; fall back to a friendly default.
+        Dto.Changed changed = changes.changed();
+        if (changed == null) {
+            changed = new Dto.Changed("Welcome back — connect a source to start tracking changes.", "");
+        }
+
         return new Dto.Today(
                 "sara's workspace", "sara.santos", "Tue 8 Aug · 09:14",
-                new Dto.Changed("3 PRs merged · 1 build broke & recovered · 2 reviews now waiting on you", "since Mon 17:30"),
+                changed,
                 new Dto.Sync(List.of(
                         new Dto.SyncSource("gh", "GitHub", "healthy"),
                         new Dto.SyncSource("jira", "Jira", "healthy"),
