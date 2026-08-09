@@ -109,6 +109,7 @@ export interface BuildFailure {
   related: EvidenceRef[]
   diagnostics: string[]
   fixes: string[]
+  analyzedBy?: string
 }
 
 // ---- Coding-agent handoff (SPEC §24) ----

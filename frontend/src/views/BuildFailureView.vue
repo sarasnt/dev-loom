@@ -1,38 +1,104 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { storeToRefs } from 'pinia'
 import type { BuildFailure } from '../types'
 import { fetchBuildFailure, fetchLatestBuild } from '../api'
+import { useDashboardStore } from '../stores/dashboard'
 import SourceChip from '../components/SourceChip.vue'
 import LoomLoader from '../components/LoomLoader.vue'
 
-const analyzeSteps = [
-  'Fetching the failed run from GitHub…',
-  'Reading the failing job & step…',
-  'Redacting the log tail…',
-  'Summarizing with the local model…',
-]
+const API = (import.meta.env.VITE_API_BASE as string) ?? '/api/v1'
 
 const route = useRoute()
 const router = useRouter()
+const store = useDashboardStore()
+const { activeModel } = storeToRefs(store)
+
 const data = ref<BuildFailure | null>(null)
 const loading = ref(true)
+const step = ref('Starting analysis…')
+const progress = ref(0)
+const resultModel = ref('') // the model that produced the on-screen summary
+let es: EventSource | null = null
 
-async function load() {
-  loading.value = true
-  // No id in the URL → let the backend resolve the most recent real failed run.
-  const id = route.params.id ? String(route.params.id) : ''
-  data.value = id ? await fetchBuildFailure(id) : await fetchLatestBuild()
-  loading.value = false
+function closeStream() {
+  if (es) {
+    es.close()
+    es = null
+  }
 }
-onMounted(load)
-watch(() => route.params.id, load)
+
+// Stream the real analysis stages over SSE; fall back to a one-shot fetch if unavailable.
+function analyze() {
+  closeStream()
+  loading.value = true
+  data.value = null
+  step.value = 'Connecting…'
+  progress.value = 3
+  const id = route.params.id ? String(route.params.id) : ''
+  const url = `${API}/builds/${id ? id + '/stream' : 'stream'}`
+  try {
+    es = new EventSource(url)
+  } catch {
+    loadFallback()
+    return
+  }
+  let seen = 0
+  es.addEventListener('step', (e) => {
+    step.value = (e as MessageEvent).data
+    seen++
+    // 4 real backend stages → 18/38/58/78, then hold while the model finishes.
+    progress.value = Math.min(80, seen * 20 - 2)
+  })
+  es.addEventListener('result', (e) => {
+    try {
+      data.value = JSON.parse((e as MessageEvent).data) as BuildFailure
+      resultModel.value = data.value?.analyzedBy ?? ''
+    } catch {
+      /* leave data null → fallback below via error */
+    }
+    progress.value = 100
+    loading.value = false
+    closeStream()
+  })
+  es.onerror = () => {
+    closeStream()
+    if (loading.value) loadFallback()
+  }
+}
+
+async function loadFallback() {
+  const id = route.params.id ? String(route.params.id) : ''
+  try {
+    data.value = id ? await fetchBuildFailure(id) : await fetchLatestBuild()
+    resultModel.value = data.value?.analyzedBy ?? ''
+  } finally {
+    loading.value = false
+  }
+}
+
+// Offer a re-run when the selected model differs from the one that produced the summary.
+const canRedo = computed(
+  () =>
+    !loading.value &&
+    !!data.value &&
+    data.value.id !== 'none' &&
+    !!resultModel.value &&
+    resultModel.value !== 'deterministic' &&
+    !!activeModel.value &&
+    activeModel.value !== resultModel.value,
+)
+
+onMounted(analyze)
+watch(() => route.params.id, analyze)
+onUnmounted(closeStream)
 </script>
 
 <template>
   <main class="bf">
     <div v-if="loading" class="loadwrap" aria-busy="true">
-      <LoomLoader :steps="analyzeSteps" :est-ms="18000" />
+      <LoomLoader :step="step" :progress="progress" />
     </div>
 
     <!-- Honest empty state — no failing runs (or GitHub not configured) -->
@@ -50,11 +116,21 @@ watch(() => route.params.id, load)
         <span class="when">{{ data.branch }}<template v-if="data.pr"> · PR #{{ data.pr }}</template> · {{ data.failedAgo }}</span>
       </div>
 
+      <!-- Offered when you switch models after this was analyzed -->
+      <div v-if="canRedo" class="redo">
+        <span>
+          Analyzed by <b class="mono">{{ resultModel }}</b> · you've switched to
+          <b class="mono">{{ activeModel }}</b>.
+        </span>
+        <button class="redo-btn" @click="analyze()">Re-run with {{ activeModel }} ↻</button>
+      </div>
+
       <section class="step">
         <div class="n mono">① SUMMARY</div>
         <p class="prose">
           {{ data.summary }}
           <span class="pill hi mono">conf: {{ data.summaryConfidence }}</span>
+          <span v-if="data.analyzedBy && data.analyzedBy !== 'deterministic'" class="pill mono">{{ data.analyzedBy }}</span>
           <span class="reason-mark" aria-label="model reasoning">reasoning°</span>
         </p>
       </section>
@@ -118,6 +194,18 @@ watch(() => route.params.id, load)
 .when { font-size: 12px; color: var(--faint-text); }
 .empty { color: var(--faint-text); padding: 24px 0; }
 .loadwrap { display: flex; justify-content: center; padding: 64px 0; }
+.redo {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  border: 1px solid var(--warp); background: var(--warp-weft);
+  border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; font-size: 13px; color: var(--dim);
+}
+.redo-btn {
+  margin-left: auto; font-size: 12.5px; font-weight: 600; border-radius: var(--r-ctl);
+  padding: 6px 12px; border: 1px solid var(--warp); background: var(--warp); color: var(--on-warp);
+  cursor: pointer; white-space: nowrap;
+}
+.redo-btn:hover { background: var(--warp-hi); }
+.pill { margin-left: 6px; }
 .step { border: 1px solid var(--line); border-radius: var(--r-card); background: var(--surface); padding: 14px 16px; margin-bottom: 14px; }
 .n { font-size: 11px; color: var(--warp-hi); letter-spacing: 0.08em; }
 .prose { color: var(--dim); font-size: 14px; margin: 8px 0 0; line-height: 1.55; }

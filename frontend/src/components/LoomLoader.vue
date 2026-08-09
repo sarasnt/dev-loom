@@ -12,21 +12,30 @@ const props = defineProps<{
   steps?: string[]
   estMs?: number
   size?: 'sm' | 'md'
+  // Controlled mode: when `progress` is provided (e.g. driven by real SSE events),
+  // the loader shows exactly this step + progress instead of a time estimate.
+  step?: string
+  progress?: number
 }>()
 
+const controlled = computed(() => typeof props.progress === 'number')
+
 const stepIdx = ref(0)
-const progress = ref(0)
+const internal = ref(0)
 let stepTimer: ReturnType<typeof setInterval> | undefined
 let progTimer: ReturnType<typeof setInterval> | undefined
 
-const hasProgress = computed(() => !!props.estMs)
-const current = computed(() =>
-  props.steps && props.steps.length ? props.steps[stepIdx.value] : (props.label ?? 'Loading…'),
-)
-// Woven cloth height: driven by progress when timed, otherwise a gentle resting fill.
-const wovenHeight = computed(() => (hasProgress.value ? progress.value : 40))
+const hasProgress = computed(() => controlled.value || !!props.estMs)
+const current = computed(() => {
+  if (controlled.value) return props.step ?? props.label ?? 'Working…'
+  return props.steps && props.steps.length ? props.steps[stepIdx.value] : (props.label ?? 'Loading…')
+})
+const pct = computed(() => (controlled.value ? Math.round(props.progress ?? 0) : internal.value))
+// Woven cloth height: driven by progress when timed/controlled, else a gentle resting fill.
+const wovenHeight = computed(() => (hasProgress.value ? pct.value : 40))
 
 onMounted(() => {
+  if (controlled.value) return // parent drives step + progress
   const est = props.estMs ?? 12000
   if (props.steps && props.steps.length > 1) {
     const per = Math.max(1400, est / props.steps.length)
@@ -34,12 +43,12 @@ onMounted(() => {
       if (stepIdx.value < props.steps!.length - 1) stepIdx.value++
     }, per)
   }
-  if (hasProgress.value) {
+  if (props.estMs) {
     const start = performance.now()
     progTimer = setInterval(() => {
       const t = (performance.now() - start) / est
       // ease-out toward 92% — never claims done until the caller unmounts us
-      progress.value = Math.min(92, Math.round((1 - Math.exp(-t * 2.2)) * 100))
+      internal.value = Math.min(92, Math.round((1 - Math.exp(-t * 2.2)) * 100))
     }, 120)
   }
 })
@@ -57,7 +66,7 @@ onUnmounted(() => {
       <span class="shuttle" :style="{ bottom: wovenHeight + '%' }"></span>
     </div>
     <div class="txt mono">{{ current }}</div>
-    <div v-if="hasProgress" class="bar" aria-hidden="true"><span :style="{ width: progress + '%' }"></span></div>
+    <div v-if="hasProgress" class="bar" aria-hidden="true"><span :style="{ width: pct + '%' }"></span></div>
   </div>
 </template>
 

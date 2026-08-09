@@ -1,12 +1,14 @@
 package com.devloom.api;
 
-import java.util.List;
-
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -14,6 +16,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import com.devloom.audit.AuditService;
 import com.devloom.integrations.IntegrationsService;
@@ -26,8 +29,12 @@ import com.devloom.workmodel.WorkModelService;
 @RequestMapping("/api/v1")
 public class ApiController {
 
+    private static final Logger log = LoggerFactory.getLogger(ApiController.class);
     private static final DateTimeFormatter TS =
             DateTimeFormatter.ofPattern("MMM d HH:mm").withZone(ZoneOffset.UTC);
+
+    // Small pool for SSE analysis streams (single-user local; analyses are infrequent + bounded).
+    private final ExecutorService sse = Executors.newCachedThreadPool();
 
     private final TodayService todayService;
     private final WorkModelService workModel;
@@ -109,6 +116,33 @@ public class ApiController {
     public Dto.BuildFailure build(@PathVariable(required = false) String id) {
         // No id → the service resolves the most recent real failed CI run.
         return buildFailureService.analyze(id);
+    }
+
+    /**
+     * Stream the analysis: a {@code step} event per real stage (fetch run, read job, redact
+     * log, summarize) then a {@code result} event with the full BuildFailure. Lets the UI show
+     * genuine progress instead of a time estimate.
+     */
+    @GetMapping({"/builds/{id}/stream", "/builds/stream"})
+    public SseEmitter buildStream(@PathVariable(required = false) String id) {
+        SseEmitter emitter = new SseEmitter(180_000L);
+        sse.execute(() -> {
+            try {
+                Dto.BuildFailure result = buildFailureService.analyze(id, step -> {
+                    try {
+                        emitter.send(SseEmitter.event().name("step").data(step));
+                    } catch (Exception ignore) {
+                        // client went away mid-stream — the analyze() will still finish
+                    }
+                });
+                emitter.send(SseEmitter.event().name("result").data(result));
+                emitter.complete();
+            } catch (Exception e) {
+                log.warn("Build stream failed for '{}': {}", id, e.getMessage());
+                emitter.completeWithError(e);
+            }
+        });
+        return emitter;
     }
 
     /** "What changed since you last looked" — derived from the audit trail (SPEC §17). */

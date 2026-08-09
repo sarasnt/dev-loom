@@ -2,6 +2,7 @@ package com.devloom.api;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Consumer;
 
 import org.springframework.stereotype.Service;
 
@@ -28,6 +29,11 @@ public class BuildFailureService {
     }
 
     public Dto.BuildFailure analyze(String id) {
+        return analyze(id, s -> {});
+    }
+
+    /** As {@link #analyze(String)} but streams stage labels to {@code progress} (SSE). */
+    public Dto.BuildFailure analyze(String id, Consumer<String> progress) {
         String runId = resolveRunId(id);
         if (runId == null || !ghAnalyzer.enabled()) {
             return emptyState();
@@ -37,7 +43,7 @@ public class BuildFailureService {
         if (repo == null) {
             return emptyState();
         }
-        Dto.BuildFailure real = ghAnalyzer.analyze(repo, runId);
+        Dto.BuildFailure real = ghAnalyzer.analyze(repo, runId, progress);
         return real != null ? real : emptyState();
     }
 
@@ -65,7 +71,7 @@ public class BuildFailureService {
                 List.of(new Dto.LogLine("(no build failures)", "omitted")),
                 List.of(), List.of(),
                 List.of("Connect a GitHub repo with CI, or open a PR that triggers a workflow."),
-                List.of());
+                List.of(), "deterministic");
     }
 
     /** Build items store meta as "branch,owner/repo" — recover the repo (2nd token). */

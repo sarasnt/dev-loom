@@ -69,6 +69,7 @@ const EMPTY_BUILD: BuildFailure = {
   related: [],
   diagnostics: ['Start the backend and connect a GitHub repo with CI.'],
   fixes: [],
+  analyzedBy: 'deterministic',
 }
 export function fetchBuildFailure(id: string): Promise<BuildFailure> {
   return delay({ ...EMPTY_BUILD, id: id || 'none' })

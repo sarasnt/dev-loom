@@ -45,7 +45,7 @@ public final class Dto {
             Boundary boundary, String summary, String summaryConfidence, String failingJob,
             String failingStep, String failingTest, boolean redacted, List<LogLine> log,
             List<Hypothesis> causes, List<EvidenceRef> related, List<String> diagnostics,
-            List<String> fixes) {}
+            List<String> fixes, String analyzedBy) {}
 
     // ---- Handoff ----
     public record Safety(List<String> allow, List<String> forbid) {}

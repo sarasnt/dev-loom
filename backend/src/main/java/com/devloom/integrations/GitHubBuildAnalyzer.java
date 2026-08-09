@@ -6,6 +6,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -71,12 +72,24 @@ public class GitHubBuildAnalyzer {
         return enabled;
     }
 
+    /** A model summary paired with the model that produced it (for provenance / redo). */
+    private record Summary(String text, String model) {}
+
     /** repo is "owner/name"; runId is the GitHub Actions run id. Returns null on any failure. */
     public Dto.BuildFailure analyze(String repo, String runId) {
+        return analyze(repo, runId, s -> {});
+    }
+
+    /**
+     * As {@link #analyze(String, String)}, but reports each stage to {@code progress} (used to
+     * stream real progress over SSE). Runs on the caller's thread.
+     */
+    public Dto.BuildFailure analyze(String repo, String runId, Consumer<String> progress) {
         if (!enabled) {
             return null;
         }
         try {
+            progress.accept("Fetching the failed run from GitHub…");
             // Inline repo/id into the path literal — a "{r}" path var would URL-encode the
             // slash in "owner/name" and 404.
             Map<String, Object> run = http.get().uri("/repos/" + repo + "/actions/runs/" + runId)
@@ -90,6 +103,7 @@ public class GitHubBuildAnalyzer {
             String failedAgo = relative(str(run, "updated_at"));
             String pr = firstPrNumber(run);
 
+            progress.accept("Reading the failing job & step…");
             Map<String, Object> jobsResp = http.get()
                     .uri("/repos/" + repo + "/actions/runs/" + runId + "/jobs")
                     .retrieve().body(MAP);
@@ -99,9 +113,11 @@ public class GitHubBuildAnalyzer {
             String jobId = str(failedJob, "id");
             String failingStep = firstFailedStep(failedJob);
 
+            progress.accept("Redacting the log tail…");
             List<Dto.LogLine> excerpt = logExcerpt(repo, jobId);
 
-            String summary = summarize(jobName, failingStep, excerpt);
+            progress.accept("Summarizing with the local model…");
+            Summary summary = summarize(jobName, failingStep, excerpt);
 
             List<Dto.EvidenceRef> evidence = List.of(
                     new Dto.EvidenceRef("commit " + (sha.length() >= 8 ? sha.substring(0, 8) : sha), null, "local"),
@@ -117,30 +133,33 @@ public class GitHubBuildAnalyzer {
             return new Dto.BuildFailure(
                     runId, repo, branch, pr.isBlank() ? null : pr, runNo, "failed " + failedAgo,
                     new Dto.Boundary("local", "On your machine"),
-                    summary, "med", jobName, failingStep, failingStep, true, excerpt,
+                    summary.text(), "med", jobName, failingStep, failingStep, true, excerpt,
                     causes, related,
                     List.of("Re-run the failing step locally: " + failingStep,
                             "Open the run on GitHub to see the full job log."),
-                    List.of("Address the failure surfaced in the log tail below."));
+                    List.of("Address the failure surfaced in the log tail below."),
+                    summary.model());
         } catch (Exception e) {
             log.warn("GitHub build analysis failed for {} run {}: {}", repo, runId, e.getMessage());
             return null;
         }
     }
 
-    private String summarize(String jobName, String step, List<Dto.LogLine> excerpt) {
+    private Summary summarize(String jobName, String step, List<Dto.LogLine> excerpt) {
         try {
             String logText = excerpt.stream().map(Dto.LogLine::text).reduce("", (a, b) -> a + "\n" + b);
             String prompt = "Failing job: %s\nFailing step: %s\nRedacted log tail:\n%s"
                     .formatted(jobName, step, logText);
             LlmPort.LlmResult r = llm.generate(new LlmPort.LlmRequest("build-failure", SYSTEM, prompt, null));
             if (!"stub".equals(r.provider()) && r.text() != null && !r.text().isBlank()) {
-                return r.text().trim();
+                return new Summary(r.text().trim(), r.model());
             }
         } catch (Exception ignore) {
             // fall through to deterministic summary
         }
-        return "CI job \"" + jobName + "\" failed at step \"" + step + "\". See the redacted log tail for the failure.";
+        return new Summary(
+                "CI job \"" + jobName + "\" failed at step \"" + step + "\". See the redacted log tail for the failure.",
+                "deterministic");
     }
 
     /** Job log tail: strip timestamps, keep the last ~45 non-empty lines, redact secrets. */

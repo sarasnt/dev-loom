@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { nextTick, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
+import { storeToRefs } from 'pinia'
 import type { BrainstormData } from '../types'
 import { fetchBrainstorm, sendBrainstorm } from '../api'
+import { useDashboardStore } from '../stores/dashboard'
 import SourceChip from '../components/SourceChip.vue'
 import BoundaryToken from '../components/BoundaryToken.vue'
 import LoomLoader from '../components/LoomLoader.vue'
@@ -12,11 +14,51 @@ const thinkingSteps = [
   'checking assumptions…',
 ]
 
+const store = useDashboardStore()
+const { activeModel } = storeToRefs(store)
+
 const data = ref<BrainstormData | null>(null)
 const loading = ref(true)
 const draft = ref('')
 const sending = ref(false)
 const chatEl = ref<HTMLElement | null>(null)
+
+// The most recent AI reply used a model; if you've since switched, offer to redo it.
+const canRedo = computed(() => {
+  if (!data.value || sending.value) return false
+  const lastAi = [...data.value.active.messages].reverse().find((m) => m.role === 'ai' && m.model)
+  return (
+    !!lastAi &&
+    !!lastAi.model &&
+    lastAi.model !== 'stub-deterministic' &&
+    !!activeModel.value &&
+    lastAi.model !== activeModel.value
+  )
+})
+
+async function redoLast() {
+  if (!data.value || sending.value) return
+  const session = data.value.active
+  const msgs = session.messages
+  let i = msgs.length - 1
+  while (i >= 0 && msgs[i].role !== 'you') i--
+  if (i < 0) return
+  const userText = msgs[i].text
+  const history = msgs.slice(0, i).map((m) => ({ role: m.role, text: m.text }))
+  msgs.splice(i + 1) // drop the previous AI reply(ies) — we regenerate them
+  sending.value = true
+  await scrollToEnd()
+  try {
+    const sourceIds = session.inContext.map((s) => s.id)
+    const reply = await sendBrainstorm(userText, sourceIds, history)
+    session.messages.push(reply)
+  } catch {
+    session.messages.push({ role: 'ai', text: 'Could not reach the model.', hypothesis: false })
+  } finally {
+    sending.value = false
+    await scrollToEnd()
+  }
+}
 
 onMounted(async () => {
   data.value = await fetchBrainstorm()
@@ -89,6 +131,11 @@ async function send() {
         </div>
       </div>
 
+      <div v-if="canRedo" class="redo mono">
+        <span>Model switched to <b>{{ activeModel }}</b> since the last reply.</span>
+        <button class="redo-btn" @click="redoLast">Redo with {{ activeModel }} ↻</button>
+      </div>
+
       <div class="composer">
         <input
           v-model="draft"
@@ -127,6 +174,16 @@ async function send() {
 .empty { color: var(--faint-text); padding: 24px; }
 .loadwrap { display: flex; justify-content: center; align-items: center; height: 100%; }
 .think-loom { align-items: flex-start; }
+.redo {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  border: 1px solid var(--warp); background: var(--warp-weft); border-radius: 8px;
+  padding: 8px 12px; margin-bottom: 10px; font-size: 12px; color: var(--dim);
+}
+.redo-btn {
+  margin-left: auto; font-size: 12px; font-weight: 600; border-radius: 6px; padding: 5px 11px;
+  border: 1px solid var(--warp); background: var(--warp); color: var(--on-warp); cursor: pointer; white-space: nowrap;
+}
+.redo-btn:hover { background: var(--warp-hi); }
 .brain { display: grid; grid-template-columns: 182px 1fr 250px; height: 100%; }
 .sess { border-right: 1px solid var(--line); padding: 14px 12px; background: var(--rail-bg); display: flex; flex-direction: column; }
 .nb { font-size: 13px; color: var(--warp-hi); padding: 6px 10px; margin-bottom: 6px; }
