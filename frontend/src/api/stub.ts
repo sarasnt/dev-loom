@@ -120,6 +120,15 @@ const PROVIDERS: ProvidersData = {
 export function fetchProviders(): Promise<ProvidersData> {
   return delay(PROVIDERS)
 }
+export function fetchMonitoring(): Promise<import('../types').MonitoringData> {
+  return delay({
+    models: [],
+    recent: [],
+    totals: { calls: 0, errors: 0, inputTokens: 0, outputTokens: 0 },
+    langfuseEnabled: false,
+    metricsPath: '/actuator/metrics/devloom.llm.calls',
+  })
+}
 export function setActiveModel(_name: string): Promise<ProvidersData> {
   return delay(PROVIDERS)
 }

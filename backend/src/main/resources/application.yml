@@ -23,7 +23,8 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        # metrics exposed so the Monitoring panel can link to the live devloom.llm.* meters.
+        include: health,info,metrics
   endpoint:
     health:
       show-details: when-authorized

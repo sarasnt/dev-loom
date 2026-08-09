@@ -12,6 +12,7 @@ const routes = [
   { path: '/onboarding', name: 'onboarding', component: () => import('../views/OnboardingView.vue') },
   { path: '/settings/integrations', name: 'integrations', component: () => import('../views/IntegrationsView.vue') },
   { path: '/settings/providers', name: 'providers', component: () => import('../views/ProvidersView.vue') },
+  { path: '/settings/monitoring', name: 'monitoring', component: () => import('../views/MonitoringView.vue') },
   { path: '/settings/privacy', name: 'privacy', component: () => import('../views/PrivacyView.vue') },
 ]
 

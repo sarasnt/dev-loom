@@ -3,6 +3,7 @@
 const tabs = [
   { to: '/settings/integrations', label: 'Sources' },
   { to: '/settings/providers', label: 'Model providers' },
+  { to: '/settings/monitoring', label: 'Monitoring' },
   { to: '/settings/privacy', label: 'Privacy' },
 ]
 </script>

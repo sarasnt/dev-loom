@@ -1,5 +1,7 @@
 package com.devloom.ai;
 
+import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -10,6 +12,13 @@ import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
+
+import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.SystemMessage;
+import dev.langchain4j.data.message.UserMessage;
+import dev.langchain4j.model.chat.request.ChatRequest;
+import dev.langchain4j.model.chat.response.ChatResponse;
+import dev.langchain4j.model.ollama.OllamaChatModel;
 
 /**
  * Local model adapter via Ollama (SPEC.md §20). Local-first, free, nothing leaves the
@@ -25,12 +34,17 @@ public class OllamaLlm implements LlmPort {
             new ParameterizedTypeReference<>() {};
 
     private final String defaultModel;
+    private final String baseUrl;
     private final RestClient http;
+    private final ModelMonitor monitor;
 
     public OllamaLlm(
             @Value("${devloom.ai.ollama-base-url:http://localhost:11434}") String baseUrl,
-            @Value("${devloom.ai.default-model:Qwen3-Coder-30B-A3B}") String defaultModel) {
+            @Value("${devloom.ai.default-model:Qwen3-Coder-30B-A3B}") String defaultModel,
+            ModelMonitor monitor) {
         this.defaultModel = defaultModel;
+        this.baseUrl = baseUrl;
+        this.monitor = monitor;
         SimpleClientHttpRequestFactory f = new SimpleClientHttpRequestFactory();
         f.setConnectTimeout(1500);    // fail fast when Ollama isn't there
         f.setReadTimeout(120_000);    // generation can take a while
@@ -57,13 +71,20 @@ public class OllamaLlm implements LlmPort {
     @Override
     public LlmResult generate(LlmRequest request) {
         String model = resolveModel(request.model());
-        String prompt = (request.system() == null ? "" : request.system() + "\n\n") + request.prompt();
-        Map<String, Object> resp = http.post()
-                .uri("/api/generate")
-                .body(Map.of("model", model, "prompt", prompt, "stream", false))
-                .retrieve()
-                .body(MAP);
-        String text = resp == null ? "" : String.valueOf(resp.getOrDefault("response", ""));
+        // Route through LangChain4j so ModelMonitor (a ChatModelListener) observes the call.
+        OllamaChatModel chat = OllamaChatModel.builder()
+                .baseUrl(baseUrl)
+                .modelName(model)
+                .timeout(Duration.ofSeconds(120))
+                .listeners(List.of(monitor))
+                .build();
+        List<ChatMessage> messages = new ArrayList<>();
+        if (request.system() != null && !request.system().isBlank()) {
+            messages.add(SystemMessage.from(request.system()));
+        }
+        messages.add(UserMessage.from(request.prompt()));
+        ChatResponse resp = chat.chat(ChatRequest.builder().messages(messages).build());
+        String text = resp.aiMessage() == null || resp.aiMessage().text() == null ? "" : resp.aiMessage().text();
         log.info("Ollama generate: model={} chars={}", model, text.length());
         return new LlmResult(text, model, provider(), true);
     }

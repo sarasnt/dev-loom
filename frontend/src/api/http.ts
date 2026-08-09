@@ -15,6 +15,7 @@ import type {
   RepoView,
   BrowseResult,
   RepoChanges,
+  MonitoringData,
 } from '../types'
 
 type SourceUpsert = {
@@ -76,6 +77,7 @@ export const fetchLatestBuild = () => get<BuildFailure>('/builds')
 export const fetchHandoff = (id: string) => get<Handoff>(`/handoffs/${id}`)
 export const fetchIntegrations = () => get<Integration[]>('/integrations')
 export const fetchProviders = () => get<ProvidersData>('/providers')
+export const fetchMonitoring = () => get<MonitoringData>('/monitoring/models')
 export const setActiveModel = (name: string) => post<ProvidersData>('/providers/model', { name })
 export const setProviderKey = (provider: string, key: string) =>
   post<ProvidersData>('/providers/keys', { provider, key })

@@ -243,6 +243,34 @@ export interface PrivacyData {
   egress: EgressEntry[]
 }
 
+// ---- Model monitoring (LangChain4j ChatModelListener) ----
+export interface ModelCall {
+  at: number
+  provider: string
+  model: string
+  latencyMs: number
+  inputTokens: number
+  outputTokens: number
+  ok: boolean
+  error: string | null
+}
+export interface ModelAgg {
+  provider: string
+  model: string
+  calls: number
+  errors: number
+  avgLatencyMs: number
+  inputTokens: number
+  outputTokens: number
+}
+export interface MonitoringData {
+  models: ModelAgg[]
+  recent: ModelCall[]
+  totals: { calls: number; errors: number; inputTokens: number; outputTokens: number }
+  langfuseEnabled: boolean
+  metricsPath: string
+}
+
 // ---- Brainstorm ----
 export interface BrainstormMessage {
   role: 'you' | 'ai'
