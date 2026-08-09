@@ -48,6 +48,7 @@ public class ApiController {
     private final ProvidersService providersService;
     private final PrivacyService privacyService;
     private final OnboardingService onboardingService;
+    private final SourcesService sourcesService;
     private final AuditService audit;
 
     public ApiController(TodayService todayService, WorkModelService workModel,
@@ -56,7 +57,8 @@ public class ApiController {
                          BuildFailureService buildFailureService, ChangesService changesService,
                          IntegrationsService integrationsService, BrainstormService brainstormService,
                          ProvidersService providersService, PrivacyService privacyService,
-                         OnboardingService onboardingService, AuditService audit) {
+                         OnboardingService onboardingService, SourcesService sourcesService,
+                         AuditService audit) {
         this.todayService = todayService;
         this.workModel = workModel;
         this.syncService = syncService;
@@ -69,6 +71,7 @@ public class ApiController {
         this.providersService = providersService;
         this.privacyService = privacyService;
         this.onboardingService = onboardingService;
+        this.sourcesService = sourcesService;
         this.audit = audit;
     }
 
@@ -162,6 +165,46 @@ public class ApiController {
     @GetMapping("/integrations")
     public List<Dto.Integration> integrations() {
         return integrationsService.list();
+    }
+
+    // ---- Multi-source configuration (docs/SPEC-sources.md) ----
+
+    /** Setup descriptors for the Add-source form (types → deployments → fields). */
+    @GetMapping("/source-types")
+    public List<com.devloom.integrations.SetupDescriptor.Type> sourceTypes() {
+        return sourcesService.types();
+    }
+
+    @GetMapping("/sources")
+    public List<Dto.SourceView> sources() {
+        return sourcesService.list();
+    }
+
+    @PostMapping("/sources")
+    public Dto.SourceView addSource(@RequestBody Dto.SourceUpsert body) {
+        return sourcesService.create(body);
+    }
+
+    @PostMapping("/sources/test")
+    public Map<String, Object> testSource(@RequestBody Dto.SourceUpsert body) {
+        return sourcesService.test(body);
+    }
+
+    @org.springframework.web.bind.annotation.PutMapping("/sources/{id}")
+    public Dto.SourceView updateSource(@PathVariable String id, @RequestBody Dto.SourceUpsert body) {
+        return sourcesService.update(id, body);
+    }
+
+    @DeleteMapping("/sources/{id}")
+    public Map<String, Object> deleteSource(@PathVariable String id) {
+        sourcesService.delete(id);
+        return Map.<String, Object>of("deleted", id);
+    }
+
+    @PostMapping("/sources/{id}/sync")
+    public Map<String, Object> syncSource(@PathVariable String id) {
+        int n = sourcesService.sync(id);
+        return Map.<String, Object>of("id", id, "ingested", n);
     }
 
     @GetMapping("/providers")

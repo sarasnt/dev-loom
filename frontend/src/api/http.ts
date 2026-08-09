@@ -10,7 +10,17 @@ import type {
   BrainstormMessage,
   BrainstormSession,
   OnboardStep,
+  SourceType,
+  SourceView,
 } from '../types'
+
+type SourceUpsert = {
+  type?: string
+  deployment?: string
+  name?: string
+  enabled?: boolean
+  fields?: Record<string, string>
+}
 
 // Real backend client (SPEC §34). Base defaults to /api/v1 (proxied to :8080 in dev,
 // same-origin behind nginx in the compose stack). Same function surface as the stub.
@@ -44,6 +54,18 @@ async function del<T>(path: string): Promise<T> {
   return (await res.json()) as T
 }
 
+async function put<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    throw new Error(`PUT ${path} → ${res.status}`)
+  }
+  return (await res.json()) as T
+}
+
 export const fetchToday = () => get<TodayData>('/today')
 export const fetchWork = () => get<WorkRow[]>('/work')
 export const fetchBuildFailure = (id: string) => get<BuildFailure>(`/builds/${id}`)
@@ -71,3 +93,14 @@ export const syncSource = (source: string) =>
   post<{ source: string; ingested: number }>(`/integrations/${source}/sync`, {})
 export const disconnectSource = (source: string) =>
   del<{ source: string; removed: number }>(`/integrations/${source}`)
+
+// ---- multi-source configuration ----
+export const fetchSourceTypes = () => get<SourceType[]>('/source-types')
+export const fetchSources = () => get<SourceView[]>('/sources')
+export const createSource = (body: SourceUpsert) => post<SourceView>('/sources', body)
+export const testSourceConfig = (body: SourceUpsert) =>
+  post<{ ok: boolean; error?: string }>('/sources/test', body)
+export const updateSource = (id: string, body: SourceUpsert) => put<SourceView>(`/sources/${id}`, body)
+export const deleteSourceInstance = (id: string) => del<{ deleted: string }>(`/sources/${id}`)
+export const syncSourceInstance = (id: string) =>
+  post<{ id: string; ingested: number }>(`/sources/${id}/sync`, {})

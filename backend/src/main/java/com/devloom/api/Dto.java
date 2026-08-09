@@ -58,6 +58,16 @@ public final class Dto {
             String key, String name, String state, String detail,
             List<String> scopes, String note, List<String> actions) {}
 
+    // ---- Sources (multi-source configuration) ----
+    public record SourceView(
+            String id, String type, String typeLabel, String deployment, String name,
+            String baseUrl, boolean enabled, String state, String detail, long items,
+            String note, List<String> actions) {}
+    // Create/update payload: name + a flat field map (the connector's descriptor says which
+    // fields are secret vs config); enabled used by update only.
+    public record SourceUpsert(String type, String deployment, String name,
+                               Boolean enabled, java.util.Map<String, String> fields) {}
+
     // ---- Providers ----
     public record LocalProvider(String name, String defaultModel, String active,
                                 List<String> models, boolean loaded) {}

@@ -195,3 +195,26 @@ export function syncSource(source: string) {
 export function disconnectSource(source: string) {
   return delay({ source, removed: 0 }, 300)
 }
+
+// ---- multi-source configuration (offline: empty) ----
+export function fetchSourceTypes() {
+  return delay([] as import('../types').SourceType[])
+}
+export function fetchSources() {
+  return delay([] as import('../types').SourceView[])
+}
+export function createSource() {
+  return delay(null as unknown as import('../types').SourceView)
+}
+export function testSourceConfig() {
+  return delay({ ok: false, error: 'offline stub' })
+}
+export function updateSource() {
+  return delay(null as unknown as import('../types').SourceView)
+}
+export function deleteSourceInstance(id: string) {
+  return delay({ deleted: id })
+}
+export function syncSourceInstance(id: string) {
+  return delay({ id, ingested: 0 })
+}

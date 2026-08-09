@@ -124,6 +124,40 @@ export interface Handoff {
   sources: EvidenceRef[]
 }
 
+// ---- Sources (multi-source configuration) ----
+export interface SourceField {
+  key: string
+  label: string
+  type: string // text | url | password | number
+  secret: boolean
+  required: boolean
+  placeholder?: string
+}
+export interface SourceDeployment {
+  id: string
+  label: string
+  fields: SourceField[]
+}
+export interface SourceType {
+  type: string
+  label: string
+  deployments: SourceDeployment[]
+}
+export interface SourceView {
+  id: string
+  type: string
+  typeLabel: string
+  deployment: string
+  name: string
+  baseUrl?: string | null
+  enabled: boolean
+  state: 'connected' | 'not_connected'
+  detail?: string | null
+  items: number
+  note?: string | null
+  actions: string[]
+}
+
 // ---- Integrations ----
 export interface Integration {
   key: string
