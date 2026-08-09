@@ -112,14 +112,21 @@ export function fetchIntegrations(): Promise<Integration[]> {
 // ---- Providers ----
 const PROVIDERS: ProvidersData = {
   local: { name: 'Ollama', defaultModel: 'local model', active: 'local model', loaded: false, models: [] },
-  anthropic: { name: 'Anthropic', boundaryLabel: 'leaves for Anthropic', hasKey: false },
-  openai: { name: 'OpenAI', boundaryLabel: 'leaves for OpenAI', hasKey: false, note: 'Uses the Responses API · stateless' },
+  anthropic: { name: 'Anthropic', key: 'anthropic', boundaryLabel: 'leaves for Anthropic', hasKey: false, models: [] },
+  openai: { name: 'OpenAI', key: 'openai', boundaryLabel: 'leaves for OpenAI', hasKey: false, models: [] },
   fallbackOn: false,
+  canStoreKeys: false,
 }
 export function fetchProviders(): Promise<ProvidersData> {
   return delay(PROVIDERS)
 }
 export function setActiveModel(_name: string): Promise<ProvidersData> {
+  return delay(PROVIDERS)
+}
+export function setProviderKey(_provider: string, _key: string): Promise<ProvidersData> {
+  return delay(PROVIDERS)
+}
+export function clearProviderKey(_provider: string): Promise<ProvidersData> {
   return delay(PROVIDERS)
 }
 

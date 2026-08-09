@@ -62,9 +62,11 @@ public final class Dto {
     public record LocalProvider(String name, String defaultModel, String active,
                                 List<String> models, boolean loaded) {}
     public record KeyProvider(
-            String name, String boundaryLabel, boolean hasKey, Boolean valid,
-            Integer capCents, Integer usedCents, String note) {}
-    public record Providers(LocalProvider local, KeyProvider anthropic, KeyProvider openai, boolean fallbackOn) {}
+            String name, String key, String boundaryLabel, boolean hasKey, Boolean valid,
+            Integer capCents, Integer usedCents, String note, List<String> models, String maskedKey) {}
+    public record Providers(LocalProvider local, KeyProvider anthropic, KeyProvider openai,
+                            boolean fallbackOn, boolean canStoreKeys) {}
+    public record SetKey(String provider, String key) {}
 
     // ---- Privacy ----
     public record EgressEntry(String time, String action, String to, String tokens) {}

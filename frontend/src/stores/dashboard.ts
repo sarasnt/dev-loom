@@ -45,7 +45,11 @@ export const useDashboardStore = defineStore('dashboard', () => {
   async function refreshModels() {
     try {
       const p = await fetchProviders()
-      models.value = p.local.models ?? []
+      // Local models + remote models from any keyed provider (router maps names → adapter).
+      const all = [...(p.local.models ?? [])]
+      if (p.anthropic?.hasKey) all.push(...(p.anthropic.models ?? []))
+      if (p.openai?.hasKey) all.push(...(p.openai.models ?? []))
+      models.value = all
       activeModel.value = p.local.active ?? p.local.defaultModel ?? ''
     } catch {
       // leave the previous value

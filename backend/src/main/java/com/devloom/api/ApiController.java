@@ -169,10 +169,24 @@ public class ApiController {
         return providersService.providers();
     }
 
-    /** Switch the active local model (rail dropdown). Returns the refreshed provider state. */
+    /** Switch the active model (rail dropdown) — local or a keyed remote model. */
     @PostMapping("/providers/model")
     public Dto.Providers selectModel(@RequestBody Map<String, String> body) {
         providersService.selectModel(body == null ? null : body.get("name"));
+        return providersService.providers();
+    }
+
+    /** Store a BYO provider API key (encrypted). Returns refreshed provider state. */
+    @PostMapping("/providers/keys")
+    public Dto.Providers setKey(@RequestBody Dto.SetKey body) {
+        providersService.setKey(body.provider(), body.key());
+        return providersService.providers();
+    }
+
+    /** Remove a stored provider API key. */
+    @DeleteMapping("/providers/keys/{provider}")
+    public Dto.Providers clearKey(@PathVariable String provider) {
+        providersService.clearKey(provider);
         return providersService.providers();
     }
 

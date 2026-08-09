@@ -52,6 +52,10 @@ export const fetchHandoff = (id: string) => get<Handoff>(`/handoffs/${id}`)
 export const fetchIntegrations = () => get<Integration[]>('/integrations')
 export const fetchProviders = () => get<ProvidersData>('/providers')
 export const setActiveModel = (name: string) => post<ProvidersData>('/providers/model', { name })
+export const setProviderKey = (provider: string, key: string) =>
+  post<ProvidersData>('/providers/keys', { provider, key })
+export const clearProviderKey = (provider: string) =>
+  del<ProvidersData>(`/providers/keys/${provider}`)
 export const fetchPrivacy = () => get<PrivacyData>('/privacy')
 export const fetchBrainstorm = () => get<BrainstormData>('/brainstorm')
 export const fetchBrainstormSession = (id: string) =>

@@ -145,18 +145,22 @@ export interface LocalProvider {
 }
 export interface KeyProvider {
   name: string
+  key: string // provider id: 'anthropic' | 'openai'
   boundaryLabel: string
   hasKey: boolean
   valid?: boolean
   capCents?: number
   usedCents?: number
   note?: string
+  models?: string[]
+  maskedKey?: string | null
 }
 export interface ProvidersData {
   local: LocalProvider
   anthropic: KeyProvider
   openai: KeyProvider
   fallbackOn: boolean
+  canStoreKeys: boolean
 }
 
 // ---- Privacy & data boundary ----
