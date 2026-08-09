@@ -1,12 +1,13 @@
 # DevLoom — self-hosted stack (SPEC.md §32).
 # Core: db + backend + frontend. Optional profiles: `ai` (Ollama), `obs` (Langfuse — see note).
 #
-#   docker compose up -d --build            # core stack → http://localhost:8088
-#   docker compose --profile ai up -d       # + local Ollama on :11434
+#   docker compose up -d --build              # core stack → http://localhost:8088
+#   docker compose --profile ai up -d         # + local Ollama on :11434 (auto-pulls models)
+#   docker compose --profile obs up -d        # + Langfuse UI → http://localhost:3000
 #
-# Langfuse is a multi-service stack (Postgres + ClickHouse + Redis + object store); it is
-# intentionally kept in a separate file to avoid bloating the core bring-up — see
-# docs/handover and DESIGN/SPEC. Wire it by setting DEVLOOM_LANGFUSE_ENABLED=true on backend.
+# The `ai` profile also runs `ollama-init`, which pulls DEVLOOM_OLLAMA_MODELS into Ollama.
+# Langfuse (profile `obs`) is a self-hosted LLM-observability UI; after first login create a
+# project, then set its keys + DEVLOOM_LANGFUSE_ENABLED=true on the backend to export traces.
 
 services:
   db:
@@ -86,6 +87,54 @@ services:
               count: all
               capabilities: [gpu]
 
+  # One-shot: pull the local models into Ollama on `up`. Idempotent (already-pulled
+  # models are a no-op) and cached in the devloom_ollama volume. Override the list with
+  # DEVLOOM_OLLAMA_MODELS (space-separated) in your shell or backend/.env.
+  ollama-init:
+    image: ollama/ollama:latest
+    profiles: ["ai"]
+    depends_on:
+      - ollama
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      DEVLOOM_OLLAMA_MODELS: ${DEVLOOM_OLLAMA_MODELS:-qwen2.5-coder:7b gpt-oss:20b}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - >
+        echo "Provisioning Ollama models at $$OLLAMA_HOST ...";
+        until ollama list >/dev/null 2>&1; do echo "waiting for ollama..."; sleep 2; done;
+        for m in $$DEVLOOM_OLLAMA_MODELS; do echo "==> pull $$m"; ollama pull "$$m" || echo "!! pull failed: $$m"; done;
+        echo "Ollama model provisioning complete.";
+    restart: "no"
+
+  # ---- optional: LLM observability — Langfuse (profile "obs") ----
+  # Open at http://localhost:3000 after `docker compose --profile obs up -d`.
+  langfuse-db:
+    image: postgres:16-alpine
+    profiles: ["obs"]
+    environment:
+      POSTGRES_USER: langfuse
+      POSTGRES_PASSWORD: langfuse
+      POSTGRES_DB: langfuse
+    volumes:
+      - devloom_langfuse_pg:/var/lib/postgresql/data
+
+  langfuse:
+    image: langfuse/langfuse:2
+    profiles: ["obs"]
+    depends_on:
+      - langfuse-db
+    environment:
+      DATABASE_URL: postgresql://langfuse:langfuse@langfuse-db:5432/langfuse
+      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:-devloom-langfuse-dev-secret-change-me}
+      SALT: ${LANGFUSE_SALT:-devloom-langfuse-dev-salt-change-me}
+      TELEMETRY_ENABLED: "false"
+    ports:
+      - "3000:3000"
+
 volumes:
   devloom_pg:
   devloom_ollama:
+  devloom_langfuse_pg:
