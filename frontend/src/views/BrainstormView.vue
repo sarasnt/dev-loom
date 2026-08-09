@@ -2,10 +2,12 @@
 import { computed, nextTick, onMounted, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import type { BrainstormData } from '../types'
+import { useRoute } from 'vue-router'
 import {
   fetchBrainstorm,
   fetchBrainstormSession,
   createBrainstormSession,
+  renameBrainstormSession,
   deleteBrainstormSession,
   sendBrainstorm,
   addBrainstormContext,
@@ -79,12 +81,35 @@ async function streamReply(
   }
 }
 
+const route = useRoute()
+const editingSession = ref<string | null>(null)
+const editTitle = ref('')
+
 onMounted(async () => {
   await store.ensureLoaded() // populate the model list for the in-panel dropdown
   data.value = await fetchBrainstorm()
   loading.value = false
+  // Deep-link: /brainstorm?session=<id> opens a specific session (e.g. from a repo card).
+  const want = route.query.session
+  if (typeof want === 'string' && data.value && data.value.active.id !== want) {
+    await selectSession(want)
+  }
   await scrollToEnd()
 })
+
+function startRename(id: string, current: string) {
+  editingSession.value = id
+  editTitle.value = current
+}
+async function commitRename(id: string) {
+  const t = editTitle.value.trim()
+  editingSession.value = null
+  if (!data.value || !t) return
+  const updated = await renameBrainstormSession(id, t)
+  const ref = data.value.sessions.find((s) => s.id === id)
+  if (ref) ref.title = updated.title
+  if (data.value.active.id === id) data.value.active.title = updated.title
+}
 
 async function scrollToEnd() {
   await nextTick()
@@ -272,10 +297,19 @@ async function redoLast() {
         class="srow"
         :class="{ on: s.id === data.active.id }"
       >
-        <button class="s" @click="selectSession(s.id)">{{ s.title }}</button>
-        <button class="sx" aria-label="Delete session" title="Delete session" @click.stop="removeSession(s.id)">
-          ✕
-        </button>
+        <input
+          v-if="editingSession === s.id"
+          v-model="editTitle"
+          class="srename mono"
+          @keydown.enter="commitRename(s.id)"
+          @keydown.esc="editingSession = null"
+          @blur="commitRename(s.id)"
+        />
+        <template v-else>
+          <button class="s" :title="s.title" @click="selectSession(s.id)" @dblclick="startRename(s.id, s.title)">{{ s.title }}</button>
+          <button class="sre" aria-label="Rename session" title="Rename" @click.stop="startRename(s.id, s.title)">✎</button>
+          <button class="sx" aria-label="Delete session" title="Delete session" @click.stop="removeSession(s.id)">✕</button>
+        </template>
       </div>
       <div class="spring"></div>
       <div class="vis mono">visibility: ● personal ○ workspace</div>
@@ -393,12 +427,18 @@ async function redoLast() {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .srow:hover .s, .srow.on .s { color: var(--ink); }
-.sx {
+.sx, .sre {
   border: 0; background: transparent; color: var(--faint-text); cursor: pointer;
-  font-size: 11px; padding: 4px 8px; opacity: 0; border-radius: 6px;
+  font-size: 11px; padding: 4px 6px; opacity: 0; border-radius: 6px;
 }
-.srow:hover .sx { opacity: 1; }
+.srow:hover .sx, .srow:hover .sre { opacity: 1; }
 .sx:hover { color: var(--failed); }
+.sre:hover { color: var(--warp-hi); }
+.srename {
+  flex: 1; min-width: 0; background: var(--bg); border: 1px solid var(--warp);
+  border-radius: 6px; padding: 6px 8px; color: var(--ink); font-size: 12.5px;
+}
+.srename:focus { outline: none; }
 .spring { margin-top: auto; }
 .vis { font-size: 12px; color: var(--faint-text); }
 .chat { display: flex; flex-direction: column; padding: 16px 18px; min-height: 0; }

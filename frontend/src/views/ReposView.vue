@@ -19,17 +19,25 @@ import {
   repoBranches,
   repoCheckout,
   createBrainstormSession,
+  fetchRepoSessions,
 } from '../api'
 
 const router = useRouter()
+const repoSessions = ref<{ id: string; title: string; repoPath: string }[]>([])
+function sessionsFor(path: string) {
+  return repoSessions.value.filter((s) => s.repoPath === path)
+}
 async function brainstormHere(r: RepoView) {
   busy.value = r.id
   try {
-    await createBrainstormSession(`Brainstorm · ${r.name}`, r.path)
-    router.push('/brainstorm')
+    const s = await createBrainstormSession(`Brainstorm · ${r.name}`, r.path)
+    router.push({ path: '/brainstorm', query: { session: s.id } })
   } finally {
     busy.value = ''
   }
+}
+function openSession(id: string) {
+  router.push({ path: '/brainstorm', query: { session: id } })
 }
 
 const repos = ref<RepoView[]>([])
@@ -63,6 +71,7 @@ async function load() {
     const r = await fetchRepos()
     agentUp.value = r.agentUp
     repos.value = r.repos
+    try { repoSessions.value = await fetchRepoSessions() } catch { /* keep */ }
   } finally {
     loading.value = false
   }
@@ -268,6 +277,13 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
           <button class="btn ghost" :disabled="busy === r.id" @click="remove(r)">Remove</button>
         </div>
 
+        <div v-if="sessionsFor(r.path).length" class="rsessions">
+          <span class="rslab mono">brainstorms:</span>
+          <button v-for="s in sessionsFor(r.path)" :key="s.id" class="rschip" @click="openSession(s.id)">
+            ✎ {{ s.title }}
+          </button>
+        </div>
+
         <!-- changes / staging / commit -->
         <div v-if="openChanges === r.id" class="changes">
           <div class="cgroup">
@@ -374,6 +390,10 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
 .idrow { font-size: 11px; color: var(--faint-text); margin: 8px 0; }
 .idedit { display: flex; gap: 8px; margin: 8px 0; align-items: center; }
 .acts { display: flex; gap: 8px; flex-wrap: wrap; }
+.rsessions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.rslab { font-size: 11px; color: var(--faint-text); }
+.rschip { font-size: 12px; color: var(--warp-hi); background: transparent; border: 1px solid var(--line); border-radius: 20px; padding: 3px 10px; cursor: pointer; }
+.rschip:hover { border-color: var(--warp); }
 .btn { font-size: 13px; font-weight: 500; border-radius: var(--r-ctl); padding: 6px 12px; border: 1px solid var(--line); background: var(--btn-bg); color: var(--ink); cursor: pointer; }
 .btn:hover { border-color: var(--warp); }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }

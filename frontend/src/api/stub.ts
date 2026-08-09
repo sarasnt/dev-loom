@@ -165,6 +165,12 @@ export function createBrainstormSession(title?: string) {
 export function deleteBrainstormSession(id: string) {
   return delay({ deleted: id })
 }
+export function renameBrainstormSession() {
+  return delay(BRAINSTORM.active)
+}
+export function fetchRepoSessions() {
+  return delay([] as { id: string; title: string; repoPath: string }[])
+}
 export function addBrainstormContext() {
   return delay(BRAINSTORM.active)
 }

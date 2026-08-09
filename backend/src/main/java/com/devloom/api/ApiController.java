@@ -339,6 +339,18 @@ public class ApiController {
                 body == null ? null : body.repoPath());
     }
 
+    /** Rename a brainstorming session. */
+    @org.springframework.web.bind.annotation.PutMapping("/brainstorm/sessions/{id}")
+    public Dto.BrainstormSession brainstormRename(@PathVariable String id, @RequestBody Dto.NewSession body) {
+        return brainstormService.renameSession(id, body == null ? null : body.title());
+    }
+
+    /** Repo-bound sessions (grouped in the UI under their repo). */
+    @GetMapping("/brainstorm/repo-sessions")
+    public List<Dto.RepoSession> brainstormRepoSessions() {
+        return brainstormService.repoSessions();
+    }
+
     /** Delete a brainstorming session and its messages. */
     @DeleteMapping("/brainstorm/sessions/{id}")
     public Map<String, Object> brainstormDeleteSession(@PathVariable String id) {

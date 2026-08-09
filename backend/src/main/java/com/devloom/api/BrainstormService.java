@@ -124,6 +124,24 @@ public class BrainstormService {
         return sessions.findById(parse(sessionId)).map(this::toDto).orElseGet(() -> overview().active());
     }
 
+    @Transactional
+    public Dto.BrainstormSession renameSession(String id, String title) {
+        BrainstormSessionEntity s = sessions.findById(parse(id)).orElseThrow();
+        if (title != null && !title.isBlank()) {
+            s.setTitle(title.strip());
+            sessions.save(s);
+        }
+        return toDto(s);
+    }
+
+    /** All repo-bound sessions (for showing a repo's brainstorms in the Repos screen). */
+    @Transactional
+    public List<Dto.RepoSession> repoSessions() {
+        return sessions.findByRepoPathIsNotNullOrderByUpdatedAtDesc().stream()
+                .map(s -> new Dto.RepoSession(String.valueOf(s.getId()), s.getTitle(), s.getRepoPath()))
+                .toList();
+    }
+
     /** Delete a session and its messages. */
     @Transactional
     public void deleteSession(String id) {

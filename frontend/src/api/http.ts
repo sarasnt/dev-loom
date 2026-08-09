@@ -87,6 +87,10 @@ export const fetchBrainstormSession = (id: string) =>
   get<BrainstormSession>(`/brainstorm/sessions/${id}`)
 export const createBrainstormSession = (title?: string, repoPath?: string) =>
   post<BrainstormSession>('/brainstorm/sessions', { title: title ?? '', repoPath: repoPath ?? '' })
+export const renameBrainstormSession = (id: string, title: string) =>
+  put<BrainstormSession>(`/brainstorm/sessions/${id}`, { title })
+export const fetchRepoSessions = () =>
+  get<{ id: string; title: string; repoPath: string }[]>('/brainstorm/repo-sessions')
 export const deleteBrainstormSession = (id: string) =>
   del<{ deleted: string }>(`/brainstorm/sessions/${id}`)
 export const addBrainstormContext = (sessionId: string, item: { kind: string; ref?: string; label: string }) =>
