@@ -18,6 +18,7 @@ export const fetchPrivacy = api.fetchPrivacy
 export const fetchBrainstorm = api.fetchBrainstorm
 export const fetchBrainstormSession = api.fetchBrainstormSession
 export const createBrainstormSession = api.createBrainstormSession
+export const deleteBrainstormSession = api.deleteBrainstormSession
 export const sendBrainstorm = api.sendBrainstorm
 export const fetchOnboarding = api.fetchOnboarding
 export const syncSource = api.syncSource

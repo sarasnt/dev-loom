@@ -10,6 +10,8 @@ const rows = ref<WorkRow[]>([])
 const loading = ref(true)
 const filters = ['All', 'PRs', 'Reviews', 'Tasks', 'Builds', 'Calendar', 'Notes', 'mine', 'stale']
 const active = ref('All')
+// Status sub-filter: 'open' (open & ongoing, the default), 'all', or an exact status string.
+const statusFilter = ref('open')
 
 // Which parents are expanded (children shown) and which rows show their description.
 const expandedChildren = ref<Set<string>>(new Set())
@@ -35,7 +37,26 @@ function matchesFilter(r: WorkRow): boolean {
   }
 }
 
-const filtered = computed(() => rows.value.filter(matchesFilter))
+// A row is "done" when its status reads as finished (or its tone is healthy = Jira done).
+function isDone(r: WorkRow): boolean {
+  return (
+    r.statusTone === 'healthy' ||
+    /\b(done|closed|resolved|complete|completed|merged|cancelled|canceled)\b/i.test(r.status)
+  )
+}
+
+const typeFiltered = computed(() => rows.value.filter(matchesFilter))
+// Distinct statuses in the current type view, for the status dropdown.
+const statuses = computed(() =>
+  [...new Set(typeFiltered.value.map((r) => r.status).filter(Boolean))].sort(),
+)
+function matchesStatus(r: WorkRow): boolean {
+  if (statusFilter.value === 'all') return true
+  if (statusFilter.value === 'open') return !isDone(r)
+  return r.status === statusFilter.value
+}
+
+const filtered = computed(() => typeFiltered.value.filter(matchesStatus))
 const idsInView = computed(() => new Set(filtered.value.map((r) => r.id)))
 
 // Top-level rows: no parent, or a parent that isn't in the current (filtered) view.
@@ -110,6 +131,14 @@ function open(r: WorkRow) {
       >
         {{ f }}
       </button>
+
+      <select v-model="statusFilter" class="statussel mono" aria-label="Filter by status">
+        <option value="open">Open &amp; ongoing</option>
+        <option value="all">All statuses</option>
+        <optgroup label="Status">
+          <option v-for="s in statuses" :key="s" :value="s">{{ s }}</option>
+        </optgroup>
+      </select>
     </div>
 
     <div v-if="loading" class="loadwrap"><LoomLoader label="loading work…" /></div>
@@ -203,6 +232,12 @@ function open(r: WorkRow) {
 }
 .fchip:hover { border-color: var(--warp); }
 .fchip.on { background: var(--warp-weft); border-color: var(--warp); color: var(--ink); }
+.statussel {
+  margin-left: auto; font-size: 12px; color: var(--ink); background: var(--chip-bg);
+  border: 1px solid var(--line); border-radius: 6px; padding: 5px 9px; cursor: pointer;
+}
+.statussel:hover { border-color: var(--warp); }
+.statussel:focus { outline: none; border-color: var(--warp); }
 .wi {
   display: flex; align-items: center; gap: 12px; padding: 12px 14px;
   border: 1px solid var(--line); border-radius: 10px; background: var(--surface); margin-bottom: 8px;

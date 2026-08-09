@@ -21,18 +21,24 @@ import com.devloom.workmodel.WorkItemRepository;
 @Service
 public class IntegrationsService {
 
-    private record Meta(String key, String name, List<String> scopes, String noteWhenEmpty, List<String> actions) {}
+    private record Meta(String key, String name, List<String> scopes, String noteWhenEmpty,
+                        List<String> actions, String hint) {}
+
+    private static final String NOTION_HINT =
+            "Sync pulls every page, database and task connected to DevLoom. Notion only exposes "
+            + "what you've shared with the integration — to sync more, open a page/database in "
+            + "Notion → ••• → Connections → DevLoom (access cascades to child pages), then Re-sync.";
 
     private static final Map<String, Meta> META = Map.of(
             "GitHub", new Meta("github", "GitHub",
                     List.of("Contents", "Pull requests", "Issues", "Checks", "Actions", "Deployments"),
                     "Connected, but no open items involve you right now.",
-                    List.of("Re-sync", "Disconnect")),
-            "Jira", new Meta("jira", "Jira", null, null, List.of("Re-sync", "Disconnect")),
-            "Calendar", new Meta("gcal", "Google Calendar", null, null, List.of("Re-sync", "Disconnect")),
+                    List.of("Re-sync", "Disconnect"), null),
+            "Jira", new Meta("jira", "Jira", null, null, List.of("Re-sync", "Disconnect"), null),
+            "Calendar", new Meta("gcal", "Google Calendar", null, null, List.of("Re-sync", "Disconnect"), null),
             "Notion", new Meta("notion", "Notion", null,
                     "No pages shared yet — connect the DevLoom integration to a page.",
-                    List.of("Re-sync")));
+                    List.of("Sync all", "Disconnect"), NOTION_HINT));
 
     private static final List<String> ORDER = List.of("GitHub", "Jira", "Calendar", "Notion");
 
@@ -59,7 +65,8 @@ public class IntegrationsService {
     }
 
     private Dto.Integration toDto(SourceConnector c) {
-        Meta m = META.getOrDefault(c.source(), new Meta(c.source().toLowerCase(), c.source(), null, null, List.of()));
+        Meta m = META.getOrDefault(c.source(),
+                new Meta(c.source().toLowerCase(), c.source(), null, null, List.of(), null));
         boolean enabled = c.enabled();
         long count = repo.countBySource(c.source());
         String lastSync = lastSyncRelative(c.source());
@@ -70,7 +77,10 @@ public class IntegrationsService {
         if (enabled) {
             detail = "connected · " + count + " item" + (count == 1 ? "" : "s")
                     + (lastSync != null ? " · " + lastSync : "");
-            if (count == 0 && m.noteWhenEmpty() != null) {
+            // A persistent hint (e.g. Notion's "how to connect more") wins; else the empty note.
+            if (m.hint() != null) {
+                note = m.hint();
+            } else if (count == 0 && m.noteWhenEmpty() != null) {
                 note = m.noteWhenEmpty();
             }
         }

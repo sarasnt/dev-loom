@@ -197,6 +197,13 @@ public class ApiController {
         return brainstormService.createSession(body == null ? null : body.title());
     }
 
+    /** Delete a brainstorming session and its messages. */
+    @DeleteMapping("/brainstorm/sessions/{id}")
+    public Map<String, Object> brainstormDeleteSession(@PathVariable String id) {
+        brainstormService.deleteSession(id);
+        return Map.<String, Object>of("deleted", id);
+    }
+
     /** Send a brainstorm message + attached sources → local-model reply (SPEC §Brainstorming). */
     @PostMapping("/brainstorm/messages")
     public Dto.BrainstormMessage brainstormSend(@RequestBody Dto.BrainstormSend body) {

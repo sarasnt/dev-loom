@@ -6,6 +6,7 @@ import {
   fetchBrainstorm,
   fetchBrainstormSession,
   createBrainstormSession,
+  deleteBrainstormSession,
   sendBrainstorm,
 } from '../api'
 import { useDashboardStore } from '../stores/dashboard'
@@ -59,6 +60,22 @@ async function newSession() {
   data.value.active = s
   draft.value = ''
   await scrollToEnd()
+}
+
+async function removeSession(id: string) {
+  if (!data.value) return
+  if (!confirm('Delete this brainstorm session and its history?')) return
+  await deleteBrainstormSession(id)
+  data.value.sessions = data.value.sessions.filter((s) => s.id !== id)
+  if (data.value.active.id === id) {
+    if (data.value.sessions.length) {
+      data.value.active = await fetchBrainstormSession(data.value.sessions[0].id)
+    } else {
+      // none left → reload; the backend hands back a fresh empty session
+      data.value = await fetchBrainstorm()
+    }
+    await scrollToEnd()
+  }
 }
 
 function onModelChange(e: Event) {
@@ -145,15 +162,17 @@ async function redoLast() {
     <!-- sessions -->
     <aside class="sess">
       <button class="nb" @click="newSession">+ New session</button>
-      <button
+      <div
         v-for="s in data.sessions"
         :key="s.id"
-        class="s"
+        class="srow"
         :class="{ on: s.id === data.active.id }"
-        @click="selectSession(s.id)"
       >
-        {{ s.title }}
-      </button>
+        <button class="s" @click="selectSession(s.id)">{{ s.title }}</button>
+        <button class="sx" aria-label="Delete session" title="Delete session" @click.stop="removeSession(s.id)">
+          ✕
+        </button>
+      </div>
       <div class="spring"></div>
       <div class="vis mono">visibility: ● personal ○ workspace</div>
     </aside>
@@ -248,12 +267,23 @@ async function redoLast() {
   font-size: 13px; color: var(--warp-hi); padding: 6px 10px; margin-bottom: 6px; cursor: pointer;
 }
 .nb:hover { color: var(--ink); }
-.s {
-  display: block; width: 100%; text-align: left; background: transparent; border: 0;
-  padding: 8px 10px; border-radius: 8px; color: var(--dim); font-size: 13px; cursor: pointer;
+.srow {
+  display: flex; align-items: center; gap: 4px; border-radius: 8px;
 }
-.s:hover { color: var(--ink); background: var(--nav-hover); }
-.s.on { background: var(--warp-weft); color: var(--ink); }
+.srow:hover { background: var(--nav-hover); }
+.srow.on { background: var(--warp-weft); }
+.s {
+  flex: 1; min-width: 0; text-align: left; background: transparent; border: 0;
+  padding: 8px 10px; color: var(--dim); font-size: 13px; cursor: pointer;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.srow:hover .s, .srow.on .s { color: var(--ink); }
+.sx {
+  border: 0; background: transparent; color: var(--faint-text); cursor: pointer;
+  font-size: 11px; padding: 4px 8px; opacity: 0; border-radius: 6px;
+}
+.srow:hover .sx { opacity: 1; }
+.sx:hover { color: var(--failed); }
 .spring { margin-top: auto; }
 .vis { font-size: 12px; color: var(--faint-text); }
 .chat { display: flex; flex-direction: column; padding: 16px 18px; min-height: 0; }

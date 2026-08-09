@@ -58,6 +58,8 @@ export const fetchBrainstormSession = (id: string) =>
   get<BrainstormSession>(`/brainstorm/sessions/${id}`)
 export const createBrainstormSession = (title?: string) =>
   post<BrainstormSession>('/brainstorm/sessions', { title: title ?? '' })
+export const deleteBrainstormSession = (id: string) =>
+  del<{ deleted: string }>(`/brainstorm/sessions/${id}`)
 export const sendBrainstorm = (sessionId: string, message: string, sourceIds: string[]) =>
   post<BrainstormMessage>('/brainstorm/messages', { sessionId, message, sourceIds })
 export const fetchOnboarding = () => get<OnboardStep[]>('/onboarding')

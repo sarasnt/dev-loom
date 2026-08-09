@@ -91,6 +91,14 @@ public class BrainstormService {
         return toDto(sessions.save(BrainstormSessionEntity.create(title)));
     }
 
+    /** Delete a session and its messages. */
+    @Transactional
+    public void deleteSession(String id) {
+        Long sid = parse(id);
+        messages.deleteBySessionId(sid);
+        sessions.deleteById(sid);
+    }
+
     // ---- write: a turn --------------------------------------------------------
 
     @Transactional

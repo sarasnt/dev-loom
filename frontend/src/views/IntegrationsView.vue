@@ -35,7 +35,7 @@ async function reload() {
 async function onAction(it: Integration, action: string) {
   const source = SOURCE[it.key]
   if (!source) return // e.g. Microsoft "Connect" — not wired in iteration 1
-  if (action === 'Re-sync' || action === 'Retry now') {
+  if (action === 'Re-sync' || action === 'Retry now' || action === 'Sync all') {
     busy.value = it.key
     flash.value = ''
     try {
@@ -63,7 +63,7 @@ async function onAction(it: Integration, action: string) {
 }
 
 // Which actions are wired to real behavior right now.
-const wired = (a: string) => a === 'Re-sync' || a === 'Retry now' || a === 'Disconnect'
+const wired = (a: string) => ['Re-sync', 'Retry now', 'Sync all', 'Disconnect'].includes(a)
 </script>
 
 <template>
