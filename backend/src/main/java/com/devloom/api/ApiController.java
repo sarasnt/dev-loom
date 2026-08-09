@@ -363,6 +363,33 @@ public class ApiController {
         return brainstormService.reply(body);
     }
 
+    /** Streaming reply: `delta` events with text chunks, then a `done` event with the final. */
+    @PostMapping("/brainstorm/messages/stream")
+    public SseEmitter brainstormStream(@RequestBody Dto.BrainstormSend body) {
+        SseEmitter emitter = new SseEmitter(900_000L);
+        sse.execute(() -> {
+            try {
+                brainstormService.replyStreaming(body,
+                        delta -> send(emitter, "delta", Map.of("t", delta)),
+                        (text, model) -> send(emitter, "done", Map.of("text", text, "model", model)));
+                emitter.complete();
+            } catch (Exception e) {
+                log.warn("Brainstorm stream failed: {}", e.getMessage());
+                send(emitter, "error", Map.of("error", String.valueOf(e.getMessage())));
+                emitter.completeWithError(e);
+            }
+        });
+        return emitter;
+    }
+
+    private static void send(SseEmitter emitter, String event, Object data) {
+        try {
+            emitter.send(SseEmitter.event().name(event).data(data));
+        } catch (Exception ignore) {
+            // client disconnected mid-stream
+        }
+    }
+
     @GetMapping("/onboarding")
     public List<Dto.OnboardStep> onboarding() {
         return onboardingService.steps();

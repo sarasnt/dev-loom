@@ -33,6 +33,50 @@ const draft = ref('')
 const sending = ref(false)
 const switching = ref(false)
 const chatEl = ref<HTMLElement | null>(null)
+const streamingText = ref('') // live-streamed reply while sending
+const sessionModel = ref('') // per-session /model override (claude-code)
+const API = (import.meta.env.VITE_API_BASE as string) ?? '/api/v1'
+
+// Read the SSE stream from POST /brainstorm/messages/stream, calling onDelta per chunk.
+async function streamReply(
+  sessionId: string,
+  message: string,
+  onDelta: (t: string) => void,
+  onDone: (text: string, model: string) => void,
+) {
+  const resp = await fetch(`${API}/brainstorm/messages/stream`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sessionId, message, sourceIds: [], model: sessionModel.value || undefined }),
+  })
+  if (!resp.ok || !resp.body) throw new Error(`stream ${resp.status}`)
+  const reader = resp.body.getReader()
+  const dec = new TextDecoder()
+  let buf = ''
+  for (;;) {
+    const { value, done } = await reader.read()
+    if (done) break
+    buf += dec.decode(value, { stream: true })
+    let idx
+    while ((idx = buf.indexOf('\n\n')) >= 0) {
+      const frame = buf.slice(0, idx)
+      buf = buf.slice(idx + 2)
+      let event = 'message'
+      const dataLines: string[] = []
+      for (const line of frame.split('\n')) {
+        if (line.startsWith('event:')) event = line.slice(6).trim()
+        else if (line.startsWith('data:')) dataLines.push(line.slice(5).replace(/^ /, ''))
+      }
+      const dataStr = dataLines.join('\n')
+      if (!dataStr) continue
+      let payload: Record<string, string>
+      try { payload = JSON.parse(dataStr) } catch { continue }
+      if (event === 'delta') onDelta(payload.t ?? '')
+      else if (event === 'done') onDone(payload.text ?? '', payload.model ?? 'claude-code')
+      else if (event === 'error') throw new Error(payload.error || 'stream error')
+    }
+  }
+}
 
 onMounted(async () => {
   await store.ensureLoaded() // populate the model list for the in-panel dropdown
@@ -99,22 +143,44 @@ async function send() {
   const text = draft.value.trim()
   if (!text || sending.value || !data.value) return
   const session = data.value.active
+
+  // In-composer /model — switch the model for this session (claude-code), no round-trip.
+  if (text.startsWith('/model')) {
+    const m = text.slice('/model'.length).trim()
+    sessionModel.value = m
+    draft.value = ''
+    session.messages.push({
+      role: 'ai',
+      text: m ? `Switched model to \`${m}\` for this session.` : 'Using the default model for this session.',
+      hypothesis: false,
+    })
+    await scrollToEnd()
+    return
+  }
+
   session.messages.push({ role: 'you', text })
   draft.value = ''
   sending.value = true
+  streamingText.value = ''
   await scrollToEnd()
   try {
-    const sourceIds = session.inContext.map((s) => s.id)
-    const reply = await sendBrainstorm(session.id, text, sourceIds)
-    session.messages.push(reply)
+    await streamReply(
+      session.id,
+      text,
+      (delta) => { streamingText.value += delta; scrollToEnd() },
+      (finalText, model) => {
+        session.messages.push({ role: 'ai', text: finalText, model, hypothesis: true })
+      },
+    )
     syncActiveTitle()
   } catch {
     session.messages.push({
       role: 'ai',
-      text: 'Could not reach the model. Is the backend (and Ollama) running?',
+      text: streamingText.value || 'Could not reach the model. Is the backend (and, for claude-code, the host agent) running?',
       hypothesis: false,
     })
   } finally {
+    streamingText.value = ''
     sending.value = false
     await scrollToEnd()
   }
@@ -231,9 +297,10 @@ async function redoLast() {
           </div>
         </div>
         <div v-if="sending" class="msg ai">
-          <div class="who mono">DevLoom · {{ data.active.model }}</div>
-          <div class="bub thinking">
-            <LoomLoader class="think-loom" :steps="thinkingSteps" size="sm" />
+          <div class="who mono">DevLoom · {{ sessionModel || data.active.model }}</div>
+          <div class="bub">
+            <template v-if="streamingText">{{ streamingText }}<span class="cursor" aria-hidden="true">▍</span></template>
+            <LoomLoader v-else class="think-loom" :steps="thinkingSteps" size="sm" />
           </div>
         </div>
       </div>
@@ -248,7 +315,7 @@ async function redoLast() {
           v-model="draft"
           class="composer-input"
           type="text"
-          placeholder="Type a message…"
+          placeholder="Type a message…  (/model <name> to switch)"
           :disabled="sending"
           @keydown.enter="send"
           aria-label="Message"
@@ -339,7 +406,10 @@ async function redoLast() {
 .thinking { color: var(--faint-text); }
 .thinking::after { content: ''; animation: none; }
 .who { font-size: 11px; color: var(--faint-text); margin-bottom: 4px; }
-.bub { font-size: 14px; color: var(--ink); line-height: 1.55; }
+.bub { font-size: 14px; color: var(--ink); line-height: 1.55; white-space: pre-wrap; }
+.cursor { color: var(--warp-hi); animation: blink 1s steps(2) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .cursor { animation: none; } }
 .msg.ai .bub { color: var(--dim); }
 .reason-mark { font-family: var(--mono); font-size: 10px; color: var(--warp); border: 1px solid var(--warp); border-radius: 4px; padding: 1px 5px; margin-left: 6px; }
 .thread { font-size: 11px; color: var(--warp-hi); margin-top: 8px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }

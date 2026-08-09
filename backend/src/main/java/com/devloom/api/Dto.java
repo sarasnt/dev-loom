@@ -112,6 +112,7 @@ public final class Dto {
 
     // ---- Brainstorm send ----
     public record Turn(String role, String text) {}
-    public record BrainstormSend(String sessionId, String message, List<String> sourceIds, List<Turn> history) {}
+    public record BrainstormSend(String sessionId, String message, List<String> sourceIds,
+                                 List<Turn> history, String model) {}
     public record NewSession(String title, String repoPath) {}
 }

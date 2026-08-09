@@ -1,11 +1,19 @@
 package com.devloom.ai;
 
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Map;
+import java.util.function.Consumer;
+import java.util.stream.Stream;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.json.JsonParserFactory;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
@@ -25,15 +33,85 @@ public class HostAgentClient {
             new ParameterizedTypeReference<>() {};
 
     private final RestClient http;
+    private final HttpClient jdk;
+    private final String baseUrl;
     private volatile Map<String, Object> cachedHealth;
     private volatile long cachedAt;
 
     public HostAgentClient(
             @Value("${devloom.host-agent.url:http://host.docker.internal:8765}") String baseUrl) {
+        this.baseUrl = baseUrl;
         SimpleClientHttpRequestFactory f = new SimpleClientHttpRequestFactory();
         f.setConnectTimeout(700);   // fail fast when the agent isn't running
         f.setReadTimeout(240_000);  // a claude generation can take a while
         this.http = RestClient.builder().baseUrl(baseUrl).requestFactory(f).build();
+        this.jdk = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build();
+    }
+
+    /**
+     * Stream a Claude Code turn: POSTs to the agent's /claude/stream and invokes {@code onEvent}
+     * for each ndjson event line as it arrives (parsed to a Map). Blocks until the stream ends.
+     */
+    public void claudeStream(String system, String prompt, String cwd, String sessionId,
+                             String model, Consumer<Map<String, Object>> onEvent) {
+        String body = json(Map.of(
+                "system", nn(system), "prompt", nn(prompt),
+                "cwd", nn(cwd), "sessionId", nn(sessionId), "model", nn(model)));
+        HttpRequest req = HttpRequest.newBuilder(URI.create(baseUrl + "/claude/stream"))
+                .timeout(Duration.ofMinutes(20))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
+                .build();
+        try {
+            HttpResponse<Stream<String>> resp = jdk.send(req, HttpResponse.BodyHandlers.ofLines());
+            try (Stream<String> lines = resp.body()) {
+                lines.forEach(line -> {
+                    if (line == null || line.isBlank()) return;
+                    try {
+                        onEvent.accept(JsonParserFactory.getJsonParser().parseMap(line));
+                    } catch (Exception ignore) {
+                        // non-JSON noise line — skip
+                    }
+                });
+            }
+        } catch (Exception e) {
+            throw new IllegalStateException("host agent stream failed: " + e.getMessage(), e);
+        }
+    }
+
+    private static String nn(String s) {
+        return s == null ? "" : s;
+    }
+
+    /** Minimal JSON object encoder for flat string maps (escapes the values). */
+    private static String json(Map<String, String> m) {
+        StringBuilder sb = new StringBuilder("{");
+        boolean first = true;
+        for (Map.Entry<String, String> e : m.entrySet()) {
+            if (!first) sb.append(',');
+            first = false;
+            sb.append('"').append(e.getKey()).append("\":\"").append(esc(e.getValue())).append('"');
+        }
+        return sb.append('}').toString();
+    }
+
+    private static String esc(String s) {
+        StringBuilder b = new StringBuilder();
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            switch (c) {
+                case '"' -> b.append("\\\"");
+                case '\\' -> b.append("\\\\");
+                case '\n' -> b.append("\\n");
+                case '\r' -> b.append("\\r");
+                case '\t' -> b.append("\\t");
+                default -> {
+                    if (c < 0x20) b.append(String.format("\\u%04x", (int) c));
+                    else b.append(c);
+                }
+            }
+        }
+        return b.toString();
     }
 
     /** Cached (~5s) health probe; empty when the agent is unreachable. */

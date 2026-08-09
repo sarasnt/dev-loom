@@ -235,6 +235,37 @@ function codeName(c) {
   return { M: 'modified', A: 'added', D: 'deleted', R: 'renamed', C: 'copied', U: 'conflict' }[c] || c
 }
 
+// Stream a Claude Code turn: spawn with stream-json + partial messages and forward the raw
+// ndjson event lines to the HTTP response as they arrive (the backend parses/relays them).
+function streamClaude(res, body) {
+  const { system, prompt, cwd, sessionId, model } = body
+  const args = ['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages']
+  if (system) args.push('--append-system-prompt', system)
+  if (cwd) args.push('--permission-mode', 'plan')
+  if (model) args.push('--model', model)
+  if (sessionId) args.push('--resume', sessionId)
+  res.writeHead(200, {
+    'Content-Type': 'application/x-ndjson',
+    'Cache-Control': 'no-cache',
+    'Access-Control-Allow-Origin': '*',
+    Connection: 'keep-alive',
+  })
+  let child
+  try {
+    child = spawn('claude', args, { cwd: cwd || undefined, shell: IS_WIN })
+  } catch (e) {
+    res.write(JSON.stringify({ type: 'error', error: String(e) }) + '\n')
+    res.end()
+    return
+  }
+  child.stdout.on('data', (d) => res.write(d))
+  child.stderr.on('data', (d) => res.write(JSON.stringify({ type: 'stderr', text: String(d) }) + '\n'))
+  child.on('error', (e) => { res.write(JSON.stringify({ type: 'error', error: String(e) }) + '\n'); res.end() })
+  child.on('close', () => res.end())
+  if (prompt != null) { child.stdin.write(prompt); child.stdin.end() }
+  res.on('close', () => { try { child.kill('SIGKILL') } catch { /* ignore */ } })
+}
+
 const server = http.createServer(async (req, res) => {
   if (req.method === 'OPTIONS') return json(res, 204, {})
   const url = new URL(req.url, `http://${req.headers.host}`)
@@ -253,6 +284,12 @@ const server = http.createServer(async (req, res) => {
       if (!body.prompt) return json(res, 400, { error: 'prompt required' })
       const out = await claude(body.system, body.prompt, body.cwd, body.sessionId)
       return json(res, 200, out)
+    }
+    if (req.method === 'POST' && url.pathname === '/claude/stream') {
+      const body = await readBody(req)
+      if (!body.prompt) return json(res, 400, { error: 'prompt required' })
+      streamClaude(res, body)
+      return
     }
 
     // ---- repositories ----

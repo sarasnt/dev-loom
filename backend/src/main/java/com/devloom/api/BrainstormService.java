@@ -1,12 +1,14 @@
 package com.devloom.api;
 
 import java.util.List;
+import java.util.Map;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.devloom.ai.LlmPort;
 import com.devloom.ai.LlmRouter;
+import com.devloom.brainstorm.BrainstormContextEntity;
 import com.devloom.brainstorm.BrainstormMessageEntity;
 import com.devloom.brainstorm.BrainstormMessageRepository;
 import com.devloom.brainstorm.BrainstormSessionEntity;
@@ -189,7 +191,115 @@ public class BrainstormService {
         return new Dto.BrainstormMessage("ai", replyText, replyModel, true, sources);
     }
 
+    /**
+     * Streaming turn: emits reply text chunks via {@code onDelta} as they arrive and the final
+     * (text, model) via {@code onDone}. Claude Code sessions (repo-bound, or when claude-code is
+     * the selected model) stream token deltas from the agent; other models emit once.
+     */
+    @Transactional
+    public void replyStreaming(Dto.BrainstormSend req,
+                               java.util.function.Consumer<String> onDelta,
+                               java.util.function.BiConsumer<String, String> onDone) {
+        BrainstormSessionEntity session = sessions.findById(parse(req.sessionId()))
+                .orElseGet(() -> sessions.save(BrainstormSessionEntity.create(null)));
+
+        List<String> ctx = contexts.findBySessionIdOrderByIdAsc(session.getId()).stream()
+                .filter(c -> !"repo".equals(c.getKind())).map(BrainstormContextEntity::getLabel).toList();
+        List<BrainstormMessageEntity> prior = messages.findBySessionIdOrderBySeqAsc(session.getId());
+        int seq = prior.size();
+        String userText = req.message() == null ? "" : req.message();
+        messages.save(BrainstormMessageEntity.of(session.getId(), seq++, "you", userText, null, false));
+
+        boolean useClaude = session.getRepoPath() != null || "claude-code".equals(llm.activeModelLabel());
+        String finalText;
+        String finalModel;
+
+        if (useClaude) {
+            String prompt = session.getRepoPath() != null
+                    ? (ctx.isEmpty() ? userText : "Attached context: " + String.join(", ", ctx) + "\n\n" + userText)
+                    : buildPrompt(ctx, prior, userText);
+            StringBuilder acc = new StringBuilder();
+            String[] result = {null};
+            String[] sid = {null};
+            boolean[] sawDelta = {false};
+            try {
+                agent.claudeStream(SYSTEM, prompt, session.getRepoPath(), session.getClaudeSessionId(),
+                        req.model(), ev -> {
+                    String type = str(ev, "type");
+                    if ("stream_event".equals(type)) {
+                        String t = deltaText(ev);
+                        if (t != null && !t.isEmpty()) { sawDelta[0] = true; acc.append(t); onDelta.accept(t); }
+                    } else if ("assistant".equals(type) && !sawDelta[0]) {
+                        String t = assistantText(ev);
+                        if (!t.isEmpty()) { acc.append(t); onDelta.accept(t); }
+                    } else if ("result".equals(type)) {
+                        if (ev.get("result") != null) result[0] = String.valueOf(ev.get("result"));
+                        if (ev.get("session_id") != null) sid[0] = String.valueOf(ev.get("session_id"));
+                    } else if ("system".equals(type) && sid[0] == null && ev.get("session_id") != null) {
+                        sid[0] = String.valueOf(ev.get("session_id"));
+                    }
+                });
+                finalText = result[0] != null ? result[0] : acc.toString();
+                if (sid[0] != null) session.setClaudeSessionId(sid[0]);
+            } catch (Exception e) {
+                finalText = "Couldn't run Claude Code — is the host agent running and `claude` logged in? ("
+                        + e.getMessage() + ")";
+                onDelta.accept(finalText);
+            }
+            finalModel = "claude-code";
+        } else {
+            LlmPort.LlmResult r = llm.generate(new LlmPort.LlmRequest("brainstorm", SYSTEM,
+                    buildPrompt(ctx, prior, userText), req.model()));
+            finalText = r.text();
+            finalModel = r.model();
+            onDelta.accept(finalText);
+        }
+
+        messages.save(BrainstormMessageEntity.of(session.getId(), seq, "ai", finalText, finalModel, true));
+        if (prior.isEmpty() && !userText.isBlank()) {
+            session.setTitle(userText.length() > 48 ? userText.substring(0, 48) + "…" : userText);
+        }
+        session.touch();
+        sessions.save(session);
+        onDone.accept(finalText, finalModel);
+    }
+
     // ---- helpers --------------------------------------------------------------
+
+    @SuppressWarnings("unchecked")
+    private static String deltaText(Map<String, Object> ev) {
+        Object event = ev.get("event");
+        if (!(event instanceof Map<?, ?> em)) return null;
+        if (!"content_block_delta".equals(String.valueOf(((Map<String, Object>) em).get("type")))) return null;
+        Object delta = ((Map<String, Object>) em).get("delta");
+        if (delta instanceof Map<?, ?> dm) {
+            Object t = ((Map<String, Object>) dm).get("text");
+            return t == null ? null : String.valueOf(t);
+        }
+        return null;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static String assistantText(Map<String, Object> ev) {
+        Object message = ev.get("message");
+        if (!(message instanceof Map<?, ?> mm)) return "";
+        Object content = ((Map<String, Object>) mm).get("content");
+        StringBuilder sb = new StringBuilder();
+        if (content instanceof List<?> list) {
+            for (Object o : list) {
+                if (o instanceof Map<?, ?> block && "text".equals(String.valueOf(((Map<String, Object>) block).get("type")))) {
+                    Object t = ((Map<String, Object>) block).get("text");
+                    if (t != null) sb.append(t);
+                }
+            }
+        }
+        return sb.toString();
+    }
+
+    private static String str(Map<String, Object> m, String k) {
+        Object v = m.get(k);
+        return v == null ? "" : String.valueOf(v);
+    }
 
     private String buildPrompt(List<String> ids, List<BrainstormMessageEntity> prior, String userText) {
         StringBuilder prompt = new StringBuilder();
