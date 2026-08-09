@@ -40,12 +40,13 @@ public class LlmRouter {
         return provider != null && !provider.equals("stub") && !provider.equals("ollama");
     }
 
-    /** Which provider serves a model name. */
+    /** Which provider serves a model name. Local "gpt-oss" is NOT OpenAI's gpt-*. */
     static String providerForModel(String model) {
         if (model == null) return null;
         String m = model.toLowerCase();
         if (m.startsWith("claude")) return "anthropic";
-        if (m.startsWith("gpt") || m.startsWith("o1") || m.startsWith("o3") || m.startsWith("o4")) return "openai";
+        if (m.startsWith("gpt-oss")) return "ollama";
+        if (m.startsWith("gpt-") || m.startsWith("o1") || m.startsWith("o3") || m.startsWith("o4")) return "openai";
         return "ollama";
     }
 

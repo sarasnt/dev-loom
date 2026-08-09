@@ -4,6 +4,7 @@ import { useDashboardStore } from '../stores/dashboard'
 import type { Integration } from '../types'
 import { fetchIntegrations, syncSource, disconnectSource } from '../api'
 import LoomLoader from '../components/LoomLoader.vue'
+import SettingsTabs from '../components/SettingsTabs.vue'
 
 const store = useDashboardStore()
 const items = ref<Integration[]>([])
@@ -68,6 +69,7 @@ const wired = (a: string) => ['Re-sync', 'Retry now', 'Sync all', 'Disconnect'].
 
 <template>
   <main class="main">
+    <SettingsTabs />
     <div class="head">
       <h1>Integrations</h1>
       <span class="when">DevLoom reads these to build your view — it writes nothing back.</span>

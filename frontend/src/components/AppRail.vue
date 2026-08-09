@@ -1,8 +1,9 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import type { SyncSource, Boundary } from '../types'
 import BoundaryToken from './BoundaryToken.vue'
 
-defineProps<{
+const props = defineProps<{
   workspace: string
   sync: { sources: SyncSource[]; updated: string }
   model: { name: string; local: boolean }
@@ -18,6 +19,21 @@ const emit = defineEmits<{ (e: 'select-model', name: string): void }>()
 function onModelChange(e: Event) {
   emit('select-model', (e.target as HTMLSelectElement).value)
 }
+
+// Remote (paid) models leave the machine — reflect that in the flag + boundary token.
+// Note: local Ollama's "gpt-oss" must NOT be treated as OpenAI's gpt-*.
+function isRemoteModel(m?: string): boolean {
+  const s = (m || '').toLowerCase()
+  if (s.startsWith('claude')) return true
+  if (s.startsWith('gpt-oss')) return false
+  return s.startsWith('gpt-') || s.startsWith('o1') || s.startsWith('o3') || s.startsWith('o4')
+}
+const modelRemote = computed(() => isRemoteModel(props.activeModel))
+const modelBoundary = computed<Boundary>(() =>
+  modelRemote.value
+    ? { mode: 'remote', label: 'Leaves your machine' }
+    : { mode: 'local', label: 'On your machine' },
+)
 
 const nav = [
   { to: '/today', label: 'Today', ic: '◉' },
@@ -64,14 +80,14 @@ const nav = [
         >
           <option v-for="m in models" :key="m" :value="m">{{ m }}</option>
         </select>
-        <span class="mono tag">· local</span>
+        <span class="mono tag" :class="{ remote: modelRemote }">· {{ modelRemote ? 'remote' : 'local' }}</span>
       </div>
-      <div v-else class="mval">{{ model.name }} <span class="mono tag">· {{ model.local ? 'local' : 'remote' }}</span></div>
+      <div v-else class="mval">{{ model.name }} <span class="mono tag" :class="{ remote: modelRemote }">· {{ modelRemote ? 'remote' : 'local' }}</span></div>
     </div>
     </template>
     <div class="meta bmeta">
       <div class="eyebrow">Boundary</div>
-      <BoundaryToken :boundary="boundary" />
+      <BoundaryToken :boundary="modelBoundary" />
     </div>
 
     <div class="spring"></div>
@@ -123,6 +139,7 @@ const nav = [
 .msel:hover { border-color: var(--warp); }
 .msel:focus { outline: none; border-color: var(--warp); }
 .tag { color: var(--faint-text); font-size: 11px; }
+.tag.remote { color: var(--warp-hi); }
 .bmeta { margin-top: 10px; }
 .spring { margin-top: auto; }
 .foot { display: flex; align-items: center; justify-content: space-between; padding: 2px 8px; }

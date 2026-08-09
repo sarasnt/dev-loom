@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue'
 import type { PrivacyData } from '../types'
 import { fetchPrivacy } from '../api'
+import SettingsTabs from '../components/SettingsTabs.vue'
 
 const data = ref<PrivacyData | null>(null)
 const loading = ref(true)
@@ -13,6 +14,7 @@ onMounted(async () => {
 
 <template>
   <main class="main">
+    <SettingsTabs />
     <div class="head"><h1>Privacy &amp; data boundary</h1></div>
     <div v-if="loading" class="mono empty">loading…</div>
     <template v-else-if="data">

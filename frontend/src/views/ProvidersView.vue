@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import type { ProvidersData, KeyProvider } from '../types'
 import { fetchProviders, setProviderKey, clearProviderKey } from '../api'
 import { useDashboardStore } from '../stores/dashboard'
+import SettingsTabs from '../components/SettingsTabs.vue'
 
 const store = useDashboardStore()
 const data = ref<ProvidersData | null>(null)
@@ -52,6 +53,7 @@ const usedPct = (p: KeyProvider) =>
 
 <template>
   <main class="main">
+    <SettingsTabs />
     <div class="head"><h1>Model providers</h1></div>
     <div v-if="loading" class="mono empty">loading…</div>
     <template v-else-if="data">
