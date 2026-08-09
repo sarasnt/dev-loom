@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import { useDashboardStore } from '../stores/dashboard'
 import type { Integration } from '../types'
 import { fetchIntegrations, syncSource, disconnectSource } from '../api'
+import LoomLoader from '../components/LoomLoader.vue'
 
 const store = useDashboardStore()
 const items = ref<Integration[]>([])
@@ -74,7 +75,7 @@ const wired = (a: string) => a === 'Re-sync' || a === 'Retry now' || a === 'Disc
 
     <div v-if="flash" class="flash mono">{{ flash }}</div>
 
-    <div v-if="loading" class="mono empty">loading…</div>
+    <div v-if="loading" class="loadwrap"><LoomLoader label="loading integrations…" /></div>
     <template v-else>
       <section v-for="it in items" :key="it.key" class="prov" :class="{ dashed: it.state === 'not_connected' }">
         <div class="ph">
@@ -113,6 +114,7 @@ const wired = (a: string) => a === 'Re-sync' || a === 'Retry now' || a === 'Disc
 .head h1 { font-size: 22px; }
 .when { font-size: 12px; color: var(--faint-text); }
 .empty { color: var(--faint-text); padding: 20px 0; }
+.loadwrap { display: flex; justify-content: center; padding: 56px 0; }
 .flash {
   font-size: 12.5px; color: var(--warp-hi); border: 1px solid var(--warp);
   background: var(--warp-weft); border-radius: 8px; padding: 8px 12px; margin-bottom: 14px;

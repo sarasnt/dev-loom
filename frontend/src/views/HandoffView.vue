@@ -4,6 +4,13 @@ import { useRoute } from 'vue-router'
 import type { Handoff } from '../types'
 import { fetchHandoff } from '../api'
 import SourceChip from '../components/SourceChip.vue'
+import LoomLoader from '../components/LoomLoader.vue'
+
+const handoffSteps = [
+  'Gathering the build evidence…',
+  'Assembling the handoff artifact…',
+  'Setting safety constraints…',
+]
 
 const route = useRoute()
 const data = ref<Handoff | null>(null)
@@ -29,7 +36,7 @@ async function copy() {
 
 <template>
   <main class="wrap">
-    <div v-if="loading" class="mono empty">preparing handoff…</div>
+    <div v-if="loading" class="loadwrap"><LoomLoader :steps="handoffSteps" :est-ms="16000" /></div>
     <template v-else-if="data">
       <div class="head">
         <h1>Agent handoff — {{ data.title }}</h1>
@@ -67,6 +74,7 @@ async function copy() {
 .when { font-size: 12px; color: var(--faint-text); }
 .when .local { color: var(--warp-hi); }
 .empty { color: var(--faint-text); padding: 24px 0; }
+.loadwrap { display: flex; justify-content: center; padding: 64px 0; }
 .artifact {
   font-size: 12.5px; line-height: 1.7; background: var(--bg); border: 1px solid var(--line);
   border-radius: var(--r-card); padding: 16px; color: var(--dim); white-space: pre-wrap; margin: 0;

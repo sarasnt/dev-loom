@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import type { WorkRow } from '../types'
 import { fetchWork } from '../api'
+import LoomLoader from '../components/LoomLoader.vue'
 
 const router = useRouter()
 const rows = ref<WorkRow[]>([])
@@ -111,7 +112,7 @@ function open(r: WorkRow) {
       </button>
     </div>
 
-    <div v-if="loading" class="mono empty">loading work…</div>
+    <div v-if="loading" class="loadwrap"><LoomLoader label="loading work…" /></div>
     <div v-else-if="!filtered.length" class="mono empty">nothing here in “{{ active }}”.</div>
     <template v-else>
       <template v-for="r in topLevel" :key="r.id">
@@ -243,4 +244,5 @@ function open(r: WorkRow) {
 }
 .desc.child { margin-left: 70px; }
 .empty { color: var(--faint-text); padding: 20px 0; }
+.loadwrap { display: flex; justify-content: center; padding: 56px 0; }
 </style>

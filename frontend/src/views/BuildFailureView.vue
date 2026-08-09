@@ -4,6 +4,14 @@ import { useRoute, useRouter } from 'vue-router'
 import type { BuildFailure } from '../types'
 import { fetchBuildFailure, fetchLatestBuild } from '../api'
 import SourceChip from '../components/SourceChip.vue'
+import LoomLoader from '../components/LoomLoader.vue'
+
+const analyzeSteps = [
+  'Fetching the failed run from GitHub…',
+  'Reading the failing job & step…',
+  'Redacting the log tail…',
+  'Summarizing with the local model…',
+]
 
 const route = useRoute()
 const router = useRouter()
@@ -23,7 +31,9 @@ watch(() => route.params.id, load)
 
 <template>
   <main class="bf">
-    <div v-if="loading" class="mono empty" aria-busy="true">analyzing build…</div>
+    <div v-if="loading" class="loadwrap" aria-busy="true">
+      <LoomLoader :steps="analyzeSteps" :est-ms="18000" />
+    </div>
 
     <!-- Honest empty state — no failing runs (or GitHub not configured) -->
     <div v-else-if="data && data.id === 'none'" class="empty-state">
@@ -107,6 +117,7 @@ watch(() => route.params.id, load)
 .head h1 { font-size: 22px; }
 .when { font-size: 12px; color: var(--faint-text); }
 .empty { color: var(--faint-text); padding: 24px 0; }
+.loadwrap { display: flex; justify-content: center; padding: 64px 0; }
 .step { border: 1px solid var(--line); border-radius: var(--r-card); background: var(--surface); padding: 14px 16px; margin-bottom: 14px; }
 .n { font-size: 11px; color: var(--warp-hi); letter-spacing: 0.08em; }
 .prose { color: var(--dim); font-size: 14px; margin: 8px 0 0; line-height: 1.55; }

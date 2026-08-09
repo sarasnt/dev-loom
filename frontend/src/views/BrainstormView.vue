@@ -4,6 +4,13 @@ import type { BrainstormData } from '../types'
 import { fetchBrainstorm, sendBrainstorm } from '../api'
 import SourceChip from '../components/SourceChip.vue'
 import BoundaryToken from '../components/BoundaryToken.vue'
+import LoomLoader from '../components/LoomLoader.vue'
+
+const thinkingSteps = [
+  'reading your sources…',
+  'weaving a response…',
+  'checking assumptions…',
+]
 
 const data = ref<BrainstormData | null>(null)
 const loading = ref(true)
@@ -49,7 +56,7 @@ async function send() {
 </script>
 
 <template>
-  <div v-if="loading" class="mono empty">loading session…</div>
+  <div v-if="loading" class="loadwrap"><LoomLoader label="loading session…" /></div>
   <div v-else-if="data" class="brain">
     <!-- sessions -->
     <aside class="sess">
@@ -76,7 +83,9 @@ async function send() {
         </div>
         <div v-if="sending" class="msg ai">
           <div class="who mono">DevLoom · {{ data.active.model }}</div>
-          <div class="bub thinking mono">thinking…</div>
+          <div class="bub thinking">
+            <LoomLoader class="think-loom" :steps="thinkingSteps" size="sm" />
+          </div>
         </div>
       </div>
 
@@ -116,6 +125,8 @@ async function send() {
 
 <style scoped>
 .empty { color: var(--faint-text); padding: 24px; }
+.loadwrap { display: flex; justify-content: center; align-items: center; height: 100%; }
+.think-loom { align-items: flex-start; }
 .brain { display: grid; grid-template-columns: 182px 1fr 250px; height: 100%; }
 .sess { border-right: 1px solid var(--line); padding: 14px 12px; background: var(--rail-bg); display: flex; flex-direction: column; }
 .nb { font-size: 13px; color: var(--warp-hi); padding: 6px 10px; margin-bottom: 6px; }
