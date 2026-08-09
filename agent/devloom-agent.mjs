@@ -298,6 +298,24 @@ const server = http.createServer(async (req, res) => {
       const r = await git(p, ['commit', '-m', message])
       return json(res, 200, { ok: r.code === 0, output: (r.out + r.err).trim().slice(0, 2000) })
     }
+    if (req.method === 'POST' && url.pathname === '/repos/branches') {
+      const { path: p } = await readBody(req)
+      const [cur, list] = await Promise.all([
+        git(p, ['rev-parse', '--abbrev-ref', 'HEAD']),
+        git(p, ['branch', '--format=%(refname:short)']),
+      ])
+      const local = list.code === 0
+        ? list.out.split('\n').map((s) => s.trim()).filter(Boolean)
+        : []
+      return json(res, 200, { current: cur.out.trim(), local })
+    }
+    if (req.method === 'POST' && url.pathname === '/repos/checkout') {
+      const { path: p, branch, create } = await readBody(req)
+      if (!branch || !branch.trim()) return json(res, 400, { error: 'branch required' })
+      const args = create ? ['checkout', '-b', branch] : ['checkout', branch]
+      const r = await git(p, args)
+      return json(res, 200, { ok: r.code === 0, branch, output: (r.out + r.err).trim().slice(0, 1500) })
+    }
 
     return json(res, 404, { error: 'not found' })
   } catch (e) {

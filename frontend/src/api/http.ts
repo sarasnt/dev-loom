@@ -127,3 +127,7 @@ export const repoUnstage = (id: string, files: string[]) =>
   post<{ ok: boolean; output: string }>(`/repos/${id}/unstage`, { files })
 export const repoCommit = (id: string, message: string) =>
   post<{ ok: boolean; output: string }>(`/repos/${id}/commit`, { message })
+export const repoBranches = (id: string) =>
+  post<{ current: string; local: string[] }>(`/repos/${id}/branches`, {})
+export const repoCheckout = (id: string, branch: string, create: boolean) =>
+  post<{ ok: boolean; branch: string; output: string }>(`/repos/${id}/checkout`, { branch, create })

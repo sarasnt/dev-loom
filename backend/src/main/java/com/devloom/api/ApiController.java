@@ -280,6 +280,16 @@ public class ApiController {
         return repoService.commit(id, body == null ? null : body.message());
     }
 
+    @PostMapping("/repos/{id}/branches")
+    public Map<String, Object> repoBranches(@PathVariable String id) {
+        return repoService.branches(id);
+    }
+
+    @PostMapping("/repos/{id}/checkout")
+    public Map<String, Object> repoCheckout(@PathVariable String id, @RequestBody Dto.RepoCheckout body) {
+        return repoService.checkout(id, body.branch(), body.create());
+    }
+
     @GetMapping("/providers")
     public Dto.Providers providers() {
         return providersService.providers();

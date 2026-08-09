@@ -111,6 +111,14 @@ public class RepoService {
         return r;
     }
 
+    public Map<String, Object> branches(String id) {
+        return agent.branches(pathOf(id));
+    }
+
+    public Map<String, Object> checkout(String id, String branch, boolean create) {
+        return agent.checkout(pathOf(id), branch, create);
+    }
+
     // ---- helpers ----
 
     private GitRepoEntity persist(Map<String, Object> info) {

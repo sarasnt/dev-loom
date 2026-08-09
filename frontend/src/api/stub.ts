@@ -259,3 +259,9 @@ export function repoUnstage() {
 export function repoCommit() {
   return delay({ ok: false, output: 'offline' })
 }
+export function repoBranches() {
+  return delay({ current: '', local: [] as string[] })
+}
+export function repoCheckout(_id: string, branch: string) {
+  return delay({ ok: false, branch, output: 'offline' })
+}

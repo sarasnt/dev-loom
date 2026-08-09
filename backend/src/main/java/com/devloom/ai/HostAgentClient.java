@@ -134,6 +134,14 @@ public class HostAgentClient {
         return post("/repos/commit", Map.of("path", path, "message", message == null ? "" : message));
     }
 
+    public Map<String, Object> branches(String path) {
+        return post("/repos/branches", Map.of("path", path));
+    }
+
+    public Map<String, Object> checkout(String path, String branch, boolean create) {
+        return post("/repos/checkout", Map.of("path", path, "branch", branch, "create", create));
+    }
+
     private Map<String, Object> post(String path, Map<String, Object> body) {
         Map<String, Object> resp = http.post().uri(path).body(body).retrieve().body(MAP);
         if (resp == null) throw new IllegalStateException("no response from host agent");

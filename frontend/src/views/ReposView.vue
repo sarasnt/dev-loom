@@ -15,6 +15,8 @@ import {
   repoStage,
   repoUnstage,
   repoCommit,
+  repoBranches,
+  repoCheckout,
 } from '../api'
 
 const repos = ref<RepoView[]>([])
@@ -35,6 +37,10 @@ const browse = ref<{ open: boolean; data: BrowseResult | null; loading: boolean 
 const openChanges = ref<string | null>(null)
 const changes = ref<Record<string, RepoChanges>>({})
 const commitMsg = ref<Record<string, string>>({})
+// per-repo branch switcher
+const openBranch = ref<string | null>(null)
+const branchList = ref<Record<string, string[]>>({})
+const newBranch = ref<Record<string, string>>({})
 
 onMounted(load)
 
@@ -146,6 +152,23 @@ async function commit(r: RepoView) {
   } finally { busy.value = '' }
 }
 function stagedCount(id: string) { return changes.value[id]?.staged.length ?? 0 }
+
+// ---- branches ----
+async function toggleBranches(r: RepoView) {
+  if (openBranch.value === r.id) { openBranch.value = null; return }
+  openBranch.value = r.id
+  try { branchList.value[r.id] = (await repoBranches(r.id)).local } catch { branchList.value[r.id] = [] }
+}
+async function switchBranch(r: RepoView, branch: string, create = false) {
+  if (!branch || !branch.trim() || busy.value) return
+  busy.value = r.id; flash.value = ''
+  try {
+    const res = await repoCheckout(r.id, branch.trim(), create)
+    flash.value = res.ok ? `${r.name}: now on ${res.branch}` : `${r.name}: checkout ✗ ${res.output}`
+    if (res.ok) { openBranch.value = null; newBranch.value[r.id] = '' }
+    await load()
+  } finally { busy.value = '' }
+}
 </script>
 
 <template>
@@ -176,11 +199,36 @@ function stagedCount(id: string) { return changes.value[id]?.staged.length ?? 0 
         <div class="rh">
           <span class="hostpill mono" :class="r.host">{{ r.host }}</span>
           <h3>{{ r.name }}</h3>
-          <span class="branch mono">⎇ {{ r.branch || '—' }}</span>
+          <button class="branchbtn mono" :disabled="!agentUp" title="Switch branch" @click="toggleBranches(r)">
+            ⎇ {{ r.branch || '—' }} ▾
+          </button>
           <span v-if="r.dirty" class="tag mono dirty">uncommitted</span>
           <span v-if="r.ahead" class="tag mono">↑{{ r.ahead }}</span>
           <span v-if="r.behind" class="tag mono">↓{{ r.behind }}</span>
           <span class="path mono">{{ r.path }}</span>
+        </div>
+
+        <div v-if="openBranch === r.id" class="branchpanel">
+          <span class="clab mono">Switch branch</span>
+          <div class="branches">
+            <button
+              v-for="b in branchList[r.id] ?? []"
+              :key="b"
+              class="brow mono"
+              :class="{ cur: b === r.branch }"
+              :disabled="busy === r.id"
+              @click="switchBranch(r, b)"
+            >
+              {{ b === r.branch ? '● ' : '' }}{{ b }}
+            </button>
+            <span v-if="!(branchList[r.id] ?? []).length" class="mono clean">no local branches</span>
+          </div>
+          <div class="newbranch">
+            <input v-model="newBranch[r.id]" class="in sm" placeholder="new-branch-name" @keydown.enter="switchBranch(r, newBranch[r.id], true)" />
+            <button class="btn" :disabled="busy === r.id || !(newBranch[r.id] || '').trim()" @click="switchBranch(r, newBranch[r.id], true)">
+              Create &amp; switch
+            </button>
+          </div>
         </div>
 
         <div v-if="editing === r.id" class="idedit">
@@ -295,6 +343,15 @@ function stagedCount(id: string) { return changes.value[id]?.staged.length ?? 0 
 .hostpill.bitbucket { color: #4a9; border-color: #4a9; }
 .hostpill.gitlab { color: #e24329; border-color: #e24329; }
 .branch { font-size: 11px; color: var(--warp-hi); }
+.branchbtn { font-size: 11px; color: var(--warp-hi); background: transparent; border: 1px solid var(--line); border-radius: 5px; padding: 2px 8px; cursor: pointer; }
+.branchbtn:hover { border-color: var(--warp); }
+.branchbtn:disabled { opacity: 0.5; cursor: not-allowed; }
+.branchpanel { margin: 10px 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+.branches { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+.brow { font-size: 12px; background: transparent; border: 1px solid var(--line); border-radius: 5px; padding: 3px 9px; color: var(--dim); cursor: pointer; }
+.brow:hover { border-color: var(--warp); color: var(--ink); }
+.brow.cur { color: var(--warp-hi); border-color: var(--warp); }
+.newbranch { display: flex; gap: 8px; margin-top: 6px; }
 .path { font-size: 11px; color: var(--faint-text); margin-left: auto; }
 .tag { font-size: 10px; border: 1px solid var(--line); border-radius: 5px; padding: 2px 6px; color: var(--dim); }
 .tag.dirty { color: var(--warp-hi); border-color: var(--warp); }
