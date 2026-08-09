@@ -6,7 +6,8 @@ import java.util.List;
 import org.springframework.stereotype.Service;
 
 import com.devloom.ai.OllamaLlm;
-import com.devloom.integrations.SourceConnector;
+import com.devloom.integrations.SourceCredentialStore;
+import com.devloom.integrations.SourceInstanceRepository;
 
 /**
  * Onboarding steps reflecting REAL state (SPEC.md §onboarding): which sources are connected,
@@ -15,11 +16,14 @@ import com.devloom.integrations.SourceConnector;
 @Service
 public class OnboardingService {
 
-    private final List<SourceConnector> connectors;
+    private final SourceInstanceRepository instances;
+    private final SourceCredentialStore credentials;
     private final OllamaLlm ollama;
 
-    public OnboardingService(List<SourceConnector> connectors, OllamaLlm ollama) {
-        this.connectors = connectors;
+    public OnboardingService(SourceInstanceRepository instances, SourceCredentialStore credentials,
+                             OllamaLlm ollama) {
+        this.instances = instances;
+        this.credentials = credentials;
         this.ollama = ollama;
     }
 
@@ -27,9 +31,9 @@ public class OnboardingService {
         List<Dto.OnboardStep> steps = new ArrayList<>();
         steps.add(new Dto.OnboardStep("✓", "Sign in", "single-user, on this machine", "done", null));
 
-        steps.add(sourceStep("2", "Connect GitHub", "GitHub", "GitHub App / token · read-only"));
-        steps.add(sourceStep("3", "Connect Jira", "Jira", "on-prem Data Center · PAT"));
-        steps.add(sourceStep("4", "Connect calendar", "Calendar", "Google iCal feed"));
+        steps.add(sourceStep("2", "Connect GitHub", "github", "GitHub App / token · read-only"));
+        steps.add(sourceStep("3", "Connect Jira", "jira", "Cloud or on-prem · token/PAT"));
+        steps.add(sourceStep("4", "Connect calendar", "calendar", "iCal feed"));
 
         boolean model = ollama.available();
         String modelName = model ? ollama.models().getFirst() : "none pulled";
@@ -40,9 +44,9 @@ public class OnboardingService {
         return steps;
     }
 
-    private Dto.OnboardStep sourceStep(String n, String title, String source, String detail) {
-        boolean connected = connectors.stream()
-                .anyMatch(c -> c.source().equals(source) && c.enabled());
+    private Dto.OnboardStep sourceStep(String n, String title, String type, String detail) {
+        boolean connected = instances.findByType(type).stream()
+                .anyMatch(i -> i.isEnabled() && credentials.hasCredential(i));
         return new Dto.OnboardStep(connected ? "✓" : n, title, detail,
                 connected ? "done" : "now", connected ? null : "Connect");
     }

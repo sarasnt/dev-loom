@@ -12,63 +12,80 @@ import com.devloom.workmodel.WorkItemEntity;
 import com.devloom.workmodel.WorkItemRepository;
 
 /**
- * Orchestrates connector syncs into the unified WorkItem table. Replace-on-sync per source
- * (idempotent: re-running produces the same rows), so a source's items always reflect the
- * latest fetch without duplicating. Other sources' rows (e.g. fixture GitHub) are untouched.
+ * Orchestrates connector syncs into the unified WorkItem table (docs/SPEC-sources.md §7).
+ * Replace-on-sync <em>per instance</em> (idempotent). A failed fetch throws → existing rows are
+ * kept; a successful-but-empty fetch clears the instance's rows so stale items disappear.
  */
 @Service
 public class SyncService {
 
     private static final Logger log = LoggerFactory.getLogger(SyncService.class);
 
-    private final List<SourceConnector> connectors;
+    private final SourceRegistry registry;
+    private final SourceInstanceRepository instances;
+    private final SourceCredentialStore credentials;
     private final WorkItemRepository repo;
     private final AuditService audit;
 
-    public SyncService(List<SourceConnector> connectors, WorkItemRepository repo, AuditService audit) {
-        this.connectors = connectors;
+    public SyncService(SourceRegistry registry, SourceInstanceRepository instances,
+                       SourceCredentialStore credentials, WorkItemRepository repo, AuditService audit) {
+        this.registry = registry;
+        this.instances = instances;
+        this.credentials = credentials;
         this.repo = repo;
         this.audit = audit;
     }
 
-    /** Sync a single source by label; returns the number of items ingested. */
+    /** Sync one instance; returns items ingested. */
     @Transactional
-    public int sync(String source) {
-        SourceConnector connector = connectors.stream()
-                .filter(c -> c.source().equalsIgnoreCase(source))
-                .findFirst()
-                .orElse(null);
-        if (connector == null || !connector.enabled()) {
-            log.info("Sync skipped for '{}' (no connector or not configured)", source);
+    public int syncInstance(SourceInstanceEntity inst) {
+        if (!inst.isEnabled()) {
+            return 0;
+        }
+        SourceConnector connector = registry.forType(inst.getType()).orElse(null);
+        if (connector == null) {
+            log.info("No connector for type '{}' (instance {})", inst.getType(), inst.getName());
             return 0;
         }
         List<WorkItemEntity> items;
         try {
-            items = connector.fetch();
+            items = connector.fetch(inst, credentials.secrets(inst));
         } catch (Exception e) {
-            // A genuine failure (network, auth) → keep existing rows rather than wipe them.
-            log.warn("Sync failed for {} — keeping existing rows: {}", connector.source(), e.getMessage());
+            log.warn("Sync failed for '{}' — keeping existing rows: {}", inst.getName(), e.getMessage());
             return 0;
         }
-        // Success, even if empty → replace-on-sync so stale rows (e.g. a past calendar event
-        // that's no longer returned) are cleared.
-        repo.deleteBySource(connector.source());
+        repo.deleteBySourceInstanceId(inst.getId());
+        for (WorkItemEntity w : items) {
+            w.setSourceInstanceId(inst.getId());
+        }
         if (!items.isEmpty()) {
             repo.saveAll(items);
         }
-        log.info("Synced {} items from {}", items.size(), connector.source());
-        audit.record("sync", connector.source(), "ingested=" + items.size());
+        log.info("Synced {} items from {}", items.size(), inst.getName());
+        audit.record("sync", inst.getName(), "ingested=" + items.size());
         return items.size();
     }
 
-    /** Sync every enabled connector. Returns total items ingested. */
+    /** Back-compat: sync by instance name or type (used by the current Integrations endpoints). */
+    @Transactional
+    public int sync(String nameOrType) {
+        SourceInstanceEntity byName = instances.findByNameIgnoreCase(nameOrType).orElse(null);
+        if (byName != null) {
+            return syncInstance(byName);
+        }
+        int total = 0;
+        for (SourceInstanceEntity inst : instances.findByType(nameOrType.toLowerCase())) {
+            total += syncInstance(inst);
+        }
+        return total;
+    }
+
+    /** Sync every enabled instance. Returns total items ingested. */
     @Transactional
     public int syncAll() {
         int total = 0;
-        for (SourceConnector c : connectors) {
-            if (c.enabled()) {
-                total += sync(c.source());
-            }
+        for (SourceInstanceEntity inst : instances.findByEnabledTrue()) {
+            total += syncInstance(inst);
         }
         return total;
     }

@@ -25,4 +25,10 @@ public interface WorkItemRepository extends JpaRepository<WorkItemEntity, Long> 
     int deleteBySource(@Param("source") String source);
 
     long countBySource(String source);
+
+    @Modifying
+    @Query("delete from WorkItemEntity w where w.sourceInstanceId = :id")
+    int deleteBySourceInstanceId(@Param("id") Long id);
+
+    long countBySourceInstanceId(Long id);
 }

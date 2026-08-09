@@ -14,15 +14,13 @@ import com.devloom.audit.AuditService;
 import com.devloom.workmodel.WorkItemRepository;
 
 /**
- * Real integration status for the Settings screen — derived from live connector state
- * (enabled?), the item count per source, and the last sync time from the audit trail.
- * No fixtures. Microsoft Calendar is shown as available-but-not-connected (iteration 1).
+ * Integration status for the Settings screen, derived from configured source instances
+ * (docs/SPEC-sources.md): enabled + credential presence, item count, last sync. No fixtures.
  */
 @Service
 public class IntegrationsService {
 
-    private record Meta(String key, String name, List<String> scopes, String noteWhenEmpty,
-                        List<String> actions, String hint) {}
+    private record Meta(String key, List<String> scopes, List<String> actions, String hint) {}
 
     private static final String NOTION_HINT =
             "Sync all pulls every page, database and task connected to DevLoom — Notion only "
@@ -31,34 +29,32 @@ public class IntegrationsService {
             + "Settings → Connections → DevLoom → Access. Connecting a whole teamspace includes "
             + "everything inside it. Then Sync all.";
 
+    // Per-type presentation for the (current) Integrations screen.
     private static final Map<String, Meta> META = Map.of(
-            "GitHub", new Meta("github", "GitHub",
-                    List.of("Contents", "Pull requests", "Issues", "Checks", "Actions", "Deployments"),
-                    "Connected, but no open items involve you right now.",
+            "github", new Meta("github",
+                    List.of("Contents", "Pull requests", "Issues", "Checks", "Actions"),
                     List.of("Re-sync", "Disconnect"), null),
-            "Jira", new Meta("jira", "Jira", null, null, List.of("Re-sync", "Disconnect"), null),
-            "Calendar", new Meta("gcal", "Google Calendar", null, null, List.of("Re-sync", "Disconnect"), null),
-            "Notion", new Meta("notion", "Notion", null,
-                    "No pages shared yet — connect the DevLoom integration to a page.",
-                    List.of("Sync all", "Disconnect"), NOTION_HINT));
+            "jira", new Meta("jira", null, List.of("Re-sync", "Disconnect"), null),
+            "calendar", new Meta("gcal", null, List.of("Re-sync", "Disconnect"), null),
+            "notion", new Meta("notion", null, List.of("Sync all", "Disconnect"), NOTION_HINT));
 
-    private static final List<String> ORDER = List.of("GitHub", "Jira", "Calendar", "Notion");
-
-    private final List<SourceConnector> connectors;
+    private final SourceInstanceRepository instances;
+    private final SourceCredentialStore credentials;
     private final WorkItemRepository repo;
     private final AuditService audit;
 
-    public IntegrationsService(List<SourceConnector> connectors, WorkItemRepository repo, AuditService audit) {
-        this.connectors = connectors;
+    public IntegrationsService(SourceInstanceRepository instances, SourceCredentialStore credentials,
+                               WorkItemRepository repo, AuditService audit) {
+        this.instances = instances;
+        this.credentials = credentials;
         this.repo = repo;
         this.audit = audit;
     }
 
     public List<Dto.Integration> list() {
         List<Dto.Integration> out = new ArrayList<>();
-        for (String source : ORDER) {
-            connectors.stream().filter(c -> c.source().equals(source)).findFirst()
-                    .ifPresent(c -> out.add(toDto(c)));
+        for (SourceInstanceEntity inst : instances.findAllByOrderByTypeAscNameAsc()) {
+            out.add(toDto(inst));
         }
         // Microsoft Calendar — not part of iteration 1.
         out.add(new Dto.Integration("mscal", "Microsoft Calendar", "not_connected",
@@ -66,33 +62,28 @@ public class IntegrationsService {
         return out;
     }
 
-    private Dto.Integration toDto(SourceConnector c) {
-        Meta m = META.getOrDefault(c.source(),
-                new Meta(c.source().toLowerCase(), c.source(), null, null, List.of(), null));
-        boolean enabled = c.enabled();
-        long count = repo.countBySource(c.source());
-        String lastSync = lastSyncRelative(c.source());
+    private Dto.Integration toDto(SourceInstanceEntity inst) {
+        Meta m = META.getOrDefault(inst.getType(),
+                new Meta(inst.getType(), null, List.of("Re-sync", "Disconnect"), null));
+        boolean connected = inst.isEnabled() && credentials.hasCredential(inst);
+        long count = repo.countBySourceInstanceId(inst.getId());
+        String lastSync = lastSyncRelative(inst.getName());
 
-        String state = enabled ? "connected" : "not_connected";
+        String state = connected ? "connected" : "not_connected";
         String detail = null;
         String note = null;
-        if (enabled) {
+        if (connected) {
             detail = "connected · " + count + " item" + (count == 1 ? "" : "s")
                     + (lastSync != null ? " · " + lastSync : "");
-            // A persistent hint (e.g. Notion's "how to connect more") wins; else the empty note.
-            if (m.hint() != null) {
-                note = m.hint();
-            } else if (count == 0 && m.noteWhenEmpty() != null) {
-                note = m.noteWhenEmpty();
-            }
+            note = m.hint();
         }
-        List<String> actions = enabled ? m.actions() : List.of("Connect");
-        return new Dto.Integration(m.key(), m.name(), state, detail, m.scopes(), note, actions);
+        List<String> actions = connected ? m.actions() : List.of("Connect");
+        return new Dto.Integration(m.key(), inst.getName(), state, detail, m.scopes(), note, actions);
     }
 
-    private String lastSyncRelative(String source) {
+    private String lastSyncRelative(String name) {
         return audit.recent().stream()
-                .filter(e -> "sync".equals(e.getAction()) && source.equals(e.getTarget()))
+                .filter(e -> "sync".equals(e.getAction()) && name.equals(e.getTarget()))
                 .findFirst()
                 .map(AuditEventEntity::getCreatedAt)
                 .map(IntegrationsService::relative)

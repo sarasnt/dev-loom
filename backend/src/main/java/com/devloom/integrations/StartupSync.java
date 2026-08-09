@@ -5,10 +5,12 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
-/** Runs an initial sync of enabled connectors at boot (best-effort, never fails startup). */
+/** Runs an initial sync of enabled instances at boot (best-effort, never fails startup). */
 @Component
+@Order(2)
 public class StartupSync implements ApplicationRunner {
 
     private static final Logger log = LoggerFactory.getLogger(StartupSync.class);

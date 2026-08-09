@@ -1,6 +1,8 @@
 package com.devloom.integrations;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 
@@ -14,13 +16,10 @@ import org.springframework.web.client.RestClient;
 import com.devloom.workmodel.WorkItemEntity;
 
 /**
- * On-premises Jira (Data Center/Server) connector — SPEC.md §12/§13, corrected for on-prem:
- * Personal Access Token via {@code Authorization: Bearer}, REST API v2. Fetches the user's
- * assigned issues and normalizes them to {@link WorkItemEntity}. Disabled (no-op) when no PAT
- * is configured, so the app runs on fixtures without it.
- *
- * <p>Responses are parsed as plain {@code Map} (not a bound Jackson type) so the connector is
- * independent of the Jackson major version on the classpath (Boot 4 ships Jackson 3).
+ * Jira connector (docs/SPEC-sources.md). One connector for the type; each configured instance
+ * supplies its base URL + credential. On-prem (Data Center/Server) uses a PAT via
+ * {@code Authorization: Bearer} + REST v2; Cloud uses Basic {@code email:apiToken} + REST v3.
+ * Responses parsed as plain {@code Map} (Jackson-version independent).
  */
 @Component
 public class JiraConnector implements SourceConnector {
@@ -29,44 +28,48 @@ public class JiraConnector implements SourceConnector {
     private static final ParameterizedTypeReference<Map<String, Object>> MAP =
             new ParameterizedTypeReference<>() {};
 
-    private final String baseUrl;
-    private final String pat;
     private final int maxIssues;
-    private final RestClient http;
 
-    public JiraConnector(
-            @Value("${devloom.jira.base-url:}") String baseUrl,
-            @Value("${devloom.jira.pat:}") String pat,
-            @Value("${devloom.jira.max-issues:25}") int maxIssues) {
-        this.baseUrl = baseUrl;
-        this.pat = pat;
+    public JiraConnector(@Value("${devloom.jira.max-issues:25}") int maxIssues) {
         this.maxIssues = maxIssues;
-        this.http = baseUrl.isBlank() ? null : RestClient.builder().baseUrl(baseUrl).build();
     }
 
     @Override
-    public String source() {
-        return "Jira";
+    public String type() {
+        return "jira";
     }
 
     @Override
-    public boolean enabled() {
-        return http != null && pat != null && !pat.isBlank();
+    public SetupDescriptor.Type describe() {
+        return new SetupDescriptor.Type("jira", "Jira", List.of(
+                new SetupDescriptor.Deployment("cloud", "Cloud", List.of(
+                        SetupDescriptor.Field.url("baseUrl", "Site URL", true, "https://acme.atlassian.net"),
+                        SetupDescriptor.Field.text("email", "Account email", true, "you@acme.com"),
+                        SetupDescriptor.Field.secret("apiToken", "API token", "Atlassian API token"))),
+                new SetupDescriptor.Deployment("onprem", "Server / Data Center", List.of(
+                        SetupDescriptor.Field.url("baseUrl", "Base URL", true, "https://jira.acme.com"),
+                        SetupDescriptor.Field.secret("pat", "Personal Access Token", "Bearer PAT")))));
     }
 
     @Override
-    public List<WorkItemEntity> fetch() {
-        if (!enabled()) {
-            return List.of();
-        }
+    public List<WorkItemEntity> fetch(SourceInstanceEntity inst, Map<String, String> secrets) {
+        String baseUrl = inst.getBaseUrl();
+        boolean cloud = "cloud".equalsIgnoreCase(inst.getDeployment());
+        RestClient http = RestClient.builder().baseUrl(baseUrl).build();
+        String apiPath = cloud ? "/rest/api/3/search" : "/rest/api/2/search";
+        String authHeader = cloud
+                ? "Basic " + Base64.getEncoder().encodeToString(
+                        (secrets.getOrDefault("email", "") + ":" + secrets.getOrDefault("apiToken", ""))
+                                .getBytes(StandardCharsets.UTF_8))
+                : "Bearer " + secrets.getOrDefault("pat", "");
         try {
             Map<String, Object> root = http.get()
-                    .uri(uri -> uri.path("/rest/api/2/search")
+                    .uri(uri -> uri.path(apiPath)
                             .queryParam("jql", "assignee = currentUser() ORDER BY updated DESC")
                             .queryParam("maxResults", maxIssues)
                             .queryParam("fields", "summary,status,priority,project,parent,description")
                             .build())
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authHeader)
                     .header("Accept", "application/json")
                     .retrieve()
                     .body(MAP);
@@ -75,18 +78,17 @@ public class JiraConnector implements SourceConnector {
             List<?> issues = root == null ? List.of() : asList(root.get("issues"));
             int order = 100;
             for (Object issueObj : issues) {
-                out.add(map(asMap(issueObj), order++));
+                out.add(map(asMap(issueObj), inst.getName(), order++));
             }
-            log.info("Jira sync: fetched {} issues from {}", out.size(), baseUrl);
+            log.info("Jira sync [{}]: fetched {} issues from {}", inst.getName(), out.size(), baseUrl);
             return out;
         } catch (Exception e) {
-            // Signal failure so the sync keeps existing rows (rather than wiping them).
-            log.warn("Jira sync failed ({}): {}", baseUrl, e.getMessage());
+            log.warn("Jira sync failed [{}] ({}): {}", inst.getName(), baseUrl, e.getMessage());
             throw new IllegalStateException("Jira fetch failed", e);
         }
     }
 
-    private WorkItemEntity map(Map<String, Object> issue, int order) {
+    private WorkItemEntity map(Map<String, Object> issue, String source, int order) {
         String key = str(issue, "key");
         Map<String, Object> f = asMap(issue.get("fields"));
         String summary = str(f, "summary");
@@ -101,10 +103,9 @@ public class JiraConnector implements SourceConnector {
             case "indeterminate" -> "warn";
             default -> "info";
         };
-        // Parent (sub-tasks and, in newer Jira, stories under an epic) → hierarchy key.
         String parentKey = str(asMap(f.get("parent")), "key");
-        // v2 (on-prem Server/DC) returns description as plain text/wiki markup.
-        String description = str(f, "description");
+        Object descObj = f.get("description");
+        String description = descObj instanceof String s ? s : ""; // v3 ADF is an object → skip
 
         List<String> metaParts = new ArrayList<>();
         if (!priority.isBlank()) metaParts.add(priority);
@@ -112,11 +113,10 @@ public class JiraConnector implements SourceConnector {
         String title = key + " · " + summary;
         return WorkItemEntity.create(key, "task", title,
                 statusName.isBlank() ? "open" : statusName, tone,
-                String.join(",", metaParts), source(), order)
+                String.join(",", metaParts), source, order)
                 .withDetail(description, parentKey);
     }
 
-    // ---- tiny, null-safe JSON-map helpers ----
     @SuppressWarnings("unchecked")
     private static Map<String, Object> asMap(Object o) {
         return o instanceof Map ? (Map<String, Object>) o : Map.of();

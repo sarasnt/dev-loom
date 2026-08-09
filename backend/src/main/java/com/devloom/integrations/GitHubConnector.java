@@ -14,11 +14,9 @@ import org.springframework.web.client.RestClient;
 import com.devloom.workmodel.WorkItemEntity;
 
 /**
- * GitHub connector (SPEC.md §12/§13). Pulls the open PRs/issues that involve the
- * authenticated user (author, assignee, reviewer, mentions) via the Search API and
- * normalizes them to {@link WorkItemEntity}. Read-only. Disabled (no-op) without a token,
- * so the fixture GitHub rows remain. Responses parsed as plain {@code Map} (Jackson-version
- * independent — Boot 4 ships Jackson 3).
+ * GitHub connector (docs/SPEC-sources.md). Pulls the open PRs/issues that involve the
+ * authenticated user and auto-discovers recent FAILED CI runs as build items. Cloud uses
+ * api.github.com; Enterprise uses the instance base URL. Read-only.
  */
 @Component
 public class GitHubConnector implements SourceConnector {
@@ -27,44 +25,43 @@ public class GitHubConnector implements SourceConnector {
     private static final ParameterizedTypeReference<Map<String, Object>> MAP =
             new ParameterizedTypeReference<>() {};
 
-    private final String token;
     private final int maxIssues;
     private final int maxBuilds;
-    private final RestClient http;
 
     public GitHubConnector(
-            @Value("${devloom.github.base-url:https://api.github.com}") String baseUrl,
-            @Value("${devloom.github.token:}") String token,
             @Value("${devloom.github.max-issues:25}") int maxIssues,
             @Value("${devloom.github.max-builds:3}") int maxBuilds) {
-        this.token = token;
         this.maxIssues = maxIssues;
         this.maxBuilds = maxBuilds;
-        this.http = (token == null || token.isBlank())
-                ? null
-                : RestClient.builder()
-                        .baseUrl(baseUrl)
-                        .defaultHeader("Authorization", "Bearer " + token)
-                        .defaultHeader("Accept", "application/vnd.github+json")
-                        .defaultHeader("X-GitHub-Api-Version", "2022-11-28")
-                        .build();
     }
 
     @Override
-    public String source() {
-        return "GitHub";
+    public String type() {
+        return "github";
     }
 
     @Override
-    public boolean enabled() {
-        return http != null;
+    public SetupDescriptor.Type describe() {
+        return new SetupDescriptor.Type("github", "GitHub", List.of(
+                new SetupDescriptor.Deployment("cloud", "Cloud", List.of(
+                        SetupDescriptor.Field.secret("token", "Access token", "fine-grained PAT (read)"))),
+                new SetupDescriptor.Deployment("onprem", "Enterprise", List.of(
+                        SetupDescriptor.Field.url("baseUrl", "API base URL", true, "https://ghe.acme.com/api/v3"),
+                        SetupDescriptor.Field.secret("token", "Access token", "PAT")))));
     }
 
     @Override
-    public List<WorkItemEntity> fetch() {
-        if (!enabled()) {
-            return List.of();
-        }
+    public List<WorkItemEntity> fetch(SourceInstanceEntity inst, Map<String, String> secrets) {
+        String baseUrl = inst.getBaseUrl() == null || inst.getBaseUrl().isBlank()
+                ? "https://api.github.com" : inst.getBaseUrl();
+        String token = secrets.getOrDefault("token", "");
+        RestClient http = RestClient.builder()
+                .baseUrl(baseUrl)
+                .defaultHeader("Authorization", "Bearer " + token)
+                .defaultHeader("Accept", "application/vnd.github+json")
+                .defaultHeader("X-GitHub-Api-Version", "2022-11-28")
+                .build();
+        String source = inst.getName();
         try {
             Map<String, Object> me = http.get().uri("/user").retrieve().body(MAP);
             String login = me == null ? "" : String.valueOf(me.getOrDefault("login", ""));
@@ -88,28 +85,27 @@ public class GitHubConnector implements SourceConnector {
             java.util.LinkedHashSet<String> repos = new java.util.LinkedHashSet<>();
             for (Object o : items) {
                 Map<String, Object> item = asMap(o);
-                out.add(map(item, login, order++));
+                out.add(map(item, login, source, order++));
                 String repo = repoShortName(str(item, "repository_url"));
                 if (!repo.isBlank()) repos.add(repo);
             }
 
-            // Auto-discover CI from the repos of the user's PRs/issues: surface recent
-            // FAILED workflow runs as build items so they show in Work and are analyzable.
             int fetchedBuilds = 0;
             for (String repo : repos.stream().limit(3).toList()) {
-                fetchedBuilds += addFailedRuns(repo, out, order);
+                fetchedBuilds += addFailedRuns(http, repo, source, out, order);
                 order += 10;
             }
-            log.info("GitHub sync: {} items + {} failed CI builds for {}", out.size() - fetchedBuilds, fetchedBuilds, login);
+            log.info("GitHub sync [{}]: {} items + {} failed CI builds for {}",
+                    source, out.size() - fetchedBuilds, fetchedBuilds, login);
             return out;
         } catch (Exception e) {
-            log.warn("GitHub sync failed: {}", e.getMessage());
+            log.warn("GitHub sync failed [{}]: {}", source, e.getMessage());
             throw new IllegalStateException("GitHub fetch failed", e);
         }
     }
 
     /** Recent failed workflow runs for a repo → build WorkItems (repo kept in meta). */
-    private int addFailedRuns(String repo, List<WorkItemEntity> out, int baseOrder) {
+    private int addFailedRuns(RestClient http, String repo, String source, List<WorkItemEntity> out, int baseOrder) {
         try {
             Map<String, Object> runs = http.get()
                     .uri(uri -> uri.path("/repos/" + repo + "/actions/runs")
@@ -128,7 +124,7 @@ public class GitHubConnector implements SourceConnector {
                 String title = "CI " + (runNo.isBlank() ? "" : "#" + runNo + " ") + "· " + name + " failed";
                 // meta = [branch, repo] — BuildFailureService recovers repo from meta[1].
                 out.add(WorkItemEntity.create(runId, "build", title, "failed", "fail",
-                        branch + "," + repo, source(), baseOrder + i++));
+                        branch + "," + repo, source, baseOrder + i++));
             }
             return i;
         } catch (Exception e) {
@@ -137,7 +133,7 @@ public class GitHubConnector implements SourceConnector {
         }
     }
 
-    private WorkItemEntity map(Map<String, Object> item, String login, int order) {
+    private WorkItemEntity map(Map<String, Object> item, String login, String source, int order) {
         int number = ((Number) item.getOrDefault("number", 0)).intValue();
         String title = str(item, "title");
         String state = str(item, "state"); // open | closed
@@ -154,7 +150,7 @@ public class GitHubConnector implements SourceConnector {
         }
         String displayTitle = "#" + number + " · " + title;
         String meta = String.join(",", state, repo);
-        return WorkItemEntity.create(extId, type, displayTitle, status, tone, meta, source(), order);
+        return WorkItemEntity.create(extId, type, displayTitle, status, tone, meta, source, order);
     }
 
     private static String repoShortName(String repositoryUrl) {

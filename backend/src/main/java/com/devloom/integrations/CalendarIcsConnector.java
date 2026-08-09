@@ -9,6 +9,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,13 +20,8 @@ import org.springframework.web.client.RestClient;
 import com.devloom.workmodel.WorkItemEntity;
 
 /**
- * Google Calendar via a private iCal (ICS) feed (SPEC.md §12/§13). Token-free, read-only —
- * ideal for a local-first tool. Fetches the feed, parses VEVENTs, and surfaces upcoming
- * events within a horizon as {@link WorkItemEntity}. Disabled without a URL.
- *
- * <p>Minimal hand-rolled ICS parse (no heavy iCal4j dep): unfold folded lines, split on
- * VEVENT, read SUMMARY / DTSTART / UID. Recurring-event expansion is out of scope for the
- * MVP — a VEVENT is shown by its DTSTART occurrence if it falls in the horizon.
+ * Calendar via a private iCal (ICS) feed (docs/SPEC-sources.md). Each instance supplies its
+ * own feed URL (a secret). Events are classified upcoming → ongoing → ended by the clock.
  */
 @Component
 public class CalendarIcsConnector implements SourceConnector {
@@ -36,46 +32,42 @@ public class CalendarIcsConnector implements SourceConnector {
     private static final DateTimeFormatter DISP_TIME = DateTimeFormatter.ofPattern("HH:mm");
     private static final ZoneId ZONE = ZoneId.systemDefault();
 
-    private final String icsUrl;
     private final int maxEvents;
     private final int horizonDays;
-    private final RestClient http;
 
     public CalendarIcsConnector(
-            @Value("${devloom.calendar.ics-url:}") String icsUrl,
             @Value("${devloom.calendar.max-events:15}") int maxEvents,
             @Value("${devloom.calendar.horizon-days:28}") int horizonDays) {
-        this.icsUrl = icsUrl;
         this.maxEvents = maxEvents;
         this.horizonDays = horizonDays;
-        this.http = RestClient.builder().build();
     }
 
     @Override
-    public String source() {
-        return "Calendar";
+    public String type() {
+        return "calendar";
     }
 
     @Override
-    public boolean enabled() {
-        return icsUrl != null && !icsUrl.isBlank();
+    public SetupDescriptor.Type describe() {
+        return new SetupDescriptor.Type("calendar", "Calendar", List.of(
+                new SetupDescriptor.Deployment("ics", "iCal / ICS feed", List.of(
+                        SetupDescriptor.Field.secret("icsUrl", "Private ICS URL", "https://…/basic.ics")))));
     }
 
     @Override
-    public List<WorkItemEntity> fetch() {
-        if (!enabled()) {
-            return List.of();
-        }
+    public List<WorkItemEntity> fetch(SourceInstanceEntity inst, Map<String, String> secrets) {
+        String icsUrl = secrets.getOrDefault("icsUrl", "");
+        String source = inst.getName();
+        RestClient http = RestClient.builder().build();
         try {
-            // Pass a concrete URI so RestClient does NOT re-encode the already-encoded
-            // URL (the %40 in the address would otherwise be double-encoded → 404).
+            // Concrete URI so RestClient doesn't re-encode the already-encoded URL.
             String ics = http.get().uri(URI.create(icsUrl)).retrieve().body(String.class);
             if (ics == null || ics.isBlank()) {
                 throw new IllegalStateException("empty ICS feed");
             }
             List<Event> events = parse(unfold(ics));
             LocalDateTime now = LocalDateTime.now(ZONE);
-            LocalDateTime lookback = now.minusDays(1);   // keep just-ended events (shown under "All")
+            LocalDateTime lookback = now.minusDays(1);
             LocalDateTime until = now.plusDays(horizonDays);
 
             List<WorkItemEntity> out = new ArrayList<>();
@@ -89,8 +81,6 @@ public class CalendarIcsConnector implements SourceConnector {
             for (Event e : window) {
                 LocalDateTime end = endOf(e);
                 String when = e.allDay ? e.start.toLocalDate().format(DISP_DATE) : e.start.format(DISP_DATETIME);
-
-                // Open/ongoing is time-based: upcoming (info) → ongoing (warn) → ended (healthy=done).
                 String tone;
                 String status;
                 if (end.isBefore(now) || end.isEqual(now)) {
@@ -103,17 +93,16 @@ public class CalendarIcsConnector implements SourceConnector {
                     tone = "info";
                     status = when;
                 }
-
                 String extId = (e.uid != null && !e.uid.isBlank() ? e.uid : e.summary + "@" + e.start);
                 if (extId.length() > 60) extId = extId.substring(0, 60);
                 out.add(WorkItemEntity.create(extId, "calendar",
                         e.summary == null || e.summary.isBlank() ? "(untitled event)" : e.summary,
-                        status, tone, "Google", source(), order++));
+                        status, tone, "", source, order++));
             }
-            log.info("Calendar sync: {} events in window (of {} parsed)", out.size(), events.size());
+            log.info("Calendar sync [{}]: {} events in window (of {} parsed)", source, out.size(), events.size());
             return out;
         } catch (Exception e) {
-            log.warn("Calendar sync failed: {}", e.getMessage());
+            log.warn("Calendar sync failed [{}]: {}", source, e.getMessage());
             throw new IllegalStateException("Calendar fetch failed", e);
         }
     }
@@ -121,7 +110,6 @@ public class CalendarIcsConnector implements SourceConnector {
     // ---- ICS parsing ----
     private record Event(String uid, String summary, LocalDateTime start, LocalDateTime end, boolean allDay) {}
 
-    /** Effective end: explicit DTEND, else end-of-day for all-day, else start + 1h. */
     private static LocalDateTime endOf(Event e) {
         if (e.end != null) return e.end;
         if (e.allDay) return e.start.toLocalDate().plusDays(1).atStartOfDay();
@@ -129,7 +117,6 @@ public class CalendarIcsConnector implements SourceConnector {
     }
 
     private static String unfold(String ics) {
-        // RFC 5545 line folding: a CRLF followed by space/tab continues the previous line.
         return ics.replace("\r\n", "\n").replaceAll("\n[ \t]", "");
     }
 
@@ -159,12 +146,10 @@ public class CalendarIcsConnector implements SourceConnector {
         return events;
     }
 
-    /** The value after the last ':' on a property line. */
     private static String rawOf(String propLine) {
         return propLine.substring(propLine.lastIndexOf(':') + 1).trim();
     }
 
-    /** The TZID=... parameter on a property line, if present. */
     private static String tzidOf(String propLine) {
         int i = propLine.toUpperCase().indexOf("TZID=");
         if (i < 0) return null;
@@ -175,7 +160,6 @@ public class CalendarIcsConnector implements SourceConnector {
         return cut > 0 ? rest.substring(0, cut).trim() : null;
     }
 
-    /** Line beginning with the property name (possibly with params before ':'). */
     private static String line(String block, String prop) {
         for (String l : block.split("\n")) {
             String t = l.trim();
@@ -193,11 +177,6 @@ public class CalendarIcsConnector implements SourceConnector {
         return c >= 0 ? l.substring(c + 1).trim() : null;
     }
 
-    /**
-     * Parse yyyyMMdd or yyyyMMdd'T'HHmmss['Z'] into a wall-clock time in the app zone.
-     * A trailing 'Z' means UTC; a TZID names the source zone; otherwise the time is floating
-     * and taken as-is. Returns null if unparseable.
-     */
     private static LocalDateTime parseDate(String raw, String tzid) {
         try {
             boolean utc = raw.endsWith("Z");

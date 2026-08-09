@@ -46,6 +46,9 @@ public class WorkItemEntity {
     @Column(name = "parent_ext_id")
     private String parentExtId;
 
+    @Column(name = "source_instance_id")
+    private Long sourceInstanceId;
+
     protected WorkItemEntity() {
     }
 
@@ -92,4 +95,6 @@ public class WorkItemEntity {
     public int getSortOrder() { return sortOrder; }
     public String getDescription() { return description; }
     public String getParentExtId() { return parentExtId; }
+    public Long getSourceInstanceId() { return sourceInstanceId; }
+    public void setSourceInstanceId(Long id) { this.sourceInstanceId = id; }
 }

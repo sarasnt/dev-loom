@@ -17,10 +17,9 @@ import org.springframework.web.client.RestClient;
 import com.devloom.workmodel.WorkItemEntity;
 
 /**
- * Notion connector (SPEC.md §12 — Next scope, pulled forward). Lists pages/databases the
- * user has shared with the DevLoom integration (via /v1/search) and surfaces them as
- * document work items. An integration only sees content explicitly connected to it.
- * Responses parsed as plain {@code Map} (Jackson-version independent).
+ * Notion connector (docs/SPEC-sources.md). Lists pages/databases shared with the integration
+ * and classifies each page by its parent: a database row → a task (tagged with the database
+ * name); any other page → a note. Databases themselves are not items.
  */
 @Component
 public class NotionConnector implements SourceConnector {
@@ -29,48 +28,45 @@ public class NotionConnector implements SourceConnector {
     private static final ParameterizedTypeReference<Map<String, Object>> MAP =
             new ParameterizedTypeReference<>() {};
 
-    private final String token;
+    private final String baseUrl;
+    private final String version;
     private final int maxItems;
     private final int maxPerDb;
-    private final RestClient http;
 
     public NotionConnector(
             @Value("${devloom.notion.base-url:https://api.notion.com}") String baseUrl,
-            @Value("${devloom.notion.token:}") String token,
             @Value("${devloom.notion.version:2022-06-28}") String version,
             @Value("${devloom.notion.max-items:300}") int maxItems,
             @Value("${devloom.notion.max-per-db:100}") int maxPerDb) {
-        this.token = token;
+        this.baseUrl = baseUrl;
+        this.version = version;
         this.maxItems = maxItems;
         this.maxPerDb = maxPerDb;
-        this.http = (token == null || token.isBlank())
-                ? null
-                : RestClient.builder()
-                        .baseUrl(baseUrl)
-                        .defaultHeader("Authorization", "Bearer " + token)
-                        .defaultHeader("Notion-Version", version)
-                        .defaultHeader("Content-Type", "application/json")
-                        .build();
     }
 
     @Override
-    public String source() {
-        return "Notion";
+    public String type() {
+        return "notion";
     }
 
     @Override
-    public boolean enabled() {
-        return http != null;
+    public SetupDescriptor.Type describe() {
+        return new SetupDescriptor.Type("notion", "Notion", List.of(
+                new SetupDescriptor.Deployment("cloud", "Cloud", List.of(
+                        SetupDescriptor.Field.secret("token", "Integration token", "ntn_… / secret_…")))));
     }
 
     @Override
-    public List<WorkItemEntity> fetch() {
-        if (!enabled()) {
-            return List.of();
-        }
+    public List<WorkItemEntity> fetch(SourceInstanceEntity inst, Map<String, String> secrets) {
+        String token = secrets.getOrDefault("token", "");
+        String source = inst.getName();
+        RestClient http = RestClient.builder()
+                .baseUrl(inst.getBaseUrl() == null || inst.getBaseUrl().isBlank() ? baseUrl : inst.getBaseUrl())
+                .defaultHeader("Authorization", "Bearer " + token)
+                .defaultHeader("Notion-Version", version)
+                .defaultHeader("Content-Type", "application/json")
+                .build();
         try {
-            // 1) Collect everything shared with the integration (paginated). Search returns
-            //    standalone pages, databases, AND database rows (rows are pages).
             List<Map<String, Object>> all = new ArrayList<>();
             String cursor = null;
             int pages = 0;
@@ -84,7 +80,6 @@ public class NotionConnector implements SourceConnector {
                 cursor = Boolean.TRUE.equals(resp.get("has_more")) ? str(resp, "next_cursor") : null;
             } while (cursor != null && !cursor.isBlank() && ++pages < 15 && all.size() < maxItems * 3);
 
-            // 2) Map database id → title so rows can be tagged with their database name.
             Map<String, String> dbTitle = new HashMap<>();
             for (Map<String, Object> r : all) {
                 if ("database".equals(str(r, "object"))) {
@@ -93,11 +88,9 @@ public class NotionConnector implements SourceConnector {
             }
 
             List<WorkItemEntity> out = new ArrayList<>();
-            Set<String> seen = new LinkedHashSet<>(); // dedup by extId (uq: source, ext_id)
+            Set<String> seen = new LinkedHashSet<>();
             int[] order = {200};
 
-            // 3) Classify each page: a row of a database (parent = database_id) is a TASK;
-            //    any other page is a NOTE. Databases themselves are not work items.
             for (Map<String, Object> r : all) {
                 if (out.size() >= maxItems) break;
                 if (!"page".equals(str(r, "object"))) continue;
@@ -107,34 +100,32 @@ public class NotionConnector implements SourceConnector {
                 Map<String, Object> parent = asMap(r.get("parent"));
                 if ("database_id".equals(str(parent, "type"))) {
                     String dbId = clip(str(parent, "database_id").replace("-", ""));
-                    addTask(out, extId, title, extractStatus(r), dbTitle.getOrDefault(dbId, "Notion"), order);
+                    addTask(out, extId, title, extractStatus(r), dbTitle.getOrDefault(dbId, "Notion"), order, source);
                 } else {
                     out.add(WorkItemEntity.create(extId, "doc",
                             title.isBlank() ? "(untitled page)" : title,
-                            "note", "info", "Notion", source(), order[0]++)
+                            "note", "info", "", source, order[0]++)
                             .withDetail("Notion page shared with DevLoom.", null));
                 }
             }
 
-            // 4) Also query each database directly, to catch rows the search index may lag on.
             for (Map<String, Object> r : all) {
                 if ("database".equals(str(r, "object"))) {
-                    addDatabaseRows(str(r, "id"), extractTitle(r), out, seen, order);
+                    addDatabaseRows(http, str(r, "id"), extractTitle(r), out, seen, order, source);
                 }
             }
 
-            log.info("Notion sync: {} items ({} databases)", out.size(), dbTitle.size());
+            log.info("Notion sync [{}]: {} items ({} databases)", source, out.size(), dbTitle.size());
             return out;
         } catch (Exception e) {
-            log.warn("Notion sync failed: {}", e.getMessage());
+            log.warn("Notion sync failed [{}]: {}", source, e.getMessage());
             throw new IllegalStateException("Notion fetch failed", e);
         }
     }
 
-    /** A database row → a task work item, tagged with its database name. */
     private void addTask(List<WorkItemEntity> out, String extId, String title, String status,
-                         String dbName, int[] order) {
-        String tag = dbName.replace(",", " ").strip(); // shown as a detail chip on the task
+                         String dbName, int[] order, String source) {
+        String tag = dbName.replace(",", " ").strip();
         String tone = switch (status.toLowerCase()) {
             case "done", "complete", "completed", "closed", "shipped", "archived" -> "healthy";
             case "in progress", "doing", "in review", "started", "wip" -> "warn";
@@ -143,13 +134,12 @@ public class NotionConnector implements SourceConnector {
         out.add(WorkItemEntity.create(extId, "task",
                 title.isBlank() ? "(untitled task)" : title,
                 status.isBlank() ? "task" : status, tone,
-                tag, source(), order[0]++)
+                tag, source, order[0]++)
                 .withDetail("From Notion database: " + tag, null));
     }
 
-    /** Query a database's rows and surface any not already seen as task work items. */
-    private void addDatabaseRows(String rawDbId, String dbName, List<WorkItemEntity> out,
-                                 Set<String> seen, int[] order) {
+    private void addDatabaseRows(RestClient http, String rawDbId, String dbName, List<WorkItemEntity> out,
+                                 Set<String> seen, int[] order, String source) {
         try {
             Map<String, Object> resp = http.post()
                     .uri("/v1/databases/" + rawDbId + "/query")
@@ -161,7 +151,7 @@ public class NotionConnector implements SourceConnector {
                 Map<String, Object> row = asMap(o);
                 String extId = clip(str(row, "id").replace("-", ""));
                 if (!seen.add(extId)) continue;
-                addTask(out, extId, extractTitle(row), extractStatus(row), dbName, order);
+                addTask(out, extId, extractTitle(row), extractStatus(row), dbName, order, source);
                 added++;
             }
         } catch (Exception e) {
@@ -173,10 +163,6 @@ public class NotionConnector implements SourceConnector {
         return id.length() > 60 ? id.substring(0, 60) : id;
     }
 
-    /**
-     * The row's status: prefer a {@code status}-typed property, then a select whose name looks
-     * like a status/stage/state, then any select — so we don't mistake Priority for status.
-     */
     @SuppressWarnings("unchecked")
     private String extractStatus(Map<String, Object> row) {
         Object props = row.get("properties");
@@ -204,7 +190,6 @@ public class NotionConnector implements SourceConnector {
                 : anySelect != null ? anySelect : "";
     }
 
-    /** Title lives either in a title-typed property (pages) or a top-level `title` array (databases). */
     @SuppressWarnings("unchecked")
     private String extractTitle(Map<String, Object> obj) {
         Object props = obj.get("properties");
@@ -217,8 +202,7 @@ public class NotionConnector implements SourceConnector {
                 }
             }
         }
-        String t = joinPlain(obj.get("title"));
-        return t;
+        return joinPlain(obj.get("title"));
     }
 
     private static String joinPlain(Object richTextArray) {
