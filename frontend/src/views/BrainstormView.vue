@@ -2,7 +2,12 @@
 import { computed, nextTick, onMounted, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import type { BrainstormData } from '../types'
-import { fetchBrainstorm, sendBrainstorm } from '../api'
+import {
+  fetchBrainstorm,
+  fetchBrainstormSession,
+  createBrainstormSession,
+  sendBrainstorm,
+} from '../api'
 import { useDashboardStore } from '../stores/dashboard'
 import SourceChip from '../components/SourceChip.vue'
 import BoundaryToken from '../components/BoundaryToken.vue'
@@ -15,13 +20,87 @@ const thinkingSteps = [
 ]
 
 const store = useDashboardStore()
-const { activeModel } = storeToRefs(store)
+const { activeModel, models } = storeToRefs(store)
 
 const data = ref<BrainstormData | null>(null)
 const loading = ref(true)
 const draft = ref('')
 const sending = ref(false)
+const switching = ref(false)
 const chatEl = ref<HTMLElement | null>(null)
+
+onMounted(async () => {
+  await store.ensureLoaded() // populate the model list for the in-panel dropdown
+  data.value = await fetchBrainstorm()
+  loading.value = false
+  await scrollToEnd()
+})
+
+async function scrollToEnd() {
+  await nextTick()
+  if (chatEl.value) chatEl.value.scrollTop = chatEl.value.scrollHeight
+}
+
+async function selectSession(id: string) {
+  if (!data.value || switching.value || id === data.value.active.id) return
+  switching.value = true
+  try {
+    data.value.active = await fetchBrainstormSession(id)
+  } finally {
+    switching.value = false
+    await scrollToEnd()
+  }
+}
+
+async function newSession() {
+  if (!data.value) return
+  const s = await createBrainstormSession()
+  data.value.sessions.unshift({ id: s.id, title: s.title })
+  data.value.active = s
+  draft.value = ''
+  await scrollToEnd()
+}
+
+function onModelChange(e: Event) {
+  store.setModel((e.target as HTMLSelectElement).value)
+}
+
+// Once the backend titles a fresh session from its first message, mirror it in the sidebar.
+function syncActiveTitle() {
+  if (!data.value) return
+  const a = data.value.active
+  const first = a.messages.find((m) => m.role === 'you')
+  if (first && a.title === 'New brainstorm') {
+    a.title = first.text.length > 48 ? first.text.slice(0, 48) + '…' : first.text
+    const ref = data.value.sessions.find((s) => s.id === a.id)
+    if (ref) ref.title = a.title
+  }
+}
+
+async function send() {
+  const text = draft.value.trim()
+  if (!text || sending.value || !data.value) return
+  const session = data.value.active
+  session.messages.push({ role: 'you', text })
+  draft.value = ''
+  sending.value = true
+  await scrollToEnd()
+  try {
+    const sourceIds = session.inContext.map((s) => s.id)
+    const reply = await sendBrainstorm(session.id, text, sourceIds)
+    session.messages.push(reply)
+    syncActiveTitle()
+  } catch {
+    session.messages.push({
+      role: 'ai',
+      text: 'Could not reach the model. Is the backend (and Ollama) running?',
+      hypothesis: false,
+    })
+  } finally {
+    sending.value = false
+    await scrollToEnd()
+  }
+}
 
 // The most recent AI reply used a model; if you've since switched, offer to redo it.
 const canRedo = computed(() => {
@@ -44,52 +123,15 @@ async function redoLast() {
   while (i >= 0 && msgs[i].role !== 'you') i--
   if (i < 0) return
   const userText = msgs[i].text
-  const history = msgs.slice(0, i).map((m) => ({ role: m.role, text: m.text }))
   msgs.splice(i + 1) // drop the previous AI reply(ies) — we regenerate them
   sending.value = true
   await scrollToEnd()
   try {
     const sourceIds = session.inContext.map((s) => s.id)
-    const reply = await sendBrainstorm(userText, sourceIds, history)
+    const reply = await sendBrainstorm(session.id, userText, sourceIds)
     session.messages.push(reply)
   } catch {
     session.messages.push({ role: 'ai', text: 'Could not reach the model.', hypothesis: false })
-  } finally {
-    sending.value = false
-    await scrollToEnd()
-  }
-}
-
-onMounted(async () => {
-  data.value = await fetchBrainstorm()
-  loading.value = false
-})
-
-async function scrollToEnd() {
-  await nextTick()
-  if (chatEl.value) chatEl.value.scrollTop = chatEl.value.scrollHeight
-}
-
-async function send() {
-  const text = draft.value.trim()
-  if (!text || sending.value || !data.value) return
-  const session = data.value.active
-  // Capture the prior conversation BEFORE adding this turn, so the model has context.
-  const history = session.messages.map((m) => ({ role: m.role, text: m.text }))
-  session.messages.push({ role: 'you', text })
-  draft.value = ''
-  sending.value = true
-  await scrollToEnd()
-  try {
-    const sourceIds = session.inContext.map((s) => s.id)
-    const reply = await sendBrainstorm(text, sourceIds, history)
-    session.messages.push(reply)
-  } catch {
-    session.messages.push({
-      role: 'ai',
-      text: 'Could not reach the model. Is the backend (and Ollama) running?',
-      hypothesis: false,
-    })
   } finally {
     sending.value = false
     await scrollToEnd()
@@ -102,10 +144,16 @@ async function send() {
   <div v-else-if="data" class="brain">
     <!-- sessions -->
     <aside class="sess">
-      <div class="nb">+ New session</div>
-      <div v-for="s in data.sessions" :key="s.id" class="s" :class="{ on: s.id === data.active.id }">
+      <button class="nb" @click="newSession">+ New session</button>
+      <button
+        v-for="s in data.sessions"
+        :key="s.id"
+        class="s"
+        :class="{ on: s.id === data.active.id }"
+        @click="selectSession(s.id)"
+      >
         {{ s.title }}
-      </div>
+      </button>
       <div class="spring"></div>
       <div class="vis mono">visibility: ● personal ○ workspace</div>
     </aside>
@@ -164,7 +212,16 @@ async function send() {
       </div>
       <div class="add"><span class="chip">+ Add source</span></div>
       <div class="lab mono">Model</div>
-      <div class="select mono">{{ data.active.model }} ▾</div>
+      <select
+        v-if="models.length"
+        class="mselect mono"
+        :value="activeModel"
+        aria-label="Model for this brainstorm"
+        @change="onModelChange"
+      >
+        <option v-for="m in models" :key="m" :value="m">{{ m }}</option>
+      </select>
+      <div v-else class="select mono">{{ data.active.model }}</div>
       <BoundaryToken class="bt" :boundary="data.active.boundary" />
     </aside>
   </div>
@@ -186,8 +243,16 @@ async function send() {
 .redo-btn:hover { background: var(--warp-hi); }
 .brain { display: grid; grid-template-columns: 182px 1fr 250px; height: 100%; }
 .sess { border-right: 1px solid var(--line); padding: 14px 12px; background: var(--rail-bg); display: flex; flex-direction: column; }
-.nb { font-size: 13px; color: var(--warp-hi); padding: 6px 10px; margin-bottom: 6px; }
-.s { padding: 8px 10px; border-radius: 8px; color: var(--dim); font-size: 13px; }
+.nb {
+  display: block; width: 100%; text-align: left; background: transparent; border: 0;
+  font-size: 13px; color: var(--warp-hi); padding: 6px 10px; margin-bottom: 6px; cursor: pointer;
+}
+.nb:hover { color: var(--ink); }
+.s {
+  display: block; width: 100%; text-align: left; background: transparent; border: 0;
+  padding: 8px 10px; border-radius: 8px; color: var(--dim); font-size: 13px; cursor: pointer;
+}
+.s:hover { color: var(--ink); background: var(--nav-hover); }
 .s.on { background: var(--warp-weft); color: var(--ink); }
 .spring { margin-top: auto; }
 .vis { font-size: 12px; color: var(--faint-text); }
@@ -215,5 +280,11 @@ async function send() {
 .trow .x { margin-left: auto; color: var(--faint-text); }
 .add { margin: 8px 0 18px; }
 .select { border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px; background: var(--chip-bg); color: var(--ink); font-size: 12px; }
+.mselect {
+  width: 100%; border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px;
+  background: var(--chip-bg); color: var(--ink); font-size: 12px; cursor: pointer;
+}
+.mselect:hover { border-color: var(--warp); }
+.mselect:focus { outline: none; border-color: var(--warp); }
 .bt { margin-top: 12px; }
 </style>

@@ -183,7 +183,18 @@ public class ApiController {
 
     @GetMapping("/brainstorm")
     public Dto.Brainstorm brainstorm() {
-        return brainstormService.initial();
+        return brainstormService.overview();
+    }
+
+    @GetMapping("/brainstorm/sessions/{id}")
+    public Dto.BrainstormSession brainstormSession(@PathVariable String id) {
+        return brainstormService.session(id);
+    }
+
+    /** Create a new brainstorming session (persisted). */
+    @PostMapping("/brainstorm/sessions")
+    public Dto.BrainstormSession brainstormNewSession(@RequestBody(required = false) Dto.NewSession body) {
+        return brainstormService.createSession(body == null ? null : body.title());
     }
 
     /** Send a brainstorm message + attached sources → local-model reply (SPEC §Brainstorming). */

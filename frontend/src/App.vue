@@ -36,6 +36,7 @@ const railDefaults = {
       :build-badge="buildBadge"
       :models="models"
       :active-model="activeModel"
+      :hide-model="route.name === 'brainstorm'"
       @select-model="store.setModel"
     />
     <RouterView />

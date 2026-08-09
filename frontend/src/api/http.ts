@@ -8,6 +8,7 @@ import type {
   PrivacyData,
   BrainstormData,
   BrainstormMessage,
+  BrainstormSession,
   OnboardStep,
 } from '../types'
 
@@ -53,11 +54,12 @@ export const fetchProviders = () => get<ProvidersData>('/providers')
 export const setActiveModel = (name: string) => post<ProvidersData>('/providers/model', { name })
 export const fetchPrivacy = () => get<PrivacyData>('/privacy')
 export const fetchBrainstorm = () => get<BrainstormData>('/brainstorm')
-export const sendBrainstorm = (
-  message: string,
-  sourceIds: string[],
-  history: { role: string; text: string }[] = [],
-) => post<BrainstormMessage>('/brainstorm/messages', { message, sourceIds, history })
+export const fetchBrainstormSession = (id: string) =>
+  get<BrainstormSession>(`/brainstorm/sessions/${id}`)
+export const createBrainstormSession = (title?: string) =>
+  post<BrainstormSession>('/brainstorm/sessions', { title: title ?? '' })
+export const sendBrainstorm = (sessionId: string, message: string, sourceIds: string[]) =>
+  post<BrainstormMessage>('/brainstorm/messages', { sessionId, message, sourceIds })
 export const fetchOnboarding = () => get<OnboardStep[]>('/onboarding')
 export const syncSource = (source: string) =>
   post<{ source: string; ingested: number }>(`/integrations/${source}/sync`, {})

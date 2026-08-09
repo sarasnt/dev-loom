@@ -149,12 +149,14 @@ const BRAINSTORM: BrainstormData = {
 export function fetchBrainstorm(): Promise<BrainstormData> {
   return delay(BRAINSTORM)
 }
+export function fetchBrainstormSession(_id: string) {
+  return delay(BRAINSTORM.active)
+}
+export function createBrainstormSession(title?: string) {
+  return delay({ ...BRAINSTORM.active, id: 'new', title: title || 'New brainstorm', messages: [] })
+}
 
-export function sendBrainstorm(
-  message: string,
-  sourceIds: string[],
-  _history: { role: string; text: string }[] = [],
-) {
+export function sendBrainstorm(_sessionId: string, message: string, sourceIds: string[]) {
   const reply = {
     role: 'ai' as const,
     text: `(offline stub) You asked: "${message}". Attach a backend + local model to get a real reply.`,

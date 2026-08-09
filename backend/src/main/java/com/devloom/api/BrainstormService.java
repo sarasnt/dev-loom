@@ -1,24 +1,29 @@
 package com.devloom.api;
 
+import java.util.ArrayList;
 import java.util.List;
 
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.devloom.ai.LlmPort;
 import com.devloom.ai.LlmRouter;
+import com.devloom.brainstorm.BrainstormMessageEntity;
+import com.devloom.brainstorm.BrainstormMessageRepository;
+import com.devloom.brainstorm.BrainstormSessionEntity;
+import com.devloom.brainstorm.BrainstormSessionRepository;
+import com.devloom.workmodel.WorkItemEntity;
 import com.devloom.workmodel.WorkItemRepository;
 
 /**
- * Conversational brainstorming workspace (SPEC.md §Brainstorming). A genuine thinking
- * partner — not an answer machine. The system prompt encodes a structured brainstorming
- * method (understand intent → surface/challenge assumptions → options + a real
- * recommendation), in the spirit of the "superpowers" brainstorming discipline.
+ * Conversational brainstorming workspace (SPEC.md §Brainstorming) — a genuine thinking
+ * partner, not an answer machine. Sessions and their messages are persisted, so history
+ * survives refreshes/restarts and multiple sessions can be kept side by side.
  *
- * <p>Multi-turn: the prior conversation is included so the model builds on it. Runs on the
- * local model via {@link LlmRouter} (nothing leaves the machine) with graceful stub fallback.
- * A dedicated brainstorm model can be configured (a stronger general model than the coder one)
- * without touching product code.
+ * <p>The system prompt encodes a structured brainstorming method (understand intent →
+ * surface/challenge assumptions → options + a real recommendation). Replies run on the
+ * user's selected local model via {@link LlmRouter} (nothing leaves the machine) with a
+ * graceful stub fallback. Multi-turn: prior messages in the session are the context.
  */
 @Service
 public class BrainstormService {
@@ -45,70 +50,123 @@ public class BrainstormService {
             You are talking to an experienced engineer. Match that level.""";
 
     private static final int MAX_HISTORY_TURNS = 12;
-
     private static final int MAX_CONTEXT_SOURCES = 6;
 
     private final LlmRouter llm;
+    private final BrainstormSessionRepository sessions;
+    private final BrainstormMessageRepository messages;
     private final WorkItemRepository workItems;
-    private final String brainstormModel;
 
-    public BrainstormService(LlmRouter llm, WorkItemRepository workItems,
-                             @Value("${devloom.ai.brainstorm-model:}") String brainstormModel) {
+    public BrainstormService(LlmRouter llm, BrainstormSessionRepository sessions,
+                             BrainstormMessageRepository messages, WorkItemRepository workItems) {
         this.llm = llm;
+        this.sessions = sessions;
+        this.messages = messages;
         this.workItems = workItems;
-        this.brainstormModel = brainstormModel == null || brainstormModel.isBlank() ? null : brainstormModel;
     }
 
-    /**
-     * A fresh brainstorm session — no canned conversation. The "in context" rail is seeded
-     * with real work items (PRs, failed builds, tasks) so the user can ground the discussion
-     * in their actual work. Runs local-first; the reply endpoint drives the real dialogue.
-     */
-    public Dto.Brainstorm initial() {
-        List<Dto.EvidenceRef> inContext = workItems.findAllByOrderBySortOrderAsc().stream()
-                .limit(MAX_CONTEXT_SOURCES)
-                .map(w -> new Dto.EvidenceRef(w.getExtId(), w.getTitle(), "local"))
+    // ---- reads ----------------------------------------------------------------
+
+    /** All sessions (most-recent first) + the active one (the most recent), with its messages. */
+    @Transactional
+    public Dto.Brainstorm overview() {
+        List<BrainstormSessionEntity> all = sessions.findAllByOrderByUpdatedAtDesc();
+        BrainstormSessionEntity active = all.isEmpty() ? sessions.save(BrainstormSessionEntity.create(null)) : all.getFirst();
+        if (all.isEmpty()) {
+            all = List.of(active);
+        }
+        List<Dto.SessionRef> refs = all.stream()
+                .map(s -> new Dto.SessionRef(String.valueOf(s.getId()), s.getTitle()))
                 .toList();
-
-        Dto.BrainstormSession active = new Dto.BrainstormSession(
-                "new", "New brainstorm", "personal", modelLabel(),
-                new Dto.Boundary("local", "On your machine"),
-                inContext, List.of());
-
-        return new Dto.Brainstorm(List.of(new Dto.SessionRef("new", "New brainstorm")), active);
+        return new Dto.Brainstorm(refs, toDto(active));
     }
 
-    private String modelLabel() {
-        String m = llm.activeModelLabel();
-        return m == null || m.isBlank() ? "local model" : m;
+    @Transactional
+    public Dto.BrainstormSession session(String id) {
+        return sessions.findById(parse(id)).map(this::toDto).orElseGet(() -> overview().active());
     }
 
+    @Transactional
+    public Dto.BrainstormSession createSession(String title) {
+        return toDto(sessions.save(BrainstormSessionEntity.create(title)));
+    }
+
+    // ---- write: a turn --------------------------------------------------------
+
+    @Transactional
     public Dto.BrainstormMessage reply(Dto.BrainstormSend req) {
         List<String> ids = req.sourceIds() == null ? List.of() : req.sourceIds();
-        List<Dto.Turn> history = req.history() == null ? List.of() : req.history();
+        BrainstormSessionEntity session = sessions.findById(parse(req.sessionId()))
+                .orElseGet(() -> sessions.save(BrainstormSessionEntity.create(null)));
 
-        StringBuilder prompt = new StringBuilder();
-        if (!ids.isEmpty()) {
-            prompt.append("Attached sources for context: ").append(String.join(", ", ids)).append("\n\n");
-        }
-        if (!history.isEmpty()) {
-            prompt.append("Conversation so far:\n");
-            int start = Math.max(0, history.size() - MAX_HISTORY_TURNS);
-            for (Dto.Turn t : history.subList(start, history.size())) {
-                String who = "you".equalsIgnoreCase(t.role()) ? "User" : "Assistant";
-                prompt.append(who).append(": ").append(t.text() == null ? "" : t.text()).append("\n");
-            }
-            prompt.append("\n");
-        }
-        prompt.append("User: ").append(req.message() == null ? "" : req.message()).append("\nAssistant:");
+        List<BrainstormMessageEntity> prior = messages.findBySessionIdOrderBySeqAsc(session.getId());
+        int seq = prior.size();
 
-        LlmPort.LlmResult r = llm.generate(
-                new LlmPort.LlmRequest("brainstorm", SYSTEM, prompt.toString(), brainstormModel));
+        String userText = req.message() == null ? "" : req.message();
+        messages.save(BrainstormMessageEntity.of(session.getId(), seq++, "you", userText, null, false));
+
+        String prompt = buildPrompt(ids, prior, userText);
+        LlmPort.LlmResult r = llm.generate(new LlmPort.LlmRequest("brainstorm", SYSTEM, prompt, null));
+
+        messages.save(BrainstormMessageEntity.of(session.getId(), seq, "ai", r.text(), r.model(), true));
+
+        // Title a fresh session from its first user message, so the list is readable.
+        if (prior.isEmpty() && !userText.isBlank()) {
+            session.setTitle(userText.length() > 48 ? userText.substring(0, 48) + "…" : userText);
+        }
+        session.touch();
+        sessions.save(session);
 
         List<Dto.EvidenceRef> sources = ids.stream()
                 .map(id -> new Dto.EvidenceRef(id, null, "local"))
                 .toList();
-
         return new Dto.BrainstormMessage("ai", r.text(), r.model(), true, sources);
+    }
+
+    // ---- helpers --------------------------------------------------------------
+
+    private String buildPrompt(List<String> ids, List<BrainstormMessageEntity> prior, String userText) {
+        StringBuilder prompt = new StringBuilder();
+        if (!ids.isEmpty()) {
+            prompt.append("Attached sources for context: ").append(String.join(", ", ids)).append("\n\n");
+        }
+        if (!prior.isEmpty()) {
+            prompt.append("Conversation so far:\n");
+            int start = Math.max(0, prior.size() - MAX_HISTORY_TURNS);
+            for (BrainstormMessageEntity m : prior.subList(start, prior.size())) {
+                prompt.append("you".equalsIgnoreCase(m.getRole()) ? "User" : "Assistant")
+                        .append(": ").append(m.getBody()).append("\n");
+            }
+            prompt.append("\n");
+        }
+        prompt.append("User: ").append(userText).append("\nAssistant:");
+        return prompt.toString();
+    }
+
+    private Dto.BrainstormSession toDto(BrainstormSessionEntity s) {
+        List<Dto.BrainstormMessage> msgs = messages.findBySessionIdOrderBySeqAsc(s.getId()).stream()
+                .map(m -> new Dto.BrainstormMessage(m.getRole(), m.getBody(), m.getModel(),
+                        m.isHypothesis(), List.of()))
+                .toList();
+
+        // Suggested sources to ground the discussion — the user's real work items.
+        List<Dto.EvidenceRef> inContext = new ArrayList<>();
+        for (WorkItemEntity w : workItems.findAllByOrderBySortOrderAsc()) {
+            if (inContext.size() >= MAX_CONTEXT_SOURCES) break;
+            inContext.add(new Dto.EvidenceRef(w.getExtId(), w.getTitle(), "local"));
+        }
+
+        return new Dto.BrainstormSession(
+                String.valueOf(s.getId()), s.getTitle(), s.getVisibility(),
+                llm.activeModelLabel(), new Dto.Boundary("local", "On your machine"),
+                inContext, msgs);
+    }
+
+    private static Long parse(String id) {
+        try {
+            return Long.valueOf(id);
+        } catch (Exception e) {
+            return -1L;
+        }
     }
 }

@@ -10,6 +10,7 @@ defineProps<{
   buildBadge?: number
   models?: string[]
   activeModel?: string
+  hideModel?: boolean
 }>()
 
 const emit = defineEmits<{ (e: 'select-model', name: string): void }>()
@@ -50,6 +51,7 @@ const nav = [
       <div class="upd mono">{{ sync.updated }}</div>
     </div>
 
+    <template v-if="!hideModel">
     <div class="sep"></div>
     <div class="meta">
       <div class="eyebrow">Model</div>
@@ -66,6 +68,7 @@ const nav = [
       </div>
       <div v-else class="mval">{{ model.name }} <span class="mono tag">· {{ model.local ? 'local' : 'remote' }}</span></div>
     </div>
+    </template>
     <div class="meta bmeta">
       <div class="eyebrow">Boundary</div>
       <BoundaryToken :boundary="boundary" />
