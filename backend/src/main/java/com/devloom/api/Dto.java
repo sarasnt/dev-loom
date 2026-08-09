@@ -75,7 +75,7 @@ public final class Dto {
             String name, String key, String boundaryLabel, boolean hasKey, Boolean valid,
             Integer capCents, Integer usedCents, String note, List<String> models, String maskedKey) {}
     public record Providers(LocalProvider local, KeyProvider anthropic, KeyProvider openai,
-                            boolean fallbackOn, boolean canStoreKeys) {}
+                            boolean fallbackOn, boolean canStoreKeys, List<String> agentModels) {}
     public record SetKey(String provider, String key) {}
 
     // ---- Privacy ----

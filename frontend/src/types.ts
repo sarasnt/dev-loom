@@ -195,6 +195,7 @@ export interface ProvidersData {
   openai: KeyProvider
   fallbackOn: boolean
   canStoreKeys: boolean
+  agentModels?: string[] // e.g. ["claude-code"] when the host agent + CLI are available
 }
 
 // ---- Privacy & data boundary ----

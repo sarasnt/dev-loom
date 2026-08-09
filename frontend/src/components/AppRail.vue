@@ -24,7 +24,7 @@ function onModelChange(e: Event) {
 // Note: local Ollama's "gpt-oss" must NOT be treated as OpenAI's gpt-*.
 function isRemoteModel(m?: string): boolean {
   const s = (m || '').toLowerCase()
-  if (s.startsWith('claude')) return true
+  if (s.startsWith('claude')) return true // incl. claude-code (subscription → Anthropic)
   if (s.startsWith('gpt-oss')) return false
   return s.startsWith('gpt-') || s.startsWith('o1') || s.startsWith('o3') || s.startsWith('o4')
 }

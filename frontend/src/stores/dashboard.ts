@@ -6,6 +6,7 @@ import { fetchToday, fetchWork, fetchProviders, setActiveModel } from '../api'
 // Local models + remote models from any keyed provider (the router maps names → adapter).
 function unionModels(p: ProvidersData): string[] {
   const all = [...(p.local.models ?? [])]
+  all.push(...(p.agentModels ?? [])) // e.g. claude-code (subscription via host agent)
   if (p.anthropic?.hasKey) all.push(...(p.anthropic.models ?? []))
   if (p.openai?.hasKey) all.push(...(p.openai.models ?? []))
   return all

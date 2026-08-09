@@ -1,0 +1,83 @@
+package com.devloom.ai;
+
+import java.time.Duration;
+import java.util.Map;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestClient;
+
+/**
+ * Client for the DevLoom host agent (docs/SPEC-sources.md §14) — a local process the user runs
+ * on the host, reached via {@code host.docker.internal}. It exposes the logged-in {@code claude}
+ * CLI (subscription) and, later, git/repo operations that a Linux container can't do itself.
+ * Health is cached briefly so probing is cheap.
+ */
+@Component
+public class HostAgentClient {
+
+    private static final Logger log = LoggerFactory.getLogger(HostAgentClient.class);
+    private static final ParameterizedTypeReference<Map<String, Object>> MAP =
+            new ParameterizedTypeReference<>() {};
+
+    private final RestClient http;
+    private volatile Map<String, Object> cachedHealth;
+    private volatile long cachedAt;
+
+    public HostAgentClient(
+            @Value("${devloom.host-agent.url:http://host.docker.internal:8765}") String baseUrl) {
+        SimpleClientHttpRequestFactory f = new SimpleClientHttpRequestFactory();
+        f.setConnectTimeout(700);   // fail fast when the agent isn't running
+        f.setReadTimeout(240_000);  // a claude generation can take a while
+        this.http = RestClient.builder().baseUrl(baseUrl).requestFactory(f).build();
+    }
+
+    /** Cached (~5s) health probe; empty when the agent is unreachable. */
+    public Map<String, Object> health() {
+        long now = System.currentTimeMillis();
+        if (cachedHealth != null && now - cachedAt < 5_000) {
+            return cachedHealth;
+        }
+        try {
+            Map<String, Object> h = http.get().uri("/health").retrieve().body(MAP);
+            cachedHealth = h == null ? Map.of() : h;
+        } catch (Exception e) {
+            cachedHealth = Map.of();
+        }
+        cachedAt = now;
+        return cachedHealth;
+    }
+
+    public boolean up() {
+        return Boolean.TRUE.equals(health().get("ok"));
+    }
+
+    /** Whether a logged-in claude CLI is available through the agent. */
+    public boolean claudeAvailable() {
+        Object c = health().get("claude");
+        return c != null && !String.valueOf(c).isBlank();
+    }
+
+    /** Run a Claude Code (subscription) generation via the agent. */
+    public Result claude(String system, String prompt) {
+        Map<String, Object> resp = http.post().uri("/claude")
+                .body(Map.of("system", system == null ? "" : system, "prompt", prompt == null ? "" : prompt))
+                .retrieve().body(MAP);
+        if (resp == null) {
+            throw new IllegalStateException("no response from host agent");
+        }
+        if (resp.get("error") != null) {
+            throw new IllegalStateException(String.valueOf(resp.get("error")));
+        }
+        String text = String.valueOf(resp.getOrDefault("text", ""));
+        String model = String.valueOf(resp.getOrDefault("model", "claude-code"));
+        log.info("Host agent claude generate: chars={}", text.length());
+        return new Result(text, model);
+    }
+
+    public record Result(String text, String model) {}
+}

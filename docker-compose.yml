@@ -44,7 +44,12 @@ services:
       DEVLOOM_OLLAMA_URL: http://ollama:11434
       # Master secret for encrypting app-stored API keys (also settable in backend/.env).
       DEVLOOM_SECRET: ${DEVLOOM_SECRET:-}
+      # DevLoom host agent (Claude subscription bridge + repos), reached on the host.
+      DEVLOOM_HOST_AGENT_URL: ${DEVLOOM_HOST_AGENT_URL:-http://host.docker.internal:8765}
       DEVLOOM_LANGFUSE_ENABLED: ${DEVLOOM_LANGFUSE_ENABLED:-false}
+    # Make host.docker.internal resolve on Linux/Debian too (Docker Desktop provides it already).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "8080:8080"
     healthcheck:
