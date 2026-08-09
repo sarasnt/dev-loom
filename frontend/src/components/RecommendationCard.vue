@@ -1,11 +1,26 @@
 <script setup lang="ts">
+import { useRouter } from 'vue-router'
 import type { Recommendation } from '../types'
 import Mono from './Mono.vue'
 
 defineProps<{ item: Recommendation }>()
 
+const router = useRouter()
+
 const primaryAction = (actions: string[]) => actions[0]
 const restActions = (actions: string[]) => actions.slice(1)
+
+// Wire the primary action to the real thing: a build → its on-machine analysis; a GitHub
+// PR/issue → open on GitHub (/issues/N redirects to the PR when N is a PR).
+function runPrimary(item: Recommendation) {
+  if (item.type === 'build') {
+    router.push(`/builds/${item.id}`)
+    return
+  }
+  if (item.source === 'GitHub' && item.id.includes('#')) {
+    window.open(`https://github.com/${item.id.replace('#', '/issues/')}`, '_blank', 'noopener')
+  }
+}
 </script>
 
 <template>
@@ -39,7 +54,7 @@ const restActions = (actions: string[]) => actions.slice(1)
     </div>
 
     <div class="acts">
-      <button class="btn pri">{{ primaryAction(item.actions) }} ▸</button>
+      <button class="btn pri" @click="runPrimary(item)">{{ primaryAction(item.actions) }} ▸</button>
       <button v-for="a in restActions(item.actions)" :key="a" class="btn ghost">{{ a }}</button>
     </div>
   </article>

@@ -34,7 +34,8 @@ public final class Dto {
     // ---- Work ----
     public record WorkRow(
             String id, String type, String glyph, String title, String status,
-            String statusTone, List<String> meta, String source) {}
+            String statusTone, List<String> meta, String source,
+            String category, String description, String parentId) {}
 
     // ---- Build failure ----
     public record LogLine(String text, String kind) {}
@@ -58,7 +59,8 @@ public final class Dto {
             List<String> scopes, String note, List<String> actions) {}
 
     // ---- Providers ----
-    public record LocalProvider(String name, String defaultModel, List<String> models, boolean loaded) {}
+    public record LocalProvider(String name, String defaultModel, String active,
+                                List<String> models, boolean loaded) {}
     public record KeyProvider(
             String name, String boundaryLabel, boolean hasKey, Boolean valid,
             Integer capCents, Integer usedCents, String note) {}

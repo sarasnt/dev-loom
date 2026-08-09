@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import com.devloom.ai.CostBudget;
+import com.devloom.ai.ModelPreference;
 import com.devloom.ai.OllamaLlm;
 
 /**
@@ -17,6 +18,7 @@ public class ProvidersService {
 
     private final OllamaLlm ollama;
     private final CostBudget budget;
+    private final ModelPreference modelPref;
     private final String defaultModel;
     private final boolean anthropicKey;
     private final boolean openaiKey;
@@ -24,22 +26,34 @@ public class ProvidersService {
     public ProvidersService(
             OllamaLlm ollama,
             CostBudget budget,
+            ModelPreference modelPref,
             @Value("${devloom.ai.default-model:}") String defaultModel,
             @Value("${ANTHROPIC_API_KEY:}") String anthropicKey,
             @Value("${OPENAI_API_KEY:}") String openaiKey) {
         this.ollama = ollama;
         this.budget = budget;
+        this.modelPref = modelPref;
         this.defaultModel = defaultModel;
         this.anthropicKey = anthropicKey != null && !anthropicKey.isBlank();
         this.openaiKey = openaiKey != null && !openaiKey.isBlank();
+    }
+
+    /** Set the active local model (rail dropdown). Ignored if not a pulled model. */
+    public void selectModel(String name) {
+        if (name != null && !name.isBlank() && ollama.models().contains(name.strip())) {
+            modelPref.set(name);
+        }
     }
 
     public Dto.Providers providers() {
         List<String> models = ollama.models();
         boolean loaded = !models.isEmpty();
         String def = loaded ? models.getFirst() : defaultModel;
+        // Active = the user's selection if it's still available, else the auto-picked default.
+        String active = modelPref.active() != null && models.contains(modelPref.active())
+                ? modelPref.active() : def;
 
-        Dto.LocalProvider local = new Dto.LocalProvider("Ollama", def, models, loaded);
+        Dto.LocalProvider local = new Dto.LocalProvider("Ollama", def, active, models, loaded);
 
         Dto.KeyProvider anthropic = new Dto.KeyProvider(
                 "Anthropic", "leaves for Anthropic", anthropicKey,

@@ -1,6 +1,6 @@
 // Domain types for the Today screen — mirror the unified model in SPEC.md §15.
 
-export type WorkItemType = 'pr' | 'build' | 'stale' | 'task' | 'review'
+export type WorkItemType = 'pr' | 'build' | 'stale' | 'task' | 'review' | 'calendar' | 'doc'
 
 export type ChipTone = 'neutral' | 'warn' | 'fail' | 'stale'
 
@@ -27,7 +27,7 @@ export interface Recommendation {
   rank: number
   type: WorkItemType
   title: string
-  source: string // e.g. "acme/billing"
+  source: string // e.g. "GitHub", "Jira"
   why: string // grotesque reasoning
   isHypothesis: boolean
   chips: SignalChip[]
@@ -72,10 +72,13 @@ export interface WorkRow {
   statusTone: 'warn' | 'fail' | 'stale' | 'healthy' | 'info'
   meta: string[]
   source: string
+  category?: string
+  description?: string | null
+  parentId?: string | null
 }
 
 // ---- Build-failure analysis (SPEC §23) ----
-export type Confidence = 'high' | 'med' | 'low'
+export type Confidence = 'high' | 'med' | 'low' | 'n/a'
 export interface LogLine {
   text: string
   kind?: 'normal' | 'fail' | 'omitted' | 'redacted'
@@ -91,7 +94,7 @@ export interface BuildFailure {
   id: string
   repo: string
   branch: string
-  pr?: string
+  pr?: string | null
   run: string
   failedAgo: string
   boundary: Boundary
@@ -135,6 +138,7 @@ export interface Integration {
 export interface LocalProvider {
   name: string
   defaultModel: string
+  active?: string
   models: string[]
   loaded: boolean
 }

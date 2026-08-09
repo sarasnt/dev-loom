@@ -78,9 +78,13 @@ public class NotionConnector implements SourceConnector {
                 String title = extractTitle(obj);
                 String id = str(obj, "id").replace("-", "");
                 String extId = id.length() > 60 ? id.substring(0, 60) : id;
+                // A shared Notion page/database is a "note" in DevLoom's model (category Notes).
+                String status = "database".equals(kind) ? "note · database" : "note";
                 out.add(WorkItemEntity.create(extId, "doc",
                         title.isBlank() ? "(untitled Notion " + kind + ")" : title,
-                        kind.isBlank() ? "page" : kind, "info", "Notion", source(), order++));
+                        status, "info", "Notion", source(), order++)
+                        .withDetail("Notion " + (kind.isBlank() ? "page" : kind)
+                                + " shared with DevLoom.", null));
             }
             log.info("Notion sync: {} shared objects", out.size());
             return out;

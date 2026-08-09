@@ -64,7 +64,7 @@ public class JiraConnector implements SourceConnector {
                     .uri(uri -> uri.path("/rest/api/2/search")
                             .queryParam("jql", "assignee = currentUser() ORDER BY updated DESC")
                             .queryParam("maxResults", maxIssues)
-                            .queryParam("fields", "summary,status,priority,project")
+                            .queryParam("fields", "summary,status,priority,project,parent,description")
                             .build())
                     .header("Authorization", "Bearer " + pat)
                     .header("Accept", "application/json")
@@ -101,13 +101,19 @@ public class JiraConnector implements SourceConnector {
             case "indeterminate" -> "warn";
             default -> "info";
         };
+        // Parent (sub-tasks and, in newer Jira, stories under an epic) → hierarchy key.
+        String parentKey = str(asMap(f.get("parent")), "key");
+        // v2 (on-prem Server/DC) returns description as plain text/wiki markup.
+        String description = str(f, "description");
+
         List<String> metaParts = new ArrayList<>();
         if (!priority.isBlank()) metaParts.add(priority);
         if (!projectKey.isBlank()) metaParts.add(projectKey);
         String title = key + " · " + summary;
         return WorkItemEntity.create(key, "task", title,
                 statusName.isBlank() ? "open" : statusName, tone,
-                String.join(",", metaParts), source(), order);
+                String.join(",", metaParts), source(), order)
+                .withDetail(description, parentKey);
     }
 
     // ---- tiny, null-safe JSON-map helpers ----

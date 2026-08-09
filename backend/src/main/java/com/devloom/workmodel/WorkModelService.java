@@ -25,7 +25,8 @@ public class WorkModelService {
         List<String> meta = e.getMetaCsv().isBlank() ? List.of() : Arrays.asList(e.getMetaCsv().split(","));
         return new Dto.WorkRow(
                 e.getExtId(), e.getType(), glyph(e.getType()), e.getTitle(),
-                e.getStatus(), e.getStatusTone(), meta, e.getSource());
+                e.getStatus(), e.getStatusTone(), meta, e.getSource(),
+                category(e.getType()), e.getDescription(), e.getParentExtId());
     }
 
     /** Presentation glyph derived from domain type (kept out of the DB). */
@@ -36,6 +37,19 @@ public class WorkModelService {
             case "review", "calendar" -> "◷";
             case "doc" -> "▤";
             default -> "⎇"; // pr, stale
+        };
+    }
+
+    /** Human category used for grouping/filtering in the Work view. */
+    private String category(String type) {
+        return switch (type) {
+            case "pr" -> "Pull request";
+            case "build" -> "Build";
+            case "task" -> "Task";
+            case "review", "calendar" -> "Event";
+            case "doc" -> "Notes";
+            case "stale" -> "Stale";
+            default -> "Item";
         };
     }
 }

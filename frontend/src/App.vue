@@ -1,29 +1,26 @@
 <script setup lang="ts">
 import { storeToRefs } from 'pinia'
 import { useRoute } from 'vue-router'
-import { computed } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useDashboardStore } from './stores/dashboard'
 import AppRail from './components/AppRail.vue'
 
 const store = useDashboardStore()
-const { today } = storeToRefs(store)
+const { today, buildBadge, models, activeModel } = storeToRefs(store)
 const route = useRoute()
+
+// Load the rail's real data (workspace/model/sync/badge) once, on any entry page.
+onMounted(() => store.ensureLoaded())
 
 // Onboarding is a full-bleed screen with no rail.
 const chromeless = computed(() => route.name === 'onboarding')
 
+// Neutral placeholders shown only for the brief moment before the first load resolves —
+// no fixtures, no invented workspace or model.
 const railDefaults = {
-  workspace: "sara's workspace",
-  sync: {
-    sources: [
-      { key: 'gh', label: 'GitHub', state: 'healthy' as const },
-      { key: 'jira', label: 'Jira', state: 'healthy' as const },
-      { key: 'gcal', label: 'Google', state: 'syncing' as const },
-      { key: 'mscal', label: 'Microsoft', state: 'healthy' as const },
-    ],
-    updated: 'syncing…',
-  },
-  model: { name: 'Qwen3-Coder', local: true },
+  workspace: 'My workspace',
+  sync: { sources: [] as { key: string; label: string; state: 'healthy' }[], updated: '…' },
+  model: { name: 'local model', local: true },
   boundary: { mode: 'local' as const, label: 'On your machine' },
 }
 </script>
@@ -36,7 +33,10 @@ const railDefaults = {
       :sync="today?.sync ?? railDefaults.sync"
       :model="today?.model ?? railDefaults.model"
       :boundary="today?.boundary ?? railDefaults.boundary"
-      :build-badge="2"
+      :build-badge="buildBadge"
+      :models="models"
+      :active-model="activeModel"
+      @select-model="store.setModel"
     />
     <RouterView />
   </div>

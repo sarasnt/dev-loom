@@ -40,6 +40,12 @@ public class WorkItemEntity {
     @Column(name = "sort_order", nullable = false)
     private int sortOrder;
 
+    @Column(name = "description", columnDefinition = "text")
+    private String description;
+
+    @Column(name = "parent_ext_id")
+    private String parentExtId;
+
     protected WorkItemEntity() {
     }
 
@@ -58,6 +64,23 @@ public class WorkItemEntity {
         return e;
     }
 
+    /**
+     * Optional detail for the expandable Work view: a description preview and a parent
+     * work item (its {@code extId} within the same source, for hierarchy). Fluent so
+     * connectors can add it without widening {@link #create}.
+     */
+    public WorkItemEntity withDetail(String description, String parentExtId) {
+        this.description = trim(description, 2000);
+        this.parentExtId = (parentExtId == null || parentExtId.isBlank()) ? null : parentExtId;
+        return this;
+    }
+
+    private static String trim(String s, int max) {
+        if (s == null || s.isBlank()) return null;
+        String t = s.strip();
+        return t.length() > max ? t.substring(0, max) + "…" : t;
+    }
+
     public Long getId() { return id; }
     public String getExtId() { return extId; }
     public String getType() { return type; }
@@ -67,4 +90,6 @@ public class WorkItemEntity {
     public String getMetaCsv() { return metaCsv; }
     public String getSource() { return source; }
     public int getSortOrder() { return sortOrder; }
+    public String getDescription() { return description; }
+    public String getParentExtId() { return parentExtId; }
 }

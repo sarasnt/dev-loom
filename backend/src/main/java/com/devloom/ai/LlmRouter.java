@@ -23,11 +23,14 @@ public class LlmRouter {
     private final List<LlmPort> ports;
     private final LangfuseTracer tracer;
     private final AuditService audit;
+    private final ModelPreference modelPref;
 
-    public LlmRouter(List<LlmPort> ports, LangfuseTracer tracer, AuditService audit) {
+    public LlmRouter(List<LlmPort> ports, LangfuseTracer tracer, AuditService audit,
+                     ModelPreference modelPref) {
         this.ports = ports;
         this.tracer = tracer;
         this.audit = audit;
+        this.modelPref = modelPref;
     }
 
     private static boolean isRemote(String provider) {
@@ -37,6 +40,14 @@ public class LlmRouter {
     /** Is a real (non-stub) model reachable right now? */
     public boolean hasRealModel() {
         return realProvider().isPresent();
+    }
+
+    /** Label of the model that would serve a request now (real model if reachable, else stub). */
+    public String activeModelLabel() {
+        if (modelPref.active() != null) {
+            return modelPref.active();
+        }
+        return realProvider().map(LlmPort::modelLabel).orElse("local model");
     }
 
     private Optional<LlmPort> realProvider() {
@@ -52,6 +63,11 @@ public class LlmRouter {
      * back to the offline stub so a feature never fails on an LLM problem.
      */
     public LlmPort.LlmResult generate(LlmPort.LlmRequest request) {
+        // No explicit model on the call → use the user's selected model (rail dropdown).
+        if ((request.model() == null || request.model().isBlank()) && modelPref.active() != null) {
+            request = new LlmPort.LlmRequest(
+                    request.feature(), request.system(), request.prompt(), modelPref.active());
+        }
         Optional<LlmPort> real = realProvider();
         if (real.isPresent()) {
             long t0 = System.currentTimeMillis();

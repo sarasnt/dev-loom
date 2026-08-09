@@ -28,9 +28,11 @@ public class HandoffService {
                 .map(id -> "- " + id)
                 .collect(Collectors.joining("\n"));
 
+        String prSegment = (b.pr() == null || b.pr().isBlank()) ? "" : "  PR #" + b.pr();
+
         String rendered = """
                 # Agent Handoff — Fix failing CI on %s
-                Repo: %s @ %s  PR #%s  Run %s
+                Repo: %s @ %s%s  Run %s
                 Failing: `%s` → %s
 
                 ## Reproduce
@@ -45,7 +47,7 @@ public class HandoffService {
                 ## Constraints & acceptance
                 - Fix must make the failing test pass without weakening assertions.
                 - Expected output: a diff + a passing test run.""".formatted(
-                b.branch(), b.repo(), b.branch(), b.pr(), b.run(),
+                b.branch(), b.repo(), b.branch(), prSegment, b.run(),
                 b.failingJob(), b.failingTest(),
                 b.failingStep(),
                 evidence.isBlank() ? "- (see linked items)" : evidence,

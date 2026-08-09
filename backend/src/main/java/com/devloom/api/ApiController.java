@@ -31,7 +31,6 @@ public class ApiController {
 
     private final TodayService todayService;
     private final WorkModelService workModel;
-    private final FixtureData fixtures;
     private final SyncService syncService;
     private final RetentionService retention;
     private final HandoffService handoffService;
@@ -45,7 +44,7 @@ public class ApiController {
     private final AuditService audit;
 
     public ApiController(TodayService todayService, WorkModelService workModel,
-                         FixtureData fixtures, SyncService syncService,
+                         SyncService syncService,
                          RetentionService retention, HandoffService handoffService,
                          BuildFailureService buildFailureService, ChangesService changesService,
                          IntegrationsService integrationsService, BrainstormService brainstormService,
@@ -53,7 +52,6 @@ public class ApiController {
                          OnboardingService onboardingService, AuditService audit) {
         this.todayService = todayService;
         this.workModel = workModel;
-        this.fixtures = fixtures;
         this.syncService = syncService;
         this.retention = retention;
         this.handoffService = handoffService;
@@ -109,7 +107,8 @@ public class ApiController {
 
     @GetMapping({"/builds/{id}", "/builds"})
     public Dto.BuildFailure build(@PathVariable(required = false) String id) {
-        return buildFailureService.analyze(id == null ? "1893" : id);
+        // No id → the service resolves the most recent real failed CI run.
+        return buildFailureService.analyze(id);
     }
 
     /** "What changed since you last looked" — derived from the audit trail (SPEC §17). */
@@ -120,9 +119,10 @@ public class ApiController {
 
     @GetMapping({"/handoffs/{id}", "/handoffs"})
     public Dto.Handoff handoff(@PathVariable(required = false) String id) {
-        // Generate the handoff from the build's (redacted) data — real assembly, not canned.
-        String buildId = (id == null || id.startsWith("h")) ? "1893" : id;
-        return handoffService.fromBuild(fixtures.buildFailure(buildId));
+        // Real assembly from a real build's (redacted) data. A handoff id ("h…") or no id →
+        // let the build service resolve the most recent real failed run.
+        String buildId = (id == null || id.startsWith("h")) ? null : id;
+        return handoffService.fromBuild(buildFailureService.analyze(buildId));
     }
 
     @GetMapping("/integrations")
@@ -135,6 +135,13 @@ public class ApiController {
         return providersService.providers();
     }
 
+    /** Switch the active local model (rail dropdown). Returns the refreshed provider state. */
+    @PostMapping("/providers/model")
+    public Dto.Providers selectModel(@RequestBody Map<String, String> body) {
+        providersService.selectModel(body == null ? null : body.get("name"));
+        return providersService.providers();
+    }
+
     @GetMapping("/privacy")
     public Dto.Privacy privacy() {
         return privacyService.privacy();
@@ -142,7 +149,7 @@ public class ApiController {
 
     @GetMapping("/brainstorm")
     public Dto.Brainstorm brainstorm() {
-        return fixtures.brainstorm();
+        return brainstormService.initial();
     }
 
     /** Send a brainstorm message + attached sources → local-model reply (SPEC §Brainstorming). */

@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 
 import com.devloom.ai.LlmPort;
 import com.devloom.ai.LlmRouter;
+import com.devloom.workmodel.WorkItemRepository;
 
 /**
  * Conversational brainstorming workspace (SPEC.md §Brainstorming). A genuine thinking
@@ -45,13 +46,41 @@ public class BrainstormService {
 
     private static final int MAX_HISTORY_TURNS = 12;
 
+    private static final int MAX_CONTEXT_SOURCES = 6;
+
     private final LlmRouter llm;
+    private final WorkItemRepository workItems;
     private final String brainstormModel;
 
-    public BrainstormService(LlmRouter llm,
+    public BrainstormService(LlmRouter llm, WorkItemRepository workItems,
                              @Value("${devloom.ai.brainstorm-model:}") String brainstormModel) {
         this.llm = llm;
+        this.workItems = workItems;
         this.brainstormModel = brainstormModel == null || brainstormModel.isBlank() ? null : brainstormModel;
+    }
+
+    /**
+     * A fresh brainstorm session — no canned conversation. The "in context" rail is seeded
+     * with real work items (PRs, failed builds, tasks) so the user can ground the discussion
+     * in their actual work. Runs local-first; the reply endpoint drives the real dialogue.
+     */
+    public Dto.Brainstorm initial() {
+        List<Dto.EvidenceRef> inContext = workItems.findAllByOrderBySortOrderAsc().stream()
+                .limit(MAX_CONTEXT_SOURCES)
+                .map(w -> new Dto.EvidenceRef(w.getExtId(), w.getTitle(), "local"))
+                .toList();
+
+        Dto.BrainstormSession active = new Dto.BrainstormSession(
+                "new", "New brainstorm", "personal", modelLabel(),
+                new Dto.Boundary("local", "On your machine"),
+                inContext, List.of());
+
+        return new Dto.Brainstorm(List.of(new Dto.SessionRef("new", "New brainstorm")), active);
+    }
+
+    private String modelLabel() {
+        String m = llm.activeModelLabel();
+        return m == null || m.isBlank() ? "local model" : m;
     }
 
     public Dto.BrainstormMessage reply(Dto.BrainstormSend req) {

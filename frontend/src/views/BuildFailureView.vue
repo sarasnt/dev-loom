@@ -2,7 +2,7 @@
 import { onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { BuildFailure } from '../types'
-import { fetchBuildFailure } from '../api'
+import { fetchBuildFailure, fetchLatestBuild } from '../api'
 import SourceChip from '../components/SourceChip.vue'
 
 const route = useRoute()
@@ -12,7 +12,9 @@ const loading = ref(true)
 
 async function load() {
   loading.value = true
-  data.value = await fetchBuildFailure(String(route.params.id ?? '1893'))
+  // No id in the URL → let the backend resolve the most recent real failed run.
+  const id = route.params.id ? String(route.params.id) : ''
+  data.value = id ? await fetchBuildFailure(id) : await fetchLatestBuild()
   loading.value = false
 }
 onMounted(load)
@@ -23,10 +25,19 @@ watch(() => route.params.id, load)
   <main class="bf">
     <div v-if="loading" class="mono empty" aria-busy="true">analyzing build…</div>
 
+    <!-- Honest empty state — no failing runs (or GitHub not configured) -->
+    <div v-else-if="data && data.id === 'none'" class="empty-state">
+      <div class="head"><h1>Build failure</h1></div>
+      <p class="prose">{{ data.summary }}</p>
+      <ul class="diag">
+        <li v-for="(d, i) in data.diagnostics" :key="i">{{ d }}</li>
+      </ul>
+    </div>
+
     <template v-else-if="data">
       <div class="head">
         <h1>Build failure · run <span class="mono">{{ data.run }}</span></h1>
-        <span class="when">{{ data.branch }} · PR #{{ data.pr }} · {{ data.failedAgo }}</span>
+        <span class="when">{{ data.branch }}<template v-if="data.pr"> · PR #{{ data.pr }}</template> · {{ data.failedAgo }}</span>
       </div>
 
       <section class="step">

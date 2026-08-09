@@ -49,6 +49,12 @@ public class OllamaLlm implements LlmPort {
     }
 
     @Override
+    public String modelLabel() {
+        List<String> models = models();
+        return models.isEmpty() ? defaultModel : resolveModel(null);
+    }
+
+    @Override
     public LlmResult generate(LlmRequest request) {
         String model = resolveModel(request.model());
         String prompt = (request.system() == null ? "" : request.system() + "\n\n") + request.prompt();

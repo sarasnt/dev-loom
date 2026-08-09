@@ -20,3 +20,8 @@ Thumbs.db
 
 # logs
 *.log
+.playwright-mcp/
+today.png
+build.png
+work-tasks.png
+work-expanded.png

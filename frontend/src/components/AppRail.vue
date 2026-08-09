@@ -8,7 +8,15 @@ defineProps<{
   model: { name: string; local: boolean }
   boundary: Boundary
   buildBadge?: number
+  models?: string[]
+  activeModel?: string
 }>()
+
+const emit = defineEmits<{ (e: 'select-model', name: string): void }>()
+
+function onModelChange(e: Event) {
+  emit('select-model', (e.target as HTMLSelectElement).value)
+}
 
 const nav = [
   { to: '/today', label: 'Today', ic: '◉' },
@@ -45,7 +53,18 @@ const nav = [
     <div class="sep"></div>
     <div class="meta">
       <div class="eyebrow">Model</div>
-      <div class="mval">{{ model.name }} <span class="mono tag">· {{ model.local ? 'local' : 'remote' }}</span></div>
+      <div v-if="models && models.length" class="mselect">
+        <select
+          class="msel"
+          :value="activeModel"
+          aria-label="Active local model"
+          @change="onModelChange"
+        >
+          <option v-for="m in models" :key="m" :value="m">{{ m }}</option>
+        </select>
+        <span class="mono tag">· local</span>
+      </div>
+      <div v-else class="mval">{{ model.name }} <span class="mono tag">· {{ model.local ? 'local' : 'remote' }}</span></div>
     </div>
     <div class="meta bmeta">
       <div class="eyebrow">Boundary</div>
@@ -92,6 +111,14 @@ const nav = [
 .hd i.error { background: var(--failed); }
 .upd { color: var(--faint-text); font-size: 11px; margin-top: 6px; }
 .mval { font-size: 13px; color: var(--ink); margin-top: 3px; }
+.mselect { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+.msel {
+  flex: 1; min-width: 0; font-size: 12.5px; color: var(--ink);
+  background: var(--btn-bg, var(--surface)); border: 1px solid var(--line);
+  border-radius: 6px; padding: 4px 6px; cursor: pointer;
+}
+.msel:hover { border-color: var(--warp); }
+.msel:focus { outline: none; border-color: var(--warp); }
 .tag { color: var(--faint-text); font-size: 11px; }
 .bmeta { margin-top: 10px; }
 .spring { margin-top: auto; }

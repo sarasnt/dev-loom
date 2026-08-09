@@ -13,6 +13,11 @@ public interface LlmPort {
     /** Whether this adapter is currently usable (e.g. Ollama reachable). */
     boolean available();
 
+    /** Human label for the model this adapter would use right now (defaults to the provider). */
+    default String modelLabel() {
+        return provider();
+    }
+
     /** Generate a completion. Callers pass already-redacted, budgeted context. */
     LlmResult generate(LlmRequest request);
 

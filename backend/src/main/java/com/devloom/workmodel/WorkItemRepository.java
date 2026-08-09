@@ -10,6 +10,8 @@ import org.springframework.data.repository.query.Param;
 public interface WorkItemRepository extends JpaRepository<WorkItemEntity, Long> {
     List<WorkItemEntity> findAllByOrderBySortOrderAsc();
 
+    List<WorkItemEntity> findByTypeOrderBySortOrderAsc(String type);
+
     java.util.Optional<WorkItemEntity> findFirstByExtId(String extId);
 
     /**
