@@ -80,9 +80,9 @@ public class JiraConnector implements SourceConnector {
             log.info("Jira sync: fetched {} issues from {}", out.size(), baseUrl);
             return out;
         } catch (Exception e) {
-            // Degrade gracefully — a down/unreachable Jira must not break the app.
+            // Signal failure so the sync keeps existing rows (rather than wiping them).
             log.warn("Jira sync failed ({}): {}", baseUrl, e.getMessage());
-            return List.of();
+            throw new IllegalStateException("Jira fetch failed", e);
         }
     }
 

@@ -12,6 +12,8 @@ const filters = ['All', 'PRs', 'Reviews', 'Tasks', 'Builds', 'Calendar', 'Notes'
 const active = ref('All')
 // Status sub-filter: 'open' (open & ongoing, the default), 'all', or an exact status string.
 const statusFilter = ref('open')
+// Source sub-filter: 'all' or an exact source (GitHub, Jira, Notion, Calendar).
+const sourceFilter = ref('all')
 
 // Which parents are expanded (children shown) and which rows show their description.
 const expandedChildren = ref<Set<string>>(new Set())
@@ -46,17 +48,25 @@ function isDone(r: WorkRow): boolean {
 }
 
 const typeFiltered = computed(() => rows.value.filter(matchesFilter))
-// Distinct statuses in the current type view, for the status dropdown.
+// Distinct statuses / sources in the current type view, for the dropdowns.
 const statuses = computed(() =>
   [...new Set(typeFiltered.value.map((r) => r.status).filter(Boolean))].sort(),
+)
+const sources = computed(() =>
+  [...new Set(typeFiltered.value.map((r) => r.source).filter(Boolean))].sort(),
 )
 function matchesStatus(r: WorkRow): boolean {
   if (statusFilter.value === 'all') return true
   if (statusFilter.value === 'open') return !isDone(r)
   return r.status === statusFilter.value
 }
+function matchesSource(r: WorkRow): boolean {
+  return sourceFilter.value === 'all' || r.source === sourceFilter.value
+}
 
-const filtered = computed(() => typeFiltered.value.filter(matchesStatus))
+const filtered = computed(() =>
+  typeFiltered.value.filter((r) => matchesStatus(r) && matchesSource(r)),
+)
 const idsInView = computed(() => new Set(filtered.value.map((r) => r.id)))
 
 // Top-level rows: no parent, or a parent that isn't in the current (filtered) view.
@@ -132,6 +142,11 @@ function open(r: WorkRow) {
         {{ f }}
       </button>
 
+      <select v-model="sourceFilter" class="statussel mono" aria-label="Filter by source">
+        <option value="all">All sources</option>
+        <option v-for="s in sources" :key="s" :value="s">{{ s }}</option>
+      </select>
+
       <select v-model="statusFilter" class="statussel mono" aria-label="Filter by status">
         <option value="open">Open &amp; ongoing</option>
         <option value="all">All statuses</option>
@@ -168,6 +183,7 @@ function open(r: WorkRow) {
           <span class="g mono" aria-hidden="true">{{ r.glyph }}</span>
           <span class="ti">{{ r.title }}</span>
           <span class="mt mono">
+            <span class="srcpill">{{ r.source }}</span>
             <span v-if="hasChildren(r)" class="subcount">{{ childrenOf(r.id).length }} subtasks</span>
             <span class="dot" :class="r.statusTone" aria-hidden="true"></span> {{ r.status }}
             <span v-for="m in r.meta" :key="m">{{ m }}</span>
@@ -200,6 +216,7 @@ function open(r: WorkRow) {
               <span class="g mono" aria-hidden="true">{{ c.glyph }}</span>
               <span class="ti">{{ c.title }}</span>
               <span class="mt mono">
+                <span class="srcpill">{{ c.source }}</span>
                 <span class="dot" :class="c.statusTone" aria-hidden="true"></span> {{ c.status }}
                 <span v-for="m in c.meta" :key="m">{{ m }}</span>
                 <button
@@ -259,6 +276,10 @@ function open(r: WorkRow) {
   display: flex; gap: 12px; align-items: center; white-space: nowrap;
 }
 .subcount { color: var(--warp-hi); }
+.srcpill {
+  color: var(--dim); border: 1px solid var(--line); border-radius: 5px;
+  padding: 1px 6px; background: var(--chip-bg);
+}
 .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 .dot.warn { background: var(--warp); }
 .dot.fail { background: var(--failed); }

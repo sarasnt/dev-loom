@@ -69,55 +69,86 @@ public class NotionConnector implements SourceConnector {
             return List.of();
         }
         try {
-            List<WorkItemEntity> out = new ArrayList<>();
-            Set<String> seen = new LinkedHashSet<>(); // dedup by extId (uq: source, ext_id)
-            int[] order = {200};
+            // 1) Collect everything shared with the integration (paginated). Search returns
+            //    standalone pages, databases, AND database rows (rows are pages).
+            List<Map<String, Object>> all = new ArrayList<>();
             String cursor = null;
             int pages = 0;
-
-            // 1) Every page/database shared with the integration (paginated).
             do {
                 Map<String, Object> body = new HashMap<>();
                 body.put("page_size", 100);
                 if (cursor != null) body.put("start_cursor", cursor);
                 Map<String, Object> resp = http.post().uri("/v1/search").body(body).retrieve().body(MAP);
                 if (resp == null) break;
-
-                for (Object o : asList(resp.get("results"))) {
-                    Map<String, Object> obj = asMap(o);
-                    String kind = str(obj, "object"); // page | database
-                    String rawId = str(obj, "id");
-                    String extId = clip(rawId.replace("-", ""));
-                    if (!seen.add(extId) || out.size() >= maxItems) continue;
-                    String title = extractTitle(obj);
-
-                    if ("database".equals(kind)) {
-                        out.add(WorkItemEntity.create(extId, "doc",
-                                title.isBlank() ? "(untitled database)" : title,
-                                "note · database", "info", "Notion", source(), order[0]++)
-                                .withDetail("Notion database shared with DevLoom.", null));
-                        // 2) Its rows are tasks — nested under the database in the Work tree.
-                        addDatabaseRows(rawId, extId, out, seen, order);
-                    } else {
-                        out.add(WorkItemEntity.create(extId, "doc",
-                                title.isBlank() ? "(untitled page)" : title,
-                                "note", "info", "Notion", source(), order[0]++)
-                                .withDetail("Notion page shared with DevLoom.", null));
-                    }
-                }
+                for (Object o : asList(resp.get("results"))) all.add(asMap(o));
                 cursor = Boolean.TRUE.equals(resp.get("has_more")) ? str(resp, "next_cursor") : null;
-            } while (cursor != null && !cursor.isBlank() && ++pages < 10 && out.size() < maxItems);
+            } while (cursor != null && !cursor.isBlank() && ++pages < 15 && all.size() < maxItems * 3);
 
-            log.info("Notion sync: {} objects (pages, databases, tasks)", out.size());
+            // 2) Map database id → title so rows can be tagged with their database name.
+            Map<String, String> dbTitle = new HashMap<>();
+            for (Map<String, Object> r : all) {
+                if ("database".equals(str(r, "object"))) {
+                    dbTitle.put(clip(str(r, "id").replace("-", "")), extractTitle(r));
+                }
+            }
+
+            List<WorkItemEntity> out = new ArrayList<>();
+            Set<String> seen = new LinkedHashSet<>(); // dedup by extId (uq: source, ext_id)
+            int[] order = {200};
+
+            // 3) Classify each page: a row of a database (parent = database_id) is a TASK;
+            //    any other page is a NOTE. Databases themselves are not work items.
+            for (Map<String, Object> r : all) {
+                if (out.size() >= maxItems) break;
+                if (!"page".equals(str(r, "object"))) continue;
+                String extId = clip(str(r, "id").replace("-", ""));
+                if (!seen.add(extId)) continue;
+                String title = extractTitle(r);
+                Map<String, Object> parent = asMap(r.get("parent"));
+                if ("database_id".equals(str(parent, "type"))) {
+                    String dbId = clip(str(parent, "database_id").replace("-", ""));
+                    addTask(out, extId, title, extractStatus(r), dbTitle.getOrDefault(dbId, "Notion"), order);
+                } else {
+                    out.add(WorkItemEntity.create(extId, "doc",
+                            title.isBlank() ? "(untitled page)" : title,
+                            "note", "info", "Notion", source(), order[0]++)
+                            .withDetail("Notion page shared with DevLoom.", null));
+                }
+            }
+
+            // 4) Also query each database directly, to catch rows the search index may lag on.
+            for (Map<String, Object> r : all) {
+                if ("database".equals(str(r, "object"))) {
+                    addDatabaseRows(str(r, "id"), extractTitle(r), out, seen, order);
+                }
+            }
+
+            log.info("Notion sync: {} items ({} databases)", out.size(), dbTitle.size());
             return out;
         } catch (Exception e) {
             log.warn("Notion sync failed: {}", e.getMessage());
-            return List.of();
+            throw new IllegalStateException("Notion fetch failed", e);
         }
     }
 
-    /** Query a database's rows and surface them as task work items under the database. */
-    private void addDatabaseRows(String rawDbId, String dbExtId, List<WorkItemEntity> out,
+    /** A database row → a task work item, tagged with its database name. */
+    private void addTask(List<WorkItemEntity> out, String extId, String title, String status,
+                         String dbName, int[] order) {
+        String tag = dbName.replace(",", " ").strip(); // shown as a detail chip on the task
+        String tone = switch (status.toLowerCase()) {
+            case "done", "complete", "completed", "closed", "shipped", "archived" -> "healthy";
+            case "in progress", "doing", "in review", "started", "wip" -> "warn";
+            default -> "info";
+        };
+        out.add(WorkItemEntity.create(extId, "task",
+                title.isBlank() ? "(untitled task)" : title,
+                status.isBlank() ? "task" : status, tone,
+                tag, source(), order[0]++)
+                .withDetail("From Notion database: " + tag, null));
+    }
+
+    /** Query a database's rows and surface any not already seen as task work items. */
+    private void addDatabaseRows(String rawDbId, String dbName, List<WorkItemEntity> out,
                                  Set<String> seen, int[] order) {
         try {
             Map<String, Object> resp = http.post()
@@ -130,22 +161,11 @@ public class NotionConnector implements SourceConnector {
                 Map<String, Object> row = asMap(o);
                 String extId = clip(str(row, "id").replace("-", ""));
                 if (!seen.add(extId)) continue;
-                String title = extractTitle(row);
-                String status = extractStatus(row);
-                String tone = switch (status.toLowerCase()) {
-                    case "done", "complete", "completed", "closed" -> "healthy";
-                    case "in progress", "doing", "in review" -> "warn";
-                    default -> "info";
-                };
-                out.add(WorkItemEntity.create(extId, "task",
-                        title.isBlank() ? "(untitled task)" : title,
-                        status.isBlank() ? "task" : status, tone,
-                        "Notion", source(), order[0]++)
-                        .withDetail(null, dbExtId));
+                addTask(out, extId, extractTitle(row), extractStatus(row), dbName, order);
                 added++;
             }
         } catch (Exception e) {
-            log.warn("Notion database query failed for {}: {}", dbExtId, e.getMessage());
+            log.warn("Notion database query failed for {}: {}", dbName, e.getMessage());
         }
     }
 
@@ -153,22 +173,35 @@ public class NotionConnector implements SourceConnector {
         return id.length() > 60 ? id.substring(0, 60) : id;
     }
 
-    /** First status/select property value on a row, if any. */
+    /**
+     * The row's status: prefer a {@code status}-typed property, then a select whose name looks
+     * like a status/stage/state, then any select — so we don't mistake Priority for status.
+     */
     @SuppressWarnings("unchecked")
     private String extractStatus(Map<String, Object> row) {
         Object props = row.get("properties");
-        if (props instanceof Map<?, ?> pm) {
-            for (Object v : pm.values()) {
-                Map<String, Object> prop = asMap(v);
-                String type = str(prop, "type");
-                if ("status".equals(type) || "select".equals(type)) {
-                    Map<String, Object> val = asMap(prop.get(type));
-                    String name = str(val, "name");
-                    if (!name.isBlank()) return name;
+        if (!(props instanceof Map<?, ?> pm)) return "";
+        String statusTyped = null, namedSelect = null, anySelect = null;
+        for (Map.Entry<?, ?> e : pm.entrySet()) {
+            String propName = String.valueOf(e.getKey()).toLowerCase();
+            Map<String, Object> prop = asMap(e.getValue());
+            String type = str(prop, "type");
+            if ("status".equals(type)) {
+                String v = str(asMap(prop.get("status")), "name");
+                if (!v.isBlank()) statusTyped = v;
+            } else if ("select".equals(type)) {
+                String v = str(asMap(prop.get("select")), "name");
+                if (!v.isBlank()) {
+                    if (propName.contains("status") || propName.contains("stage") || propName.contains("state")) {
+                        namedSelect = v;
+                    } else if (anySelect == null) {
+                        anySelect = v;
+                    }
                 }
             }
         }
-        return "";
+        return statusTyped != null ? statusTyped : namedSelect != null ? namedSelect
+                : anySelect != null ? anySelect : "";
     }
 
     /** Title lives either in a title-typed property (pages) or a top-level `title` array (databases). */

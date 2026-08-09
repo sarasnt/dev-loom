@@ -34,6 +34,8 @@ services:
       - path: ./backend/.env
         required: false          # real secrets (gitignored); optional so the stack runs without it
     environment:
+      # Local timezone so "now" and event times line up (override via TZ in backend/.env).
+      TZ: ${TZ:-Europe/Lisbon}
       SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/devloom
       SPRING_DATASOURCE_USERNAME: devloom
       SPRING_DATASOURCE_PASSWORD: devloom

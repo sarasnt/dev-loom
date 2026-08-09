@@ -104,7 +104,7 @@ public class GitHubConnector implements SourceConnector {
             return out;
         } catch (Exception e) {
             log.warn("GitHub sync failed: {}", e.getMessage());
-            return List.of();
+            throw new IllegalStateException("GitHub fetch failed", e);
         }
     }
 

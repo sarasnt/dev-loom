@@ -42,12 +42,20 @@ public class SyncService {
             log.info("Sync skipped for '{}' (no connector or not configured)", source);
             return 0;
         }
-        List<WorkItemEntity> items = connector.fetch();
-        if (items.isEmpty()) {
-            return 0; // leave existing rows in place on a failed/empty fetch
+        List<WorkItemEntity> items;
+        try {
+            items = connector.fetch();
+        } catch (Exception e) {
+            // A genuine failure (network, auth) → keep existing rows rather than wipe them.
+            log.warn("Sync failed for {} — keeping existing rows: {}", connector.source(), e.getMessage());
+            return 0;
         }
+        // Success, even if empty → replace-on-sync so stale rows (e.g. a past calendar event
+        // that's no longer returned) are cleared.
         repo.deleteBySource(connector.source());
-        repo.saveAll(items);
+        if (!items.isEmpty()) {
+            repo.saveAll(items);
+        }
         log.info("Synced {} items from {}", items.size(), connector.source());
         audit.record("sync", connector.source(), "ingested=" + items.size());
         return items.size();
