@@ -12,6 +12,7 @@ import type {
   OnboardStep,
   SourceType,
   SourceView,
+  RepoView,
 } from '../types'
 
 type SourceUpsert = {
@@ -104,3 +105,15 @@ export const updateSource = (id: string, body: SourceUpsert) => put<SourceView>(
 export const deleteSourceInstance = (id: string) => del<{ deleted: string }>(`/sources/${id}`)
 export const syncSourceInstance = (id: string) =>
   post<{ id: string; ingested: number }>(`/sources/${id}/sync`, {})
+
+// ---- local repositories (host agent) ----
+export const fetchRepos = () => get<{ agentUp: boolean; repos: RepoView[] }>('/repos')
+export const scanRepoFolder = (root: string) => post<RepoView[]>('/repos/scan', { root })
+export const addRepoPath = (path: string) => post<RepoView[]>('/repos', { path })
+export const removeRepo = (id: string) => del<{ removed: string }>(`/repos/${id}`)
+export const setRepoIdentity = (id: string, name: string, email: string) =>
+  put<RepoView>(`/repos/${id}/identity`, { name, email })
+export const repoPull = (id: string) => post<{ ok: boolean; output: string }>(`/repos/${id}/pull`, {})
+export const repoPush = (id: string) => post<{ ok: boolean; output: string }>(`/repos/${id}/push`, {})
+export const repoPr = (id: string) =>
+  post<{ ok: boolean; url?: string; web?: boolean; error?: string }>(`/repos/${id}/pr`, {})

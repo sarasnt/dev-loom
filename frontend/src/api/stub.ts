@@ -218,3 +218,29 @@ export function deleteSourceInstance(id: string) {
 export function syncSourceInstance(id: string) {
   return delay({ id, ingested: 0 })
 }
+
+// ---- local repositories (offline: agent down) ----
+export function fetchRepos() {
+  return delay({ agentUp: false, repos: [] as import('../types').RepoView[] })
+}
+export function scanRepoFolder() {
+  return delay([] as import('../types').RepoView[])
+}
+export function addRepoPath() {
+  return delay([] as import('../types').RepoView[])
+}
+export function removeRepo(id: string) {
+  return delay({ removed: id })
+}
+export function setRepoIdentity() {
+  return delay(null as unknown as import('../types').RepoView)
+}
+export function repoPull() {
+  return delay({ ok: false, output: 'offline' })
+}
+export function repoPush() {
+  return delay({ ok: false, output: 'offline' })
+}
+export function repoPr() {
+  return delay({ ok: false, error: 'offline' })
+}

@@ -80,4 +80,43 @@ public class HostAgentClient {
     }
 
     public record Result(String text, String model) {}
+
+    // ---- repositories (git via the host agent) ----
+
+    @SuppressWarnings("unchecked")
+    public java.util.List<Map<String, Object>> scan(String root) {
+        Map<String, Object> resp = post("/repos/scan", Map.of("root", root == null ? "" : root));
+        Object repos = resp.get("repos");
+        return repos instanceof java.util.List ? (java.util.List<Map<String, Object>>) repos : java.util.List.of();
+    }
+
+    public Map<String, Object> status(String path) {
+        return post("/repos/status", Map.of("path", path));
+    }
+
+    public Map<String, Object> setIdentity(String path, String name, String email) {
+        Map<String, Object> body = new java.util.HashMap<>();
+        body.put("path", path);
+        if (name != null) body.put("name", name);
+        if (email != null) body.put("email", email);
+        return post("/repos/config", body);
+    }
+
+    public Map<String, Object> pull(String path) {
+        return post("/repos/pull", Map.of("path", path));
+    }
+
+    public Map<String, Object> push(String path) {
+        return post("/repos/push", Map.of("path", path));
+    }
+
+    public Map<String, Object> pr(String path) {
+        return post("/repos/pr", Map.of("path", path));
+    }
+
+    private Map<String, Object> post(String path, Map<String, Object> body) {
+        Map<String, Object> resp = http.post().uri(path).body(body).retrieve().body(MAP);
+        if (resp == null) throw new IllegalStateException("no response from host agent");
+        return resp;
+    }
 }

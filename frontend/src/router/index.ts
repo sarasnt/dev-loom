@@ -8,6 +8,7 @@ const routes = [
   { path: '/builds/:id', name: 'build', component: () => import('../views/BuildFailureView.vue') },
   { path: '/handoffs/:id?', name: 'handoff', component: () => import('../views/HandoffView.vue') },
   { path: '/brainstorm', name: 'brainstorm', component: () => import('../views/BrainstormView.vue') },
+  { path: '/repos', name: 'repos', component: () => import('../views/ReposView.vue') },
   { path: '/onboarding', name: 'onboarding', component: () => import('../views/OnboardingView.vue') },
   { path: '/settings/integrations', name: 'integrations', component: () => import('../views/IntegrationsView.vue') },
   { path: '/settings/providers', name: 'providers', component: () => import('../views/ProvidersView.vue') },

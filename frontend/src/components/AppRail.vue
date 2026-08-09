@@ -40,6 +40,7 @@ const nav = [
   { to: '/work', label: 'Work', ic: '▤' },
   { to: '/builds', label: 'Builds', ic: '⚡', badge: true },
   { to: '/brainstorm', label: 'Brainstorm', ic: '✎' },
+  { to: '/repos', label: 'Repos', ic: '⑂' },
   { to: '/handoffs/h1', label: 'Handoffs', ic: '⇥' },
 ]
 </script>

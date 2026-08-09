@@ -158,6 +158,23 @@ export interface SourceView {
   actions: string[]
 }
 
+// ---- Local repositories (via host agent) ----
+export interface RepoView {
+  id: string
+  path: string
+  name: string
+  host: string // github | bitbucket | gitlab | git | none
+  slug: string
+  branch: string
+  remote: string
+  dirty: boolean
+  ahead: number
+  behind: number
+  userName: string
+  userEmail: string
+  live: boolean
+}
+
 // ---- Integrations ----
 export interface Integration {
   key: string

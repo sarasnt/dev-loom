@@ -49,6 +49,7 @@ public class ApiController {
     private final PrivacyService privacyService;
     private final OnboardingService onboardingService;
     private final SourcesService sourcesService;
+    private final RepoService repoService;
     private final AuditService audit;
 
     public ApiController(TodayService todayService, WorkModelService workModel,
@@ -58,7 +59,7 @@ public class ApiController {
                          IntegrationsService integrationsService, BrainstormService brainstormService,
                          ProvidersService providersService, PrivacyService privacyService,
                          OnboardingService onboardingService, SourcesService sourcesService,
-                         AuditService audit) {
+                         RepoService repoService, AuditService audit) {
         this.todayService = todayService;
         this.workModel = workModel;
         this.syncService = syncService;
@@ -72,6 +73,7 @@ public class ApiController {
         this.privacyService = privacyService;
         this.onboardingService = onboardingService;
         this.sourcesService = sourcesService;
+        this.repoService = repoService;
         this.audit = audit;
     }
 
@@ -205,6 +207,51 @@ public class ApiController {
     public Map<String, Object> syncSource(@PathVariable String id) {
         int n = sourcesService.sync(id);
         return Map.<String, Object>of("id", id, "ingested", n);
+    }
+
+    // ---- Local repositories (via host agent) ----
+
+    @GetMapping("/repos")
+    public Map<String, Object> repos() {
+        return Map.of("agentUp", repoService.agentUp(), "repos", repoService.list());
+    }
+
+    /** Add all git repos found under a folder. */
+    @PostMapping("/repos/scan")
+    public List<Dto.RepoView> scanRepos(@RequestBody Dto.RepoAdd body) {
+        return repoService.addFolder(body.root());
+    }
+
+    /** Add a single repo by path. */
+    @PostMapping("/repos")
+    public List<Dto.RepoView> addRepo(@RequestBody Dto.RepoAdd body) {
+        return repoService.addRepo(body.path());
+    }
+
+    @DeleteMapping("/repos/{id}")
+    public Map<String, Object> removeRepo(@PathVariable String id) {
+        repoService.delete(id);
+        return Map.<String, Object>of("removed", id);
+    }
+
+    @org.springframework.web.bind.annotation.PutMapping("/repos/{id}/identity")
+    public Dto.RepoView repoIdentity(@PathVariable String id, @RequestBody Dto.RepoIdentity body) {
+        return repoService.setIdentity(id, body.name(), body.email());
+    }
+
+    @PostMapping("/repos/{id}/pull")
+    public Map<String, Object> repoPull(@PathVariable String id) {
+        return repoService.pull(id);
+    }
+
+    @PostMapping("/repos/{id}/push")
+    public Map<String, Object> repoPush(@PathVariable String id) {
+        return repoService.push(id);
+    }
+
+    @PostMapping("/repos/{id}/pr")
+    public Map<String, Object> repoPr(@PathVariable String id) {
+        return repoService.pr(id);
     }
 
     @GetMapping("/providers")

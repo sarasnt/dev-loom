@@ -11,6 +11,8 @@
 
 import http from 'node:http'
 import { spawn } from 'node:child_process'
+import fs from 'node:fs'
+import path from 'node:path'
 
 const PORT = Number(process.env.DEVLOOM_AGENT_PORT || 8765)
 const HOST = process.env.DEVLOOM_AGENT_HOST || '127.0.0.1'
@@ -76,6 +78,102 @@ async function claude(system, prompt) {
   }
 }
 
+// ---- git / repositories ----
+function git(cwd, args) {
+  return run('git', args, { cwd, timeoutMs: 120000 })
+}
+
+function hostOf(remoteUrl) {
+  const u = (remoteUrl || '').toLowerCase()
+  if (u.includes('github.com')) return 'github'
+  if (u.includes('bitbucket.org') || u.includes('bitbucket')) return 'bitbucket'
+  if (u.includes('gitlab')) return 'gitlab'
+  return remoteUrl ? 'git' : 'none'
+}
+
+// "owner/repo" from an https or ssh remote url.
+function repoSlug(remoteUrl) {
+  if (!remoteUrl) return ''
+  let s = remoteUrl.trim().replace(/\.git$/, '')
+  s = s.replace(/^git@[^:]+:/, '').replace(/^https?:\/\/[^/]+\//, '')
+  return s
+}
+
+async function repoInfo(dir) {
+  const isRepo = fs.existsSync(path.join(dir, '.git'))
+  if (!isRepo) return null
+  const [branch, remote, dirty, upstream] = await Promise.all([
+    git(dir, ['rev-parse', '--abbrev-ref', 'HEAD']),
+    git(dir, ['remote', 'get-url', 'origin']),
+    git(dir, ['status', '--porcelain']),
+    git(dir, ['rev-list', '--left-right', '--count', '@{u}...HEAD']),
+  ])
+  const remoteUrl = remote.code === 0 ? remote.out.trim() : ''
+  let behind = 0, ahead = 0
+  if (upstream.code === 0) {
+    const m = upstream.out.trim().split(/\s+/)
+    behind = Number(m[0] || 0); ahead = Number(m[1] || 0)
+  }
+  const cfg = await gitIdentity(dir)
+  return {
+    path: dir,
+    name: path.basename(dir),
+    branch: branch.code === 0 ? branch.out.trim() : '(unknown)',
+    remote: remoteUrl,
+    slug: repoSlug(remoteUrl),
+    host: hostOf(remoteUrl),
+    dirty: dirty.code === 0 ? dirty.out.trim().length > 0 : false,
+    ahead, behind,
+    user: cfg,
+  }
+}
+
+async function gitIdentity(dir) {
+  const [name, email] = await Promise.all([
+    git(dir, ['config', 'user.name']),
+    git(dir, ['config', 'user.email']),
+  ])
+  return { name: name.out.trim(), email: email.out.trim() }
+}
+
+async function scanRepos(root) {
+  const found = []
+  if (!root || !fs.existsSync(root)) return found
+  const self = await repoInfo(root)
+  if (self) found.push(self)
+  let entries = []
+  try { entries = fs.readdirSync(root, { withFileTypes: true }) } catch { entries = [] }
+  for (const e of entries) {
+    if (!e.isDirectory()) continue
+    const info = await repoInfo(path.join(root, e.name))
+    if (info) found.push(info)
+  }
+  return found
+}
+
+// Open a PR/MR with the right tool for the host; falls back to a web URL to create it.
+async function openPr(dir, info) {
+  if (info.host === 'github') {
+    const r = await git(dir, []) // noop to keep pattern; use gh below
+    void r
+    const gh = await run('gh', ['pr', 'create', '--fill'], { cwd: dir, timeoutMs: 60000 })
+    if (gh.code === 0) return { ok: true, url: (gh.out.match(/https?:\/\/\S+/) || [''])[0] || gh.out.trim() }
+    // Already-exists or no auth → offer the web page.
+    const web = `https://github.com/${info.slug}/pull/new/${encodeURIComponent(info.branch)}`
+    return { ok: false, url: web, web: true, error: (gh.err || gh.out).trim().slice(0, 300) }
+  }
+  if (info.host === 'gitlab') {
+    const glab = await run('glab', ['mr', 'create', '--fill', '--yes'], { cwd: dir, timeoutMs: 60000 })
+    if (glab.code === 0) return { ok: true, url: (glab.out.match(/https?:\/\/\S+/) || [''])[0] || glab.out.trim() }
+    return { ok: false, error: (glab.err || glab.out).trim().slice(0, 300) }
+  }
+  if (info.host === 'bitbucket') {
+    const web = `https://bitbucket.org/${info.slug}/pull-requests/new?source=${encodeURIComponent(info.branch)}`
+    return { ok: true, url: web, web: true }
+  }
+  return { ok: false, error: `unsupported host: ${info.host}` }
+}
+
 const server = http.createServer(async (req, res) => {
   if (req.method === 'OPTIONS') return json(res, 204, {})
   const url = new URL(req.url, `http://${req.headers.host}`)
@@ -95,6 +193,40 @@ const server = http.createServer(async (req, res) => {
       const out = await claude(body.system, body.prompt)
       return json(res, 200, out)
     }
+
+    // ---- repositories ----
+    if (req.method === 'POST' && url.pathname === '/repos/scan') {
+      const { root } = await readBody(req)
+      return json(res, 200, { repos: await scanRepos(root) })
+    }
+    if (req.method === 'POST' && url.pathname === '/repos/status') {
+      const { path: p } = await readBody(req)
+      const info = await repoInfo(p)
+      return info ? json(res, 200, info) : json(res, 400, { error: 'not a git repo' })
+    }
+    if (req.method === 'POST' && url.pathname === '/repos/config') {
+      const { path: p, name, email } = await readBody(req)
+      if (name != null) await git(p, ['config', 'user.name', String(name)])
+      if (email != null) await git(p, ['config', 'user.email', String(email)])
+      return json(res, 200, await gitIdentity(p))
+    }
+    if (req.method === 'POST' && url.pathname === '/repos/pull') {
+      const { path: p } = await readBody(req)
+      const r = await git(p, ['pull', '--ff-only'])
+      return json(res, 200, { ok: r.code === 0, output: (r.out + r.err).trim().slice(0, 2000) })
+    }
+    if (req.method === 'POST' && url.pathname === '/repos/push') {
+      const { path: p } = await readBody(req)
+      const r = await git(p, ['push'])
+      return json(res, 200, { ok: r.code === 0, output: (r.out + r.err).trim().slice(0, 2000) })
+    }
+    if (req.method === 'POST' && url.pathname === '/repos/pr') {
+      const { path: p } = await readBody(req)
+      const info = await repoInfo(p)
+      if (!info) return json(res, 400, { error: 'not a git repo' })
+      return json(res, 200, await openPr(p, info))
+    }
+
     return json(res, 404, { error: 'not found' })
   } catch (e) {
     return json(res, 500, { error: String(e.message || e) })

@@ -93,6 +93,14 @@ public final class Dto {
     // ---- Onboarding ----
     public record OnboardStep(String n, String title, String detail, String state, String action) {}
 
+    // ---- Repositories (via host agent) ----
+    public record RepoView(
+            String id, String path, String name, String host, String slug, String branch,
+            String remote, boolean dirty, int ahead, int behind, String userName, String userEmail,
+            boolean live) {}
+    public record RepoAdd(String path, String root) {}
+    public record RepoIdentity(String name, String email) {}
+
     // ---- Audit ----
     public record AuditEntry(String action, String target, String metadata, String at) {}
 
