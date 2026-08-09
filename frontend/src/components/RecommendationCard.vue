@@ -17,8 +17,11 @@ function runPrimary(item: Recommendation) {
     router.push(`/builds/${item.id}`)
     return
   }
+  // GitHub item ids are "owner/repo#number": PRs live under /pull, issues under /issues.
   if (item.source === 'GitHub' && item.id.includes('#')) {
-    window.open(`https://github.com/${item.id.replace('#', '/issues/')}`, '_blank', 'noopener')
+    const [repo, num] = item.id.split('#')
+    const path = item.type === 'pr' ? 'pull' : 'issues'
+    window.open(`https://github.com/${repo}/${path}/${num}`, '_blank', 'noopener')
   }
 }
 </script>

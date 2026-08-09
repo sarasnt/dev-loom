@@ -51,8 +51,11 @@ function hasChildren(r: WorkRow): boolean {
 const sourceCount = computed(() => new Set(rows.value.map((r) => r.source)).size)
 
 function externalUrl(r: WorkRow): string | null {
+  // GitHub item ids are "owner/repo#number". PRs live under /pull, issues under /issues.
   if (r.source === 'GitHub' && r.id.includes('#')) {
-    return `https://github.com/${r.id.replace('#', '/issues/')}`
+    const [repo, num] = r.id.split('#')
+    const path = r.type === 'pr' ? 'pull' : 'issues'
+    return `https://github.com/${repo}/${path}/${num}`
   }
   return null
 }
@@ -140,9 +143,14 @@ function open(r: WorkRow) {
             <span v-for="m in r.meta" :key="m">{{ m }}</span>
             <span v-if="r.type === 'build'" class="go" aria-hidden="true">analyze ›</span>
             <span v-else-if="externalUrl(r)" class="go" aria-hidden="true">open ↗</span>
-            <span v-else-if="r.description" class="go" aria-hidden="true">
-              {{ expandedDesc.has(r.id) ? 'hide' : 'details' }} ▾
-            </span>
+            <button
+              v-else-if="r.description"
+              class="descbtn"
+              :aria-expanded="expandedDesc.has(r.id)"
+              @click.stop="toggleDesc(r.id)"
+            >
+              {{ expandedDesc.has(r.id) ? 'collapse description ▴' : 'expand description ▾' }}
+            </button>
           </span>
         </div>
         <div v-if="expandedDesc.has(r.id) && r.description" class="desc">{{ r.description }}</div>
@@ -164,9 +172,14 @@ function open(r: WorkRow) {
               <span class="mt mono">
                 <span class="dot" :class="c.statusTone" aria-hidden="true"></span> {{ c.status }}
                 <span v-for="m in c.meta" :key="m">{{ m }}</span>
-                <span v-if="c.description" class="go" aria-hidden="true">
-                  {{ expandedDesc.has(c.id) ? 'hide' : 'details' }} ▾
-                </span>
+                <button
+                  v-if="c.description"
+                  class="descbtn"
+                  :aria-expanded="expandedDesc.has(c.id)"
+                  @click.stop="toggleDesc(c.id)"
+                >
+                  {{ expandedDesc.has(c.id) ? 'collapse description ▴' : 'expand description ▾' }}
+                </button>
               </span>
             </div>
             <div v-if="expandedDesc.has(c.id) && c.description" class="desc child">{{ c.description }}</div>
@@ -217,6 +230,12 @@ function open(r: WorkRow) {
 .dot.healthy { background: var(--healthy); }
 .dot.info { background: var(--info); }
 .go { color: var(--warp-hi); }
+.descbtn {
+  font-family: var(--mono); font-size: 11px; color: var(--warp-hi);
+  background: transparent; border: 1px solid var(--line); border-radius: 5px;
+  padding: 2px 8px; cursor: pointer; white-space: nowrap;
+}
+.descbtn:hover { border-color: var(--warp); color: var(--ink); }
 .desc {
   margin: -2px 0 10px 44px; padding: 10px 14px; border-left: 2px solid var(--warp);
   background: var(--surface); border-radius: 0 8px 8px 0; color: var(--dim);
