@@ -251,13 +251,20 @@ export interface BrainstormMessage {
   hypothesis?: boolean
   sources?: EvidenceRef[]
 }
+export interface ContextItem {
+  id: string
+  kind: string // repo | workitem | file | note
+  ref?: string | null
+  label: string
+  pinned: boolean
+}
 export interface BrainstormSession {
   id: string
   title: string
   visibility: 'personal' | 'workspace'
   model: string
   boundary: Boundary
-  inContext: EvidenceRef[]
+  inContext: ContextItem[]
   messages: BrainstormMessage[]
   repoPath?: string | null
 }

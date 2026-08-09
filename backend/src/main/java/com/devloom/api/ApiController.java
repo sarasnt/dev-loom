@@ -346,6 +346,17 @@ public class ApiController {
         return Map.<String, Object>of("deleted", id);
     }
 
+    /** Add a context item (work item / file / note) to a session. */
+    @PostMapping("/brainstorm/sessions/{id}/context")
+    public Dto.BrainstormSession brainstormAddContext(@PathVariable String id, @RequestBody Dto.ContextAdd body) {
+        return brainstormService.addContext(id, body);
+    }
+
+    @DeleteMapping("/brainstorm/sessions/{id}/context/{ctxId}")
+    public Dto.BrainstormSession brainstormRemoveContext(@PathVariable String id, @PathVariable String ctxId) {
+        return brainstormService.removeContext(id, ctxId);
+    }
+
     /** Send a brainstorm message + attached sources → local-model reply (SPEC §Brainstorming). */
     @PostMapping("/brainstorm/messages")
     public Dto.BrainstormMessage brainstormSend(@RequestBody Dto.BrainstormSend body) {

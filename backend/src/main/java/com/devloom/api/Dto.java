@@ -85,9 +85,11 @@ public final class Dto {
     // ---- Brainstorm ----
     public record BrainstormMessage(String role, String text, String model, Boolean hypothesis, List<EvidenceRef> sources) {}
     public record SessionRef(String id, String title) {}
+    public record ContextItem(String id, String kind, String ref, String label, boolean pinned) {}
+    public record ContextAdd(String kind, String ref, String label) {}
     public record BrainstormSession(
             String id, String title, String visibility, String model, Boundary boundary,
-            List<EvidenceRef> inContext, List<BrainstormMessage> messages, String repoPath) {}
+            List<ContextItem> inContext, List<BrainstormMessage> messages, String repoPath) {}
     public record Brainstorm(List<SessionRef> sessions, BrainstormSession active) {}
 
     // ---- Onboarding ----

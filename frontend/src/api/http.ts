@@ -89,6 +89,10 @@ export const createBrainstormSession = (title?: string, repoPath?: string) =>
   post<BrainstormSession>('/brainstorm/sessions', { title: title ?? '', repoPath: repoPath ?? '' })
 export const deleteBrainstormSession = (id: string) =>
   del<{ deleted: string }>(`/brainstorm/sessions/${id}`)
+export const addBrainstormContext = (sessionId: string, item: { kind: string; ref?: string; label: string }) =>
+  post<BrainstormSession>(`/brainstorm/sessions/${sessionId}/context`, item)
+export const removeBrainstormContext = (sessionId: string, ctxId: string) =>
+  del<BrainstormSession>(`/brainstorm/sessions/${sessionId}/context/${ctxId}`)
 export const sendBrainstorm = (sessionId: string, message: string, sourceIds: string[]) =>
   post<BrainstormMessage>('/brainstorm/messages', { sessionId, message, sourceIds })
 export const fetchOnboarding = () => get<OnboardStep[]>('/onboarding')

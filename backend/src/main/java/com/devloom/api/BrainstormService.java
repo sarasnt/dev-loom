@@ -1,6 +1,5 @@
 package com.devloom.api;
 
-import java.util.ArrayList;
 import java.util.List;
 
 import org.springframework.stereotype.Service;
@@ -12,8 +11,6 @@ import com.devloom.brainstorm.BrainstormMessageEntity;
 import com.devloom.brainstorm.BrainstormMessageRepository;
 import com.devloom.brainstorm.BrainstormSessionEntity;
 import com.devloom.brainstorm.BrainstormSessionRepository;
-import com.devloom.workmodel.WorkItemEntity;
-import com.devloom.workmodel.WorkItemRepository;
 
 /**
  * Conversational brainstorming workspace (SPEC.md §Brainstorming) — a genuine thinking
@@ -50,22 +47,22 @@ public class BrainstormService {
             You are talking to an experienced engineer. Match that level.""";
 
     private static final int MAX_HISTORY_TURNS = 12;
-    private static final int MAX_CONTEXT_SOURCES = 6;
 
     private final LlmRouter llm;
     private final com.devloom.ai.HostAgentClient agent;
     private final BrainstormSessionRepository sessions;
     private final BrainstormMessageRepository messages;
-    private final WorkItemRepository workItems;
+    private final com.devloom.brainstorm.BrainstormContextRepository contexts;
 
     public BrainstormService(LlmRouter llm, com.devloom.ai.HostAgentClient agent,
                              BrainstormSessionRepository sessions,
-                             BrainstormMessageRepository messages, WorkItemRepository workItems) {
+                             BrainstormMessageRepository messages,
+                             com.devloom.brainstorm.BrainstormContextRepository contexts) {
         this.llm = llm;
         this.agent = agent;
         this.sessions = sessions;
         this.messages = messages;
-        this.workItems = workItems;
+        this.contexts = contexts;
     }
 
     // ---- reads ----------------------------------------------------------------
@@ -97,7 +94,32 @@ public class BrainstormService {
     /** Create a session, optionally bound to a local repo (Claude Code runs in its dir). */
     @Transactional
     public Dto.BrainstormSession createSession(String title, String repoPath) {
-        return toDto(sessions.save(BrainstormSessionEntity.create(title, repoPath)));
+        BrainstormSessionEntity s = sessions.save(BrainstormSessionEntity.create(title, repoPath));
+        if (s.getRepoPath() != null) {
+            // The repo is the pinned, default context for a repo-bound session.
+            String name = s.getRepoPath().replace('\\', '/');
+            name = name.substring(name.lastIndexOf('/') + 1);
+            contexts.save(com.devloom.brainstorm.BrainstormContextEntity.of(
+                    s.getId(), "repo", s.getRepoPath(), name, true));
+        }
+        return toDto(s);
+    }
+
+    @Transactional
+    public Dto.BrainstormSession addContext(String sessionId, Dto.ContextAdd body) {
+        Long sid = parse(sessionId);
+        contexts.save(com.devloom.brainstorm.BrainstormContextEntity.of(
+                sid, body.kind() == null ? "note" : body.kind(), body.ref(),
+                body.label() == null || body.label().isBlank() ? String.valueOf(body.ref()) : body.label(), false));
+        return sessions.findById(sid).map(this::toDto).orElseGet(() -> overview().active());
+    }
+
+    @Transactional
+    public Dto.BrainstormSession removeContext(String sessionId, String ctxId) {
+        contexts.findById(parse(ctxId)).ifPresent(c -> {
+            if (!c.isPinned() && c.getSessionId().equals(parse(sessionId))) contexts.deleteById(c.getId());
+        });
+        return sessions.findById(parse(sessionId)).map(this::toDto).orElseGet(() -> overview().active());
     }
 
     /** Delete a session and its messages. */
@@ -112,9 +134,14 @@ public class BrainstormService {
 
     @Transactional
     public Dto.BrainstormMessage reply(Dto.BrainstormSend req) {
-        List<String> ids = req.sourceIds() == null ? List.of() : req.sourceIds();
         BrainstormSessionEntity session = sessions.findById(parse(req.sessionId()))
                 .orElseGet(() -> sessions.save(BrainstormSessionEntity.create(null)));
+
+        // Context = the session's persisted items (repo is passed via cwd, not the prompt).
+        List<String> ids = contexts.findBySessionIdOrderByIdAsc(session.getId()).stream()
+                .filter(c -> !"repo".equals(c.getKind()))
+                .map(c -> c.getLabel())
+                .toList();
 
         List<BrainstormMessageEntity> prior = messages.findBySessionIdOrderBySeqAsc(session.getId());
         int seq = prior.size();
@@ -188,12 +215,10 @@ public class BrainstormService {
                         m.isHypothesis(), List.of()))
                 .toList();
 
-        // Suggested sources to ground the discussion — the user's real work items.
-        List<Dto.EvidenceRef> inContext = new ArrayList<>();
-        for (WorkItemEntity w : workItems.findAllByOrderBySortOrderAsc()) {
-            if (inContext.size() >= MAX_CONTEXT_SOURCES) break;
-            inContext.add(new Dto.EvidenceRef(w.getExtId(), w.getTitle(), "local"));
-        }
+        List<Dto.ContextItem> inContext = contexts.findBySessionIdOrderByIdAsc(s.getId()).stream()
+                .map(c -> new Dto.ContextItem(String.valueOf(c.getId()), c.getKind(), c.getRef(),
+                        c.getLabel(), c.isPinned()))
+                .toList();
 
         boolean repo = s.getRepoPath() != null;
         String model = repo ? "claude-code" : llm.activeModelLabel();

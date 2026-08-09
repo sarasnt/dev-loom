@@ -8,7 +8,11 @@ import {
   createBrainstormSession,
   deleteBrainstormSession,
   sendBrainstorm,
+  addBrainstormContext,
+  removeBrainstormContext,
+  fetchWork,
 } from '../api'
+import type { WorkRow } from '../types'
 import { useDashboardStore } from '../stores/dashboard'
 import SourceChip from '../components/SourceChip.vue'
 import BoundaryToken from '../components/BoundaryToken.vue'
@@ -129,6 +133,42 @@ const canRedo = computed(() => {
   )
 })
 
+// ---- context (editable) ----
+const addingCtx = ref(false)
+const workItems = ref<WorkRow[]>([])
+const pickWork = ref('')
+const freeInput = ref('')
+
+async function openAddContext() {
+  addingCtx.value = !addingCtx.value
+  if (addingCtx.value && !workItems.value.length) {
+    try { workItems.value = await fetchWork() } catch { workItems.value = [] }
+  }
+}
+async function addContext(kind: string, ref: string, label: string) {
+  if (!data.value || !label) return
+  data.value.active = await addBrainstormContext(data.value.active.id, { kind, ref, label })
+}
+async function addPickedWork() {
+  const w = workItems.value.find((x) => x.id === pickWork.value)
+  if (!w) return
+  await addContext('workitem', w.id, `${w.title} (${w.source})`)
+  pickWork.value = ''
+}
+async function addFree() {
+  const v = freeInput.value.trim()
+  if (!v) return
+  // a path-looking value → file, else a free note
+  await addContext(/[\\/.]/.test(v) ? 'file' : 'note', v, v)
+  freeInput.value = ''
+}
+async function removeContext(ctxId: string) {
+  if (!data.value) return
+  data.value.active = await removeBrainstormContext(data.value.active.id, ctxId)
+}
+const ctxGlyph = (kind: string) =>
+  kind === 'repo' ? '⑂' : kind === 'workitem' ? '◆' : kind === 'file' ? '▤' : '•'
+
 async function redoLast() {
   if (!data.value || sending.value) return
   const session = data.value.active
@@ -225,11 +265,26 @@ async function redoLast() {
     <!-- source tray -->
     <aside class="tray">
       <div class="lab mono">In context ({{ data.active.inContext.length }})</div>
-      <div v-for="s in data.active.inContext" :key="s.id" class="trow">
-        <SourceChip :ref-item="s" :show-boundary="true" />
-        <span class="x" aria-hidden="true">✕</span>
+      <div v-for="c in data.active.inContext" :key="c.id" class="trow">
+        <span class="ctxglyph mono" aria-hidden="true">{{ ctxGlyph(c.kind) }}</span>
+        <span class="ctxlabel" :title="c.ref || c.label">{{ c.label }}</span>
+        <button v-if="!c.pinned" class="x" aria-label="Remove from context" @click="removeContext(c.id)">✕</button>
+        <span v-else class="pin mono" title="Pinned">📌</span>
       </div>
-      <div class="add"><span class="chip">+ Add source</span></div>
+      <div v-if="!data.active.inContext.length" class="mono ctxempty">nothing yet — add sources below</div>
+
+      <div class="add">
+        <button class="chip addbtn" @click="openAddContext">{{ addingCtx ? '− Close' : '+ Add source' }}</button>
+      </div>
+      <div v-if="addingCtx" class="addpanel">
+        <select v-model="pickWork" class="ctxsel mono">
+          <option value="">Work item (Jira / Notion / PR)…</option>
+          <option v-for="w in workItems" :key="w.id" :value="w.id">{{ w.source }} · {{ w.title }}</option>
+        </select>
+        <button class="chip" :disabled="!pickWork" @click="addPickedWork">Add</button>
+        <input v-model="freeInput" class="ctxin mono" placeholder="…or a file path / note" @keydown.enter="addFree" />
+        <button class="chip" :disabled="!freeInput.trim()" @click="addFree">Add</button>
+      </div>
       <div class="lab mono">Model</div>
       <div class="select mono">{{ activeModel || data.active.model }} · <span class="railhint">choose in the left rail</span></div>
       <BoundaryToken class="bt" :boundary="data.active.boundary" />
@@ -299,8 +354,18 @@ async function redoLast() {
 .tray { border-left: 1px solid var(--line); padding: 16px; background: var(--surface); display: flex; flex-direction: column; }
 .lab { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--faint-text); margin: 4px 0 10px; }
 .trow { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
-.trow .x { margin-left: auto; color: var(--faint-text); }
-.add { margin: 8px 0 18px; }
+.trow .x { margin-left: auto; background: transparent; border: 0; color: var(--faint-text); cursor: pointer; font-size: 11px; }
+.trow .x:hover { color: var(--failed); }
+.ctxglyph { color: var(--warp-hi); width: 14px; text-align: center; }
+.ctxlabel { font-size: 12.5px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pin { margin-left: auto; font-size: 10px; }
+.ctxempty { color: var(--faint-text); font-size: 11.5px; padding: 4px 0; }
+.add { margin: 8px 0 12px; }
+.addbtn { background: transparent; border: 1px solid var(--line); cursor: pointer; }
+.addbtn:hover { border-color: var(--warp); }
+.addpanel { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+.ctxsel, .ctxin { width: 100%; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; color: var(--ink); font-size: 12px; }
+.ctxsel:focus, .ctxin:focus { outline: none; border-color: var(--warp); }
 .select { border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px; background: var(--chip-bg); color: var(--ink); font-size: 12px; }
 .mselect {
   width: 100%; border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px;
