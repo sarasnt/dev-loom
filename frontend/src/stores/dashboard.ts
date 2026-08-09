@@ -1,7 +1,15 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import type { TodayData } from '../types'
+import type { TodayData, ProvidersData } from '../types'
 import { fetchToday, fetchWork, fetchProviders, setActiveModel } from '../api'
+
+// Local models + remote models from any keyed provider (the router maps names → adapter).
+function unionModels(p: ProvidersData): string[] {
+  const all = [...(p.local.models ?? [])]
+  if (p.anthropic?.hasKey) all.push(...(p.anthropic.models ?? []))
+  if (p.openai?.hasKey) all.push(...(p.openai.models ?? []))
+  return all
+}
 
 export const useDashboardStore = defineStore('dashboard', () => {
   const today = ref<TodayData | null>(null)
@@ -45,11 +53,7 @@ export const useDashboardStore = defineStore('dashboard', () => {
   async function refreshModels() {
     try {
       const p = await fetchProviders()
-      // Local models + remote models from any keyed provider (router maps names → adapter).
-      const all = [...(p.local.models ?? [])]
-      if (p.anthropic?.hasKey) all.push(...(p.anthropic.models ?? []))
-      if (p.openai?.hasKey) all.push(...(p.openai.models ?? []))
-      models.value = all
+      models.value = unionModels(p)
       activeModel.value = p.local.active ?? p.local.defaultModel ?? ''
     } catch {
       // leave the previous value
@@ -58,12 +62,13 @@ export const useDashboardStore = defineStore('dashboard', () => {
 
   // Switch the active model (rail dropdown) — persists on the backend and updates the rail.
   async function setModel(name: string) {
-    activeModel.value = name
+    activeModel.value = name // optimistic
     try {
       const p = await setActiveModel(name)
-      models.value = p.local.models ?? models.value
+      // Keep the FULL union so the selected remote model stays in the list (don't shrink to local).
+      models.value = unionModels(p)
       activeModel.value = p.local.active ?? name
-      if (today.value) today.value.model = { name: activeModel.value, local: true }
+      if (today.value) today.value.model = { name: activeModel.value, local: false }
     } catch {
       // keep the optimistic value
     }
