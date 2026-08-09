@@ -17,6 +17,7 @@ import { useDashboardStore } from '../stores/dashboard'
 import SourceChip from '../components/SourceChip.vue'
 import BoundaryToken from '../components/BoundaryToken.vue'
 import LoomLoader from '../components/LoomLoader.vue'
+import { renderMarkdown } from '../utils/markdown'
 
 const thinkingSteps = [
   'reading your sources…',
@@ -289,7 +290,8 @@ async function redoLast() {
         <div v-for="(m, i) in data.active.messages" :key="i" class="msg" :class="m.role">
           <div class="who mono">{{ m.role === 'you' ? 'you' : `DevLoom · ${m.model ?? 'local'}` }}</div>
           <div class="bub">
-            {{ m.text }}
+            <span v-if="m.role === 'you'">{{ m.text }}</span>
+            <span v-else class="md" v-html="renderMarkdown(m.text)"></span>
             <span v-if="m.hypothesis" class="reason-mark" aria-label="model reasoning">reasoning°</span>
           </div>
           <div v-if="m.sources?.length" class="thread mono">
@@ -299,7 +301,7 @@ async function redoLast() {
         <div v-if="sending" class="msg ai">
           <div class="who mono">DevLoom · {{ sessionModel || data.active.model }}</div>
           <div class="bub">
-            <template v-if="streamingText">{{ streamingText }}<span class="cursor" aria-hidden="true">▍</span></template>
+            <template v-if="streamingText"><span class="md" v-html="renderMarkdown(streamingText)"></span><span class="cursor" aria-hidden="true">▍</span></template>
             <LoomLoader v-else class="think-loom" :steps="thinkingSteps" size="sm" />
           </div>
         </div>
@@ -407,6 +409,20 @@ async function redoLast() {
 .thinking::after { content: ''; animation: none; }
 .who { font-size: 11px; color: var(--faint-text); margin-bottom: 4px; }
 .bub { font-size: 14px; color: var(--ink); line-height: 1.55; white-space: pre-wrap; }
+/* rendered markdown — block layout, so no pre-wrap gaps */
+.md { white-space: normal; display: block; }
+.md :deep(.md-p) { margin: 0 0 8px; }
+.md :deep(.md-p:last-child) { margin-bottom: 0; }
+.md :deep(.md-h) { font-weight: 600; color: var(--ink); margin: 12px 0 6px; }
+.md :deep(.md-h1) { font-size: 16px; }
+.md :deep(.md-h2), .md :deep(.md-h3) { font-size: 14.5px; }
+.md :deep(.md-ul), .md :deep(.md-ol) { margin: 4px 0 8px; padding-left: 20px; }
+.md :deep(li) { margin: 2px 0; }
+.md :deep(.md-code) { font-family: var(--mono); font-size: 12px; background: var(--chip-bg); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; }
+.md :deep(.md-pre) { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; overflow: auto; margin: 6px 0; }
+.md :deep(.md-pre code) { font-family: var(--mono); font-size: 12px; white-space: pre; background: none; border: 0; padding: 0; }
+.md :deep(a) { color: var(--warp-hi); text-decoration: underline; }
+.md :deep(strong) { color: var(--ink); font-weight: 600; }
 .cursor { color: var(--warp-hi); animation: blink 1s steps(2) infinite; }
 @keyframes blink { 50% { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .cursor { animation: none; } }
