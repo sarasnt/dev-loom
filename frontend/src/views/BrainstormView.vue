@@ -21,7 +21,7 @@ const thinkingSteps = [
 ]
 
 const store = useDashboardStore()
-const { activeModel, models } = storeToRefs(store)
+const { activeModel } = storeToRefs(store)
 
 const data = ref<BrainstormData | null>(null)
 const loading = ref(true)
@@ -78,9 +78,6 @@ async function removeSession(id: string) {
   }
 }
 
-function onModelChange(e: Event) {
-  store.setModel((e.target as HTMLSelectElement).value)
-}
 
 // Once the backend titles a fresh session from its first message, mirror it in the sidebar.
 function syncActiveTitle() {
@@ -231,16 +228,7 @@ async function redoLast() {
       </div>
       <div class="add"><span class="chip">+ Add source</span></div>
       <div class="lab mono">Model</div>
-      <select
-        v-if="models.length"
-        class="mselect mono"
-        :value="activeModel"
-        aria-label="Model for this brainstorm"
-        @change="onModelChange"
-      >
-        <option v-for="m in models" :key="m" :value="m">{{ m }}</option>
-      </select>
-      <div v-else class="select mono">{{ data.active.model }}</div>
+      <div class="select mono">{{ activeModel || data.active.model }} · <span class="railhint">choose in the left rail</span></div>
       <BoundaryToken class="bt" :boundary="data.active.boundary" />
     </aside>
   </div>

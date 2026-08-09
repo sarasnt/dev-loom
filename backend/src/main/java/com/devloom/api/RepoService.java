@@ -89,6 +89,28 @@ public class RepoService {
         return agent.pr(pathOf(id));
     }
 
+    public Map<String, Object> browse(String path) {
+        return agent.browse(path);
+    }
+
+    public Map<String, Object> changes(String id) {
+        return agent.changes(pathOf(id));
+    }
+
+    public Map<String, Object> stage(String id, List<String> files) {
+        return agent.stage(pathOf(id), files);
+    }
+
+    public Map<String, Object> unstage(String id, List<String> files) {
+        return agent.unstage(pathOf(id), files);
+    }
+
+    public Map<String, Object> commit(String id, String message) {
+        Map<String, Object> r = agent.commit(pathOf(id), message);
+        audit.record("repo_commit", pathOf(id), null);
+        return r;
+    }
+
     // ---- helpers ----
 
     private GitRepoEntity persist(Map<String, Object> info) {

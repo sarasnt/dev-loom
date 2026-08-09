@@ -100,6 +100,9 @@ public final class Dto {
             boolean live) {}
     public record RepoAdd(String path, String root) {}
     public record RepoIdentity(String name, String email) {}
+    public record FsBrowse(String path) {}
+    public record RepoFiles(List<String> files) {}
+    public record RepoCommit(String message) {}
 
     // ---- Audit ----
     public record AuditEntry(String action, String target, String metadata, String at) {}

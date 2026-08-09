@@ -175,6 +175,21 @@ export interface RepoView {
   live: boolean
 }
 
+export interface BrowseDir { name: string; path: string; repo: boolean }
+export interface BrowseResult {
+  path: string
+  parent: string | null
+  isRepo: boolean
+  drives: { name: string; path: string }[]
+  dirs: BrowseDir[]
+}
+export interface RepoChange { file: string; status: string }
+export interface RepoChanges {
+  staged: RepoChange[]
+  unstaged: RepoChange[]
+  untracked: RepoChange[]
+}
+
 // ---- Integrations ----
 export interface Integration {
   key: string

@@ -114,6 +114,26 @@ public class HostAgentClient {
         return post("/repos/pr", Map.of("path", path));
     }
 
+    public Map<String, Object> browse(String path) {
+        return post("/fs/list", Map.of("path", path == null ? "" : path));
+    }
+
+    public Map<String, Object> changes(String path) {
+        return post("/repos/changes", Map.of("path", path));
+    }
+
+    public Map<String, Object> stage(String path, java.util.List<String> files) {
+        return post("/repos/stage", Map.of("path", path, "files", files == null ? java.util.List.of() : files));
+    }
+
+    public Map<String, Object> unstage(String path, java.util.List<String> files) {
+        return post("/repos/unstage", Map.of("path", path, "files", files == null ? java.util.List.of() : files));
+    }
+
+    public Map<String, Object> commit(String path, String message) {
+        return post("/repos/commit", Map.of("path", path, "message", message == null ? "" : message));
+    }
+
     private Map<String, Object> post(String path, Map<String, Object> body) {
         Map<String, Object> resp = http.post().uri(path).body(body).retrieve().body(MAP);
         if (resp == null) throw new IllegalStateException("no response from host agent");

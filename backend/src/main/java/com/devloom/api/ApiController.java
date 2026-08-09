@@ -254,6 +254,32 @@ public class ApiController {
         return repoService.pr(id);
     }
 
+    /** Browse the host filesystem (folder picker) — cross-platform via the agent. */
+    @PostMapping("/fs/browse")
+    public Map<String, Object> browse(@RequestBody Dto.FsBrowse body) {
+        return repoService.browse(body == null ? null : body.path());
+    }
+
+    @PostMapping("/repos/{id}/changes")
+    public Map<String, Object> repoChanges(@PathVariable String id) {
+        return repoService.changes(id);
+    }
+
+    @PostMapping("/repos/{id}/stage")
+    public Map<String, Object> repoStage(@PathVariable String id, @RequestBody Dto.RepoFiles body) {
+        return repoService.stage(id, body == null ? null : body.files());
+    }
+
+    @PostMapping("/repos/{id}/unstage")
+    public Map<String, Object> repoUnstage(@PathVariable String id, @RequestBody Dto.RepoFiles body) {
+        return repoService.unstage(id, body == null ? null : body.files());
+    }
+
+    @PostMapping("/repos/{id}/commit")
+    public Map<String, Object> repoCommit(@PathVariable String id, @RequestBody Dto.RepoCommit body) {
+        return repoService.commit(id, body == null ? null : body.message());
+    }
+
     @GetMapping("/providers")
     public Dto.Providers providers() {
         return providersService.providers();

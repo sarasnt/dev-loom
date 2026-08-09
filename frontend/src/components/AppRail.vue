@@ -102,7 +102,10 @@ const nav = [
 <style scoped>
 .rail {
   background: var(--rail-bg); border-right: 1px solid var(--line);
-  padding: 16px 12px; display: flex; flex-direction: column; gap: 6px; min-height: 100%;
+  padding: 16px 12px; display: flex; flex-direction: column; gap: 6px;
+  /* Pin the rail to the viewport so a long page (e.g. a long brainstorm) never pushes
+     Settings off the bottom. */
+  position: sticky; top: 0; height: 100vh; overflow-y: auto;
 }
 .brand { display: flex; align-items: center; gap: 9px; padding: 2px 6px 14px; }
 .brand .mark {

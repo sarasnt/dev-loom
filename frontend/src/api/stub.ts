@@ -244,3 +244,18 @@ export function repoPush() {
 export function repoPr() {
   return delay({ ok: false, error: 'offline' })
 }
+export function browseFs() {
+  return delay({ path: '', parent: null, isRepo: false, drives: [], dirs: [] } as import('../types').BrowseResult)
+}
+export function repoChanges() {
+  return delay({ staged: [], unstaged: [], untracked: [] } as import('../types').RepoChanges)
+}
+export function repoStage() {
+  return delay({ ok: false, output: 'offline' })
+}
+export function repoUnstage() {
+  return delay({ ok: false, output: 'offline' })
+}
+export function repoCommit() {
+  return delay({ ok: false, output: 'offline' })
+}

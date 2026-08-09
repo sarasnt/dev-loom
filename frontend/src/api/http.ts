@@ -13,6 +13,8 @@ import type {
   SourceType,
   SourceView,
   RepoView,
+  BrowseResult,
+  RepoChanges,
 } from '../types'
 
 type SourceUpsert = {
@@ -117,3 +119,11 @@ export const repoPull = (id: string) => post<{ ok: boolean; output: string }>(`/
 export const repoPush = (id: string) => post<{ ok: boolean; output: string }>(`/repos/${id}/push`, {})
 export const repoPr = (id: string) =>
   post<{ ok: boolean; url?: string; web?: boolean; error?: string }>(`/repos/${id}/pr`, {})
+export const browseFs = (path: string) => post<BrowseResult>('/fs/browse', { path })
+export const repoChanges = (id: string) => post<RepoChanges>(`/repos/${id}/changes`, {})
+export const repoStage = (id: string, files: string[]) =>
+  post<{ ok: boolean; output: string }>(`/repos/${id}/stage`, { files })
+export const repoUnstage = (id: string, files: string[]) =>
+  post<{ ok: boolean; output: string }>(`/repos/${id}/unstage`, { files })
+export const repoCommit = (id: string, message: string) =>
+  post<{ ok: boolean; output: string }>(`/repos/${id}/commit`, { message })

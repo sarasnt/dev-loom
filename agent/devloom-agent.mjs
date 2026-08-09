@@ -13,6 +13,7 @@ import http from 'node:http'
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
+import os from 'node:os'
 
 const PORT = Number(process.env.DEVLOOM_AGENT_PORT || 8765)
 const HOST = process.env.DEVLOOM_AGENT_HOST || '127.0.0.1'
@@ -174,6 +175,51 @@ async function openPr(dir, info) {
   return { ok: false, error: `unsupported host: ${info.host}` }
 }
 
+// List directories for the folder browser. Blank path → home (+ drives on Windows).
+function listDirs(p) {
+  let dir = p && p.trim() ? p : os.homedir()
+  const roots = []
+  if (IS_WIN && (!p || !p.trim())) {
+    // Offer drive roots on Windows so you can jump across volumes.
+    for (const l of 'CDEFGH') {
+      const d = `${l}:\\`
+      if (fs.existsSync(d)) roots.push({ name: d, path: d })
+    }
+  }
+  let entries = []
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch { dir = os.homedir(); entries = fs.readdirSync(dir, { withFileTypes: true }) }
+  const dirs = entries
+    .filter((e) => e.isDirectory() && !e.name.startsWith('.'))
+    .map((e) => ({ name: e.name, path: path.join(dir, e.name), repo: fs.existsSync(path.join(dir, e.name, '.git')) }))
+    .sort((a, b) => a.name.localeCompare(b.name))
+  const parent = path.dirname(dir)
+  return {
+    path: dir,
+    parent: parent === dir ? null : parent,
+    isRepo: fs.existsSync(path.join(dir, '.git')),
+    drives: roots,
+    dirs,
+  }
+}
+
+// Parse `git status --porcelain` into staged / unstaged / untracked file lists.
+async function changes(dir) {
+  const r = await git(dir, ['status', '--porcelain'])
+  const staged = [], unstaged = [], untracked = []
+  if (r.code !== 0) return { staged, unstaged, untracked }
+  for (const line of r.out.split('\n')) {
+    if (!line.trim()) continue
+    const x = line[0], y = line[1], file = line.slice(3)
+    if (x === '?' && y === '?') { untracked.push({ file, status: 'new' }); continue }
+    if (x !== ' ' && x !== '?') staged.push({ file, status: codeName(x) })
+    if (y !== ' ' && y !== '?') unstaged.push({ file, status: codeName(y) })
+  }
+  return { staged, unstaged, untracked }
+}
+function codeName(c) {
+  return { M: 'modified', A: 'added', D: 'deleted', R: 'renamed', C: 'copied', U: 'conflict' }[c] || c
+}
+
 const server = http.createServer(async (req, res) => {
   if (req.method === 'OPTIONS') return json(res, 204, {})
   const url = new URL(req.url, `http://${req.headers.host}`)
@@ -225,6 +271,32 @@ const server = http.createServer(async (req, res) => {
       const info = await repoInfo(p)
       if (!info) return json(res, 400, { error: 'not a git repo' })
       return json(res, 200, await openPr(p, info))
+    }
+    if (req.method === 'POST' && url.pathname === '/fs/list') {
+      const { path: p } = await readBody(req)
+      return json(res, 200, listDirs(p))
+    }
+    if (req.method === 'POST' && url.pathname === '/repos/changes') {
+      const { path: p } = await readBody(req)
+      return json(res, 200, await changes(p))
+    }
+    if (req.method === 'POST' && url.pathname === '/repos/stage') {
+      const { path: p, files } = await readBody(req)
+      const args = files && files.length ? ['add', '--', ...files] : ['add', '-A']
+      const r = await git(p, args)
+      return json(res, 200, { ok: r.code === 0, output: (r.out + r.err).trim().slice(0, 1000) })
+    }
+    if (req.method === 'POST' && url.pathname === '/repos/unstage') {
+      const { path: p, files } = await readBody(req)
+      const args = files && files.length ? ['restore', '--staged', '--', ...files] : ['reset']
+      const r = await git(p, args)
+      return json(res, 200, { ok: r.code === 0, output: (r.out + r.err).trim().slice(0, 1000) })
+    }
+    if (req.method === 'POST' && url.pathname === '/repos/commit') {
+      const { path: p, message } = await readBody(req)
+      if (!message || !message.trim()) return json(res, 400, { error: 'commit message required' })
+      const r = await git(p, ['commit', '-m', message])
+      return json(res, 200, { ok: r.code === 0, output: (r.out + r.err).trim().slice(0, 2000) })
     }
 
     return json(res, 404, { error: 'not found' })
