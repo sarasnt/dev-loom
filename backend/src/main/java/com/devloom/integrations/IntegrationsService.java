@@ -25,9 +25,11 @@ public class IntegrationsService {
                         List<String> actions, String hint) {}
 
     private static final String NOTION_HINT =
-            "Sync pulls every page, database and task connected to DevLoom. Notion only exposes "
-            + "what you've shared with the integration — to sync more, open a page/database in "
-            + "Notion → ••• → Connections → DevLoom (access cascades to child pages), then Re-sync.";
+            "Sync all pulls every page, database and task connected to DevLoom — Notion only "
+            + "exposes what you've connected to the integration. To add more, connect each page "
+            + "(open it → ••• → Connections → DevLoom), or add several at once in Notion → "
+            + "Settings → Connections → DevLoom → Access. Connecting a whole teamspace includes "
+            + "everything inside it. Then Sync all.";
 
     private static final Map<String, Meta> META = Map.of(
             "GitHub", new Meta("github", "GitHub",
