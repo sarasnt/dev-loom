@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="DevLoom">
+  <rect x="2" y="2" width="28" height="28" rx="7" fill="#14161c" stroke="#c6902f" stroke-width="2"/>
+  <!-- warp: vertical threads under tension -->
+  <g stroke="#c6902f" stroke-width="2" stroke-linecap="round">
+    <line x1="10" y1="7" x2="10" y2="25"/>
+    <line x1="16" y1="7" x2="16" y2="25"/>
+    <line x1="22" y1="7" x2="22" y2="25"/>
+  </g>
+  <!-- weft: brighter threads woven across -->
+  <g stroke="#e0a94a" stroke-width="2" stroke-linecap="round">
+    <line x1="7" y1="13" x2="25" y2="13"/>
+    <line x1="7" y1="20" x2="25" y2="20"/>
+  </g>
+</svg>
