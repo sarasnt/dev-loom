@@ -53,13 +53,16 @@ public class BrainstormService {
     private static final int MAX_CONTEXT_SOURCES = 6;
 
     private final LlmRouter llm;
+    private final com.devloom.ai.HostAgentClient agent;
     private final BrainstormSessionRepository sessions;
     private final BrainstormMessageRepository messages;
     private final WorkItemRepository workItems;
 
-    public BrainstormService(LlmRouter llm, BrainstormSessionRepository sessions,
+    public BrainstormService(LlmRouter llm, com.devloom.ai.HostAgentClient agent,
+                             BrainstormSessionRepository sessions,
                              BrainstormMessageRepository messages, WorkItemRepository workItems) {
         this.llm = llm;
+        this.agent = agent;
         this.sessions = sessions;
         this.messages = messages;
         this.workItems = workItems;
@@ -88,7 +91,13 @@ public class BrainstormService {
 
     @Transactional
     public Dto.BrainstormSession createSession(String title) {
-        return toDto(sessions.save(BrainstormSessionEntity.create(title)));
+        return createSession(title, null);
+    }
+
+    /** Create a session, optionally bound to a local repo (Claude Code runs in its dir). */
+    @Transactional
+    public Dto.BrainstormSession createSession(String title, String repoPath) {
+        return toDto(sessions.save(BrainstormSessionEntity.create(title, repoPath)));
     }
 
     /** Delete a session and its messages. */
@@ -113,10 +122,32 @@ public class BrainstormService {
         String userText = req.message() == null ? "" : req.message();
         messages.save(BrainstormMessageEntity.of(session.getId(), seq++, "you", userText, null, false));
 
-        String prompt = buildPrompt(ids, prior, userText);
-        LlmPort.LlmResult r = llm.generate(new LlmPort.LlmRequest("brainstorm", SYSTEM, prompt, null));
+        String replyText;
+        String replyModel;
+        if (session.getRepoPath() != null) {
+            // Repo-scoped: Claude Code runs in the repo dir (reads/iterates it, uses its skills),
+            // resuming its own session for continuity — so we send just the new turn.
+            String prompt = ids.isEmpty() ? userText
+                    : "Attached sources: " + String.join(", ", ids) + "\n\n" + userText;
+            try {
+                com.devloom.ai.HostAgentClient.Result cr =
+                        agent.claude(SYSTEM, prompt, session.getRepoPath(), session.getClaudeSessionId());
+                replyText = cr.text();
+                replyModel = "claude-code";
+                if (cr.sessionId() != null) session.setClaudeSessionId(cr.sessionId());
+            } catch (Exception e) {
+                replyText = "Couldn't run Claude Code in " + session.getRepoPath()
+                        + " — is the host agent running and `claude` logged in? (" + e.getMessage() + ")";
+                replyModel = "claude-code";
+            }
+        } else {
+            String prompt = buildPrompt(ids, prior, userText);
+            LlmPort.LlmResult r = llm.generate(new LlmPort.LlmRequest("brainstorm", SYSTEM, prompt, null));
+            replyText = r.text();
+            replyModel = r.model();
+        }
 
-        messages.save(BrainstormMessageEntity.of(session.getId(), seq, "ai", r.text(), r.model(), true));
+        messages.save(BrainstormMessageEntity.of(session.getId(), seq, "ai", replyText, replyModel, true));
 
         // Title a fresh session from its first user message, so the list is readable.
         if (prior.isEmpty() && !userText.isBlank()) {
@@ -128,7 +159,7 @@ public class BrainstormService {
         List<Dto.EvidenceRef> sources = ids.stream()
                 .map(id -> new Dto.EvidenceRef(id, null, "local"))
                 .toList();
-        return new Dto.BrainstormMessage("ai", r.text(), r.model(), true, sources);
+        return new Dto.BrainstormMessage("ai", replyText, replyModel, true, sources);
     }
 
     // ---- helpers --------------------------------------------------------------
@@ -164,10 +195,12 @@ public class BrainstormService {
             inContext.add(new Dto.EvidenceRef(w.getExtId(), w.getTitle(), "local"));
         }
 
+        boolean repo = s.getRepoPath() != null;
+        String model = repo ? "claude-code" : llm.activeModelLabel();
         return new Dto.BrainstormSession(
                 String.valueOf(s.getId()), s.getTitle(), s.getVisibility(),
-                llm.activeModelLabel(), new Dto.Boundary("local", "On your machine"),
-                inContext, msgs);
+                model, new Dto.Boundary(repo ? "remote" : "local", repo ? "Claude Code in repo" : "On your machine"),
+                inContext, msgs, s.getRepoPath());
     }
 
     private static Long parse(String id) {

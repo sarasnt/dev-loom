@@ -43,8 +43,11 @@ const railDefaults = {
 </template>
 
 <style scoped>
-.app { display: grid; grid-template-columns: 212px 1fr; height: 100%; }
-.bleed { height: 100%; overflow: auto; }
+/* Fixed viewport frame: the page itself never scrolls, so the rail is always in view;
+   each view scrolls inside its own column (like Work). */
+.app { display: grid; grid-template-columns: 212px 1fr; height: 100vh; overflow: hidden; }
+.app > :nth-child(2) { min-width: 0; overflow: auto; }
+.bleed { height: 100vh; overflow: auto; }
 @media (max-width: 768px) {
   .app { grid-template-columns: 1fr; }
 }

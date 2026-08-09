@@ -259,6 +259,7 @@ export interface BrainstormSession {
   boundary: Boundary
   inContext: EvidenceRef[]
   messages: BrainstormMessage[]
+  repoPath?: string | null
 }
 export interface BrainstormData {
   sessions: { id: string; title: string }[]

@@ -62,20 +62,35 @@ function readBody(req) {
 
 // ---- Claude Code (subscription) ----
 // Runs `claude -p --output-format json`, prompt on stdin so large/multiline prompts are safe.
-async function claude(system, prompt) {
-  const args = ['-p', '--output-format', 'json']
-  if (system) args.push('--append-system-prompt', system)
-  const r = await run('claude', args, { input: prompt, timeoutMs: 240000 })
-  if (r.code !== 0) {
-    throw new Error(`claude exited ${r.code}: ${(r.err || r.out).slice(0, 300)}`)
+// Optional cwd runs it inside a repo (so it can read/iterate that repo and use its skills);
+// optional sessionId resumes a prior session for multi-turn continuity. In a repo we use
+// plan mode (read-only) so brainstorming never edits your files.
+async function claude(system, prompt, cwd, sessionId) {
+  const base = ['-p', '--output-format', 'json']
+  if (system) base.push('--append-system-prompt', system)
+  if (cwd) base.push('--permission-mode', 'plan') // read-only iteration in the repo
+  const build = (withResume) => {
+    const a = [...base]
+    if (withResume && sessionId) a.push('--resume', sessionId)
+    return a
   }
-  // `--output-format json` → an object with a `result` string (the assistant text).
+  let r = await run('claude', build(true), { input: prompt, cwd: cwd || undefined, timeoutMs: 600000 })
+  // A stale/invalid session id fails resume → retry once as a fresh session.
+  if (r.code !== 0 && sessionId) {
+    r = await run('claude', build(false), { input: prompt, cwd: cwd || undefined, timeoutMs: 600000 })
+  }
+  if (r.code !== 0) {
+    throw new Error(`claude exited ${r.code}: ${(r.err || r.out).slice(0, 400)}`)
+  }
   try {
     const parsed = JSON.parse(r.out)
-    const text = parsed.result ?? parsed.text ?? ''
-    return { text: String(text), model: parsed.model || 'claude-code' }
+    return {
+      text: String(parsed.result ?? parsed.text ?? ''),
+      model: parsed.model || 'claude-code',
+      sessionId: parsed.session_id || sessionId || null,
+    }
   } catch {
-    return { text: r.out.trim(), model: 'claude-code' } // fall back to raw output
+    return { text: r.out.trim(), model: 'claude-code', sessionId: sessionId || null }
   }
 }
 
@@ -236,7 +251,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/claude') {
       const body = await readBody(req)
       if (!body.prompt) return json(res, 400, { error: 'prompt required' })
-      const out = await claude(body.system, body.prompt)
+      const out = await claude(body.system, body.prompt, body.cwd, body.sessionId)
       return json(res, 200, out)
     }
 

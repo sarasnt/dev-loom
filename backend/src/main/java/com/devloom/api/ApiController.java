@@ -334,7 +334,9 @@ public class ApiController {
     /** Create a new brainstorming session (persisted). */
     @PostMapping("/brainstorm/sessions")
     public Dto.BrainstormSession brainstormNewSession(@RequestBody(required = false) Dto.NewSession body) {
-        return brainstormService.createSession(body == null ? null : body.title());
+        return brainstormService.createSession(
+                body == null ? null : body.title(),
+                body == null ? null : body.repoPath());
     }
 
     /** Delete a brainstorming session and its messages. */

@@ -64,9 +64,20 @@ public class HostAgentClient {
 
     /** Run a Claude Code (subscription) generation via the agent. */
     public Result claude(String system, String prompt) {
-        Map<String, Object> resp = http.post().uri("/claude")
-                .body(Map.of("system", system == null ? "" : system, "prompt", prompt == null ? "" : prompt))
-                .retrieve().body(MAP);
+        return claude(system, prompt, null, null);
+    }
+
+    /**
+     * Repo-scoped, resumable generation: {@code cwd} runs claude inside a repo (read/iterate +
+     * that repo's skills), {@code sessionId} resumes a prior session. Returns the (new) session id.
+     */
+    public Result claude(String system, String prompt, String cwd, String sessionId) {
+        Map<String, Object> body = new java.util.HashMap<>();
+        body.put("system", system == null ? "" : system);
+        body.put("prompt", prompt == null ? "" : prompt);
+        if (cwd != null) body.put("cwd", cwd);
+        if (sessionId != null) body.put("sessionId", sessionId);
+        Map<String, Object> resp = http.post().uri("/claude").body(body).retrieve().body(MAP);
         if (resp == null) {
             throw new IllegalStateException("no response from host agent");
         }
@@ -75,11 +86,12 @@ public class HostAgentClient {
         }
         String text = String.valueOf(resp.getOrDefault("text", ""));
         String model = String.valueOf(resp.getOrDefault("model", "claude-code"));
-        log.info("Host agent claude generate: chars={}", text.length());
-        return new Result(text, model);
+        Object sid = resp.get("sessionId");
+        log.info("Host agent claude generate: chars={} cwd={}", text.length(), cwd != null);
+        return new Result(text, model, sid == null ? null : String.valueOf(sid));
     }
 
-    public record Result(String text, String model) {}
+    public record Result(String text, String model, String sessionId) {}
 
     // ---- repositories (git via the host agent) ----
 

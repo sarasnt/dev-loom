@@ -85,8 +85,8 @@ export const fetchPrivacy = () => get<PrivacyData>('/privacy')
 export const fetchBrainstorm = () => get<BrainstormData>('/brainstorm')
 export const fetchBrainstormSession = (id: string) =>
   get<BrainstormSession>(`/brainstorm/sessions/${id}`)
-export const createBrainstormSession = (title?: string) =>
-  post<BrainstormSession>('/brainstorm/sessions', { title: title ?? '' })
+export const createBrainstormSession = (title?: string, repoPath?: string) =>
+  post<BrainstormSession>('/brainstorm/sessions', { title: title ?? '', repoPath: repoPath ?? '' })
 export const deleteBrainstormSession = (id: string) =>
   del<{ deleted: string }>(`/brainstorm/sessions/${id}`)
 export const sendBrainstorm = (sessionId: string, message: string, sourceIds: string[]) =>

@@ -176,6 +176,9 @@ async function redoLast() {
 
     <!-- conversation -->
     <main class="chat">
+      <div v-if="data.active.repoPath" class="repobar mono">
+        ⑂ Claude Code · iterating in <b>{{ data.active.repoPath }}</b> (read-only)
+      </div>
       <div ref="chatEl" class="stream">
         <div v-for="(m, i) in data.active.messages" :key="i" class="msg" :class="m.role">
           <div class="who mono">{{ m.role === 'you' ? 'you' : `DevLoom · ${m.model ?? 'local'}` }}</div>
@@ -275,6 +278,7 @@ async function redoLast() {
 .spring { margin-top: auto; }
 .vis { font-size: 12px; color: var(--faint-text); }
 .chat { display: flex; flex-direction: column; padding: 16px 18px; min-height: 0; }
+.repobar { font-size: 12px; color: var(--warp-hi); border: 1px solid var(--warp); background: var(--warp-weft); border-radius: 8px; padding: 7px 12px; margin-bottom: 12px; }
 .stream { flex: 1; overflow: auto; min-height: 0; }
 .msg { margin-bottom: 16px; max-width: 58ch; }
 .thinking { color: var(--faint-text); }

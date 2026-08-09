@@ -30,12 +30,23 @@ public class BrainstormSessionEntity {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt = Instant.now();
 
+    @Column(name = "repo_path")
+    private String repoPath;
+
+    @Column(name = "claude_session_id")
+    private String claudeSessionId;
+
     protected BrainstormSessionEntity() {
     }
 
     public static BrainstormSessionEntity create(String title) {
+        return create(title, null);
+    }
+
+    public static BrainstormSessionEntity create(String title, String repoPath) {
         BrainstormSessionEntity e = new BrainstormSessionEntity();
         e.title = (title == null || title.isBlank()) ? "New brainstorm" : title.strip();
+        e.repoPath = (repoPath == null || repoPath.isBlank()) ? null : repoPath.strip();
         return e;
     }
 
@@ -48,4 +59,7 @@ public class BrainstormSessionEntity {
     public void setTitle(String title) { this.title = title; }
     public String getVisibility() { return visibility; }
     public Instant getUpdatedAt() { return updatedAt; }
+    public String getRepoPath() { return repoPath; }
+    public String getClaudeSessionId() { return claudeSessionId; }
+    public void setClaudeSessionId(String id) { this.claudeSessionId = id; }
 }

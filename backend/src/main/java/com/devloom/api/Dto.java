@@ -87,7 +87,7 @@ public final class Dto {
     public record SessionRef(String id, String title) {}
     public record BrainstormSession(
             String id, String title, String visibility, String model, Boundary boundary,
-            List<EvidenceRef> inContext, List<BrainstormMessage> messages) {}
+            List<EvidenceRef> inContext, List<BrainstormMessage> messages, String repoPath) {}
     public record Brainstorm(List<SessionRef> sessions, BrainstormSession active) {}
 
     // ---- Onboarding ----
@@ -111,5 +111,5 @@ public final class Dto {
     // ---- Brainstorm send ----
     public record Turn(String role, String text) {}
     public record BrainstormSend(String sessionId, String message, List<String> sourceIds, List<Turn> history) {}
-    public record NewSession(String title) {}
+    public record NewSession(String title, String repoPath) {}
 }

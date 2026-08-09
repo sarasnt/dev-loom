@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import type { RepoView, BrowseResult, RepoChanges } from '../types'
 import {
   fetchRepos,
@@ -17,7 +18,19 @@ import {
   repoCommit,
   repoBranches,
   repoCheckout,
+  createBrainstormSession,
 } from '../api'
+
+const router = useRouter()
+async function brainstormHere(r: RepoView) {
+  busy.value = r.id
+  try {
+    await createBrainstormSession(`Brainstorm · ${r.name}`, r.path)
+    router.push('/brainstorm')
+  } finally {
+    busy.value = ''
+  }
+}
 
 const repos = ref<RepoView[]>([])
 const agentUp = ref(false)
@@ -249,6 +262,9 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
             {{ r.host === 'gitlab' ? 'Open MR' : 'Open PR' }}
           </button>
           <button class="btn" :disabled="busy === r.id || !agentUp" @click="startEdit(r)">Git identity</button>
+          <button class="btn brainstorm" :disabled="busy === r.id || !agentUp" title="Start a Claude Code brainstorm that iterates over this repo" @click="brainstormHere(r)">
+            ✎ Brainstorm here
+          </button>
           <button class="btn ghost" :disabled="busy === r.id" @click="remove(r)">Remove</button>
         </div>
 
@@ -363,6 +379,7 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn.pri { background: var(--warp); border-color: var(--warp); color: var(--on-warp); font-weight: 600; }
 .btn.ghost { background: transparent; color: var(--dim); border-color: transparent; }
+.btn.brainstorm { border-color: var(--warp); color: var(--warp-hi); }
 /* changes */
 .changes { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 12px; }
 .cgroup { margin-bottom: 10px; }
