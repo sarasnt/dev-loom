@@ -67,6 +67,15 @@ services:
       - devloom_ollama:/root/.ollama
     ports:
       - "11434:11434"
+    # Use the host NVIDIA GPU (needs Docker Desktop WSL2 GPU support / NVIDIA
+    # Container Toolkit). Falls back to CPU only if you remove this block.
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
 
 volumes:
   devloom_pg:
