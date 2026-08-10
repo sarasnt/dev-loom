@@ -14,6 +14,7 @@ const props = defineProps<{ sessionId: string }>()
 const host = ref<HTMLElement | null>(null)
 const status = ref<'connecting' | 'open' | 'closed' | 'error'>('connecting')
 const resumeCmd = ref('')
+const copied = ref(false)
 const cwd = ref<string | null>(null)
 const term = shallowRef<Terminal | null>(null)
 let ws: WebSocket | null = null
@@ -28,13 +29,14 @@ async function connect() {
     fontSize: 13,
     fontFamily: 'var(--mono, ui-monospace, monospace)',
     cursorBlink: true,
+    scrollback: 5000,
     theme: { background: '#0e0f13', foreground: '#d7dae0', cursor: '#8ab4f8' },
   })
   fit = new FitAddon()
   t.loadAddon(fit)
   t.open(host.value!)
-  fit.fit()
   term.value = t
+  doFit() // initial size once the element is in the DOM
 
   let info
   try {
@@ -60,7 +62,9 @@ async function connect() {
   ws.onopen = () => {
     status.value = 'open'
     t.onData((d) => ws?.readyState === WebSocket.OPEN && ws.send(JSON.stringify({ type: 'input', data: d })))
-    sendResize()
+    t.focus()
+    doFit()
+    window.setTimeout(doFit, 150) // re-fit once claude's TUI has drawn
   }
   ws.onmessage = (ev) => t.write(typeof ev.data === 'string' ? ev.data : '')
   ws.onclose = () => { if (status.value !== 'error') status.value = 'closed' }
@@ -70,8 +74,23 @@ async function connect() {
     t.writeln('\x1b[90mStart it with:  node agent/devloom-agent.mjs  (and `npm install` in agent/ first).\x1b[0m')
   }
 
-  ro = new ResizeObserver(() => { fit?.fit(); sendResize() })
+  // Defer fit out of the ResizeObserver callback (rAF) — fitting synchronously inside it is
+  // dropped by the browser's RO-loop guard, which is why resizing "did nothing".
+  ro = new ResizeObserver(() => requestAnimationFrame(doFit))
   ro.observe(host.value!)
+  window.addEventListener('resize', onWinResize) // belt-and-suspenders for window resizes
+}
+
+function onWinResize() {
+  requestAnimationFrame(doFit)
+}
+
+// Resize the terminal to its container, then tell the PTY the new dimensions.
+function doFit() {
+  const t = term.value
+  if (!t || !fit) return
+  try { fit.fit() } catch { /* element not measurable yet */ }
+  sendResize()
 }
 
 function sendResize() {
@@ -80,13 +99,21 @@ function sendResize() {
   ws.send(JSON.stringify({ type: 'resize', cols: t.cols, rows: t.rows }))
 }
 
-function copyResume() {
-  if (resumeCmd.value) navigator.clipboard?.writeText(resumeCmd.value)
+async function copyResume() {
+  if (!resumeCmd.value) return
+  try {
+    await navigator.clipboard?.writeText(resumeCmd.value)
+  } catch {
+    /* clipboard blocked — the command is shown inline to copy manually */
+  }
+  copied.value = true
+  window.setTimeout(() => (copied.value = false), 1600)
 }
 
 onMounted(connect)
 onBeforeUnmount(() => {
   ro?.disconnect()
+  window.removeEventListener('resize', onWinResize)
   ws?.close()
   term.value?.dispose()
 })
@@ -99,8 +126,10 @@ onBeforeUnmount(() => {
       <span class="st">{{ status === 'open' ? 'claude · interactive' : status }}</span>
       <span v-if="cwd" class="cwd" :title="cwd">⑂ {{ cwd }}</span>
       <span class="spacer"></span>
-      <button v-if="resumeCmd" class="resume" :title="resumeCmd" @click="copyResume">
-        ⧉ resume in terminal
+      <span class="resumelbl">resume in your terminal:</span>
+      <code v-if="resumeCmd" class="resumecmd" :title="resumeCmd">{{ resumeCmd }}</code>
+      <button v-if="resumeCmd" class="resume" @click="copyResume">
+        {{ copied ? '✓ copied' : '⧉ copy' }}
       </button>
     </div>
     <div ref="host" class="term"></div>
@@ -122,9 +151,15 @@ onBeforeUnmount(() => {
 .st { text-transform: uppercase; letter-spacing: 0.08em; }
 .cwd { color: var(--warp-hi); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 46ch; }
 .spacer { margin-left: auto; }
+.resumelbl { color: var(--faint-text); }
+.resumecmd {
+  font-size: 11px; color: var(--warp-hi); background: var(--bg); border: 1px solid var(--line);
+  border-radius: 5px; padding: 2px 7px; max-width: 34ch; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; user-select: all;
+}
 .resume {
   border: 1px solid var(--line); background: var(--chip-bg); color: var(--dim);
-  border-radius: 5px; padding: 3px 8px; font-size: 11px; cursor: pointer;
+  border-radius: 5px; padding: 3px 8px; font-size: 11px; cursor: pointer; white-space: nowrap;
 }
 .resume:hover { color: var(--ink); border-color: var(--warp); }
 .term {

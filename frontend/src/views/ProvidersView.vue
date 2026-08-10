@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import type { ProvidersData, KeyProvider } from '../types'
-import { fetchProviders, setProviderKey, clearProviderKey } from '../api'
+import {
+  fetchProviders, setProviderKey, clearProviderKey, fetchSettings, saveTerminalWorkdir,
+} from '../api'
 import { useDashboardStore } from '../stores/dashboard'
 import SettingsTabs from '../components/SettingsTabs.vue'
 
@@ -11,11 +13,30 @@ const loading = ref(true)
 const draft = ref<Record<string, string>>({ anthropic: '', openai: '' })
 const busy = ref('')
 const flash = ref('')
+const workdir = ref('')
+const savingWd = ref(false)
 
 onMounted(async () => {
   data.value = await fetchProviders()
+  try { workdir.value = (await fetchSettings()).terminalWorkdir } catch { /* ignore */ }
   loading.value = false
 })
+
+async function saveWorkdir() {
+  if (savingWd.value) return
+  savingWd.value = true
+  flash.value = ''
+  try {
+    workdir.value = (await saveTerminalWorkdir(workdir.value.trim())).terminalWorkdir
+    flash.value = workdir.value
+      ? 'Terminal working directory saved.'
+      : 'Terminal working directory cleared (uses your home folder).'
+  } catch {
+    flash.value = 'Could not save the terminal working directory.'
+  } finally {
+    savingWd.value = false
+  }
+}
 
 async function saveKey(provider: string) {
   const key = (draft.value[provider] || '').trim()
@@ -121,6 +142,30 @@ const usedPct = (p: KeyProvider) =>
           </div>
           <div class="avail mono">Adds {{ p.models?.join(' · ') }} to your model picker.</div>
         </template>
+      </section>
+
+      <!-- claude-cli terminal working directory -->
+      <section class="prov">
+        <div class="ph">
+          <span class="dot healthy" aria-hidden="true"></span>
+          <h3>Claude Code terminal <span class="opt mono">· claude-cli</span></h3>
+        </div>
+        <div class="row">
+          <span class="mono lbl">start in</span>
+          <input
+            v-model="workdir"
+            class="keyin mono"
+            type="text"
+            placeholder="e.g. C:\Users\you\Documents\projects  (blank = home folder)"
+            :disabled="savingWd"
+            @keydown.enter="saveWorkdir"
+          />
+          <button class="btn pri" :disabled="savingWd" @click="saveWorkdir">Save</button>
+        </div>
+        <div class="avail mono">
+          Where a non-repo claude-cli terminal opens. Pick a folder you trust so Claude Code
+          stops asking on every session. Repo-scoped brainstorms still open in their repo.
+        </div>
       </section>
     </template>
   </main>

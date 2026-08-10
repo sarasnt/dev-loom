@@ -90,7 +90,8 @@ public final class Dto {
     public record ContextAdd(String kind, String ref, String label) {}
     public record BrainstormSession(
             String id, String title, String visibility, String model, Boundary boundary,
-            List<ContextItem> inContext, List<BrainstormMessage> messages, String repoPath) {}
+            List<ContextItem> inContext, List<BrainstormMessage> messages, String repoPath,
+            boolean cliMode) {}
     public record Brainstorm(List<SessionRef> sessions, BrainstormSession active) {}
 
     // ---- Onboarding ----

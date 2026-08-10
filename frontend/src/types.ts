@@ -271,6 +271,11 @@ export interface MonitoringData {
   metricsPath: string
 }
 
+// ---- user settings ----
+export interface SettingsData {
+  terminalWorkdir: string // default working dir for claude-cli terminals (empty = home)
+}
+
 // ---- claude-cli embedded terminal ----
 export interface TerminalInfo {
   cwd: string | null // repo dir, or null → agent opens in home
@@ -302,6 +307,7 @@ export interface BrainstormSession {
   inContext: ContextItem[]
   messages: BrainstormMessage[]
   repoPath?: string | null
+  cliMode?: boolean // session lives in the claude-cli terminal (locked to terminal mode)
 }
 export interface BrainstormData {
   sessions: { id: string; title: string }[]

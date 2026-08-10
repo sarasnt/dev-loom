@@ -56,18 +56,21 @@ public class BrainstormService {
     private final BrainstormMessageRepository messages;
     private final com.devloom.brainstorm.BrainstormContextRepository contexts;
     private final com.devloom.workmodel.WorkItemRepository workItems;
+    private final com.devloom.common.AppConfigService appConfig;
 
     public BrainstormService(LlmRouter llm, com.devloom.ai.HostAgentClient agent,
                              BrainstormSessionRepository sessions,
                              BrainstormMessageRepository messages,
                              com.devloom.brainstorm.BrainstormContextRepository contexts,
-                             com.devloom.workmodel.WorkItemRepository workItems) {
+                             com.devloom.workmodel.WorkItemRepository workItems,
+                             com.devloom.common.AppConfigService appConfig) {
         this.llm = llm;
         this.agent = agent;
         this.sessions = sessions;
         this.messages = messages;
         this.contexts = contexts;
         this.workItems = workItems;
+        this.appConfig = appConfig;
     }
 
     // ---- reads ----------------------------------------------------------------
@@ -391,11 +394,11 @@ public class BrainstormService {
                 .toList();
 
         boolean repo = s.getRepoPath() != null;
-        String model = repo ? "claude-code" : llm.activeModelLabel();
+        String model = s.isCliMode() ? "claude-cli" : (repo ? "claude-code" : llm.activeModelLabel());
         return new Dto.BrainstormSession(
                 String.valueOf(s.getId()), s.getTitle(), s.getVisibility(),
                 model, new Dto.Boundary(repo ? "remote" : "local", repo ? "Claude Code in repo" : "On your machine"),
-                inContext, msgs, s.getRepoPath());
+                inContext, msgs, s.getRepoPath(), s.isCliMode());
     }
 
     /**
@@ -414,10 +417,20 @@ public class BrainstormService {
         if (!resume) {
             sid = java.util.UUID.randomUUID().toString();
             session.setClaudeSessionId(sid);
-            sessions.save(session);
         }
+        // A session with no chat history that opens a terminal is terminal-native: lock it to
+        // claude-cli so it isn't flipped to a chat model (which would show an empty pane).
+        if (!session.isCliMode() && messages.findBySessionIdOrderBySeqAsc(session.getId()).isEmpty()) {
+            session.setCliMode(true);
+        }
+        sessions.save(session);
+        // Repo sessions run in the repo; others use the configured default working dir (so
+        // claude opens in a folder you trust once), falling back to the agent's home dir.
+        String cwd = session.getRepoPath();
+        if (cwd == null) cwd = appConfig.get(com.devloom.common.AppConfigService.TERMINAL_WORKDIR).orElse(null);
+
         Map<String, Object> m = new java.util.LinkedHashMap<>();
-        m.put("cwd", session.getRepoPath());   // null → agent opens in the user's home dir
+        m.put("cwd", cwd);   // null → agent opens in the user's home dir
         m.put("sessionId", sid);
         m.put("resume", resume);
         return m;

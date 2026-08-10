@@ -36,6 +36,11 @@ public class BrainstormSessionEntity {
     @Column(name = "claude_session_id")
     private String claudeSessionId;
 
+    // True once this session has been opened in claude-cli mode: its conversation lives in the
+    // terminal (Claude Code's transcript), not brainstorm_message, so the UI keeps it a terminal.
+    @Column(name = "cli_mode", nullable = false)
+    private boolean cliMode = false;
+
     protected BrainstormSessionEntity() {
     }
 
@@ -62,4 +67,6 @@ public class BrainstormSessionEntity {
     public String getRepoPath() { return repoPath; }
     public String getClaudeSessionId() { return claudeSessionId; }
     public void setClaudeSessionId(String id) { this.claudeSessionId = id; }
+    public boolean isCliMode() { return cliMode; }
+    public void setCliMode(boolean cliMode) { this.cliMode = cliMode; }
 }

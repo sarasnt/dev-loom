@@ -407,13 +407,24 @@ function allowedOrigin(origin) {
 }
 
 function launchArgv(sessionId, resume) {
-  // Auto-run claude in the session, then drop the user into a live shell (so the terminal
-  // survives claude exiting — they can re-run, resume, or poke around).
-  const idArg = sessionId ? (resume ? `--resume ${sessionId}` : `--session-id ${sessionId}`) : ''
-  const launch = `claude ${idArg}`.trim()
-  if (IS_WIN) return ['powershell.exe', ['-NoLogo', '-NoExit', '-Command', launch]]
-  const shell = process.env.SHELL || '/bin/bash'
-  return [shell, ['-lc', `${launch}; exec ${shell}`]]
+  // Build the claude command, then drop the user into a live shell (so the terminal survives
+  // claude exiting — they can re-run, resume, or poke around). For a returning session we try
+  // --resume but FALL BACK to --session-id with the same id if Claude has no transcript for it
+  // yet (e.g. the first open never completed a turn) — otherwise `--resume` dead-ends with
+  // "No conversation found with session ID".
+  const sh = IS_WIN ? 'powershell.exe' : (process.env.SHELL || '/bin/bash')
+  let claudeCmd
+  if (!sessionId) {
+    claudeCmd = 'claude'
+  } else if (!resume) {
+    claudeCmd = `claude --session-id ${sessionId}`
+  } else if (IS_WIN) {
+    claudeCmd = `claude --resume ${sessionId}; if ($LASTEXITCODE -ne 0) { claude --session-id ${sessionId} }`
+  } else {
+    claudeCmd = `claude --resume ${sessionId} || claude --session-id ${sessionId}`
+  }
+  if (IS_WIN) return [sh, ['-NoLogo', '-NoExit', '-Command', claudeCmd]]
+  return [sh, ['-lc', `${claudeCmd}; exec ${sh}`]]
 }
 
 async function startPty(ws, url) {
@@ -431,11 +442,23 @@ async function startPty(ws, url) {
   const rows = Math.max(1, Number(q.get('rows')) || 24)
 
   const [cmd, args] = launchArgv(sessionId, resume)
+
+  // The agent may itself have been launched from inside Claude Code (e.g. started by a
+  // `claude` session). Its env then carries "child session" markers that turn OFF transcript
+  // saving in the claude we spawn — which silently breaks --resume ("No conversation found").
+  // Strip those markers + force persistence so this runs as a normal top-level session.
+  const env = { ...process.env }
+  for (const k of ['CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CODE_SSE_PORT',
+                   'CLAUDE_CODE_CHILD_SESSION', 'CLAUDE_CODE_SESSION_ID']) {
+    delete env[k]
+  }
+  env.TERM = 'xterm-256color'
+  env.CLAUDE_CODE_FORCE_SESSION_PERSISTENCE = '1'
+
   let term
   try {
     term = pty.spawn(cmd, args, {
-      name: 'xterm-256color', cols, rows, cwd,
-      env: { ...process.env, TERM: 'xterm-256color' },
+      name: 'xterm-256color', cols, rows, cwd, env,
     })
   } catch (e) {
     try { ws.send(`\r\n[failed to start terminal: ${e.message}]\r\n`); ws.close() } catch {}

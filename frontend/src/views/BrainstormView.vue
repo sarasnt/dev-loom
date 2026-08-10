@@ -87,7 +87,12 @@ async function streamReply(
 const effectiveModel = computed(
   () => sessionModel.value || activeModel.value || data.value?.active.model || '',
 )
-const isCliMode = computed(() => effectiveModel.value === 'claude-cli')
+// A session is a terminal if it's been locked to claude-cli (its conversation lives in the
+// terminal), OR the currently-selected model is claude-cli. Locked sessions ignore rail
+// model switches, so you never flip a terminal session to an empty chat.
+const isCliMode = computed(
+  () => data.value?.active.cliMode === true || effectiveModel.value === 'claude-cli',
+)
 
 const route = useRoute()
 const editingSession = ref<string | null>(null)
@@ -401,7 +406,10 @@ async function redoLast() {
         <button class="chip" :disabled="!freeInput.trim()" @click="addFree">Add</button>
       </div>
       <div class="lab mono">Model</div>
-      <div class="select mono">{{ effectiveModel || data.active.model }} · <span class="railhint">rail, or /model claude-cli</span></div>
+      <div class="select mono">
+        {{ isCliMode ? 'claude-cli' : (effectiveModel || data.active.model) }} ·
+        <span class="railhint">{{ isCliMode ? 'terminal session' : 'rail, or /model claude-cli' }}</span>
+      </div>
       <BoundaryToken class="bt" :boundary="data.active.boundary" />
     </aside>
   </div>
