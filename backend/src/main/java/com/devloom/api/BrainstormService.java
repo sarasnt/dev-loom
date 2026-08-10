@@ -55,16 +55,19 @@ public class BrainstormService {
     private final BrainstormSessionRepository sessions;
     private final BrainstormMessageRepository messages;
     private final com.devloom.brainstorm.BrainstormContextRepository contexts;
+    private final com.devloom.workmodel.WorkItemRepository workItems;
 
     public BrainstormService(LlmRouter llm, com.devloom.ai.HostAgentClient agent,
                              BrainstormSessionRepository sessions,
                              BrainstormMessageRepository messages,
-                             com.devloom.brainstorm.BrainstormContextRepository contexts) {
+                             com.devloom.brainstorm.BrainstormContextRepository contexts,
+                             com.devloom.workmodel.WorkItemRepository workItems) {
         this.llm = llm;
         this.agent = agent;
         this.sessions = sessions;
         this.messages = messages;
         this.contexts = contexts;
+        this.workItems = workItems;
     }
 
     // ---- reads ----------------------------------------------------------------
@@ -157,7 +160,9 @@ public class BrainstormService {
         BrainstormSessionEntity session = sessions.findById(parse(req.sessionId()))
                 .orElseGet(() -> sessions.save(BrainstormSessionEntity.create(null)));
 
-        // Context = the session's persisted items (repo is passed via cwd, not the prompt).
+        // Context = the session's persisted items, expanded to full detail (repo via cwd, not prompt).
+        String cblock = contextBlock(session.getId());
+        // Labels only, for the evidence-ref chips on the reply.
         List<String> ids = contexts.findBySessionIdOrderByIdAsc(session.getId()).stream()
                 .filter(c -> !"repo".equals(c.getKind()))
                 .map(c -> c.getLabel())
@@ -174,8 +179,7 @@ public class BrainstormService {
         if (session.getRepoPath() != null) {
             // Repo-scoped: Claude Code runs in the repo dir (reads/iterates it, uses its skills),
             // resuming its own session for continuity — so we send just the new turn.
-            String prompt = ids.isEmpty() ? userText
-                    : "Attached sources: " + String.join(", ", ids) + "\n\n" + userText;
+            String prompt = cblock.isEmpty() ? userText : cblock + "\n" + userText;
             try {
                 com.devloom.ai.HostAgentClient.Result cr =
                         agent.claude(SYSTEM, prompt, session.getRepoPath(), session.getClaudeSessionId());
@@ -188,7 +192,7 @@ public class BrainstormService {
                 replyModel = "claude-code";
             }
         } else {
-            String prompt = buildPrompt(ids, prior, userText);
+            String prompt = buildPrompt(cblock, prior, userText);
             LlmPort.LlmResult r = llm.generate(new LlmPort.LlmRequest("brainstorm", SYSTEM, prompt, null));
             replyText = r.text();
             replyModel = r.model();
@@ -221,8 +225,7 @@ public class BrainstormService {
         BrainstormSessionEntity session = sessions.findById(parse(req.sessionId()))
                 .orElseGet(() -> sessions.save(BrainstormSessionEntity.create(null)));
 
-        List<String> ctx = contexts.findBySessionIdOrderByIdAsc(session.getId()).stream()
-                .filter(c -> !"repo".equals(c.getKind())).map(BrainstormContextEntity::getLabel).toList();
+        String cblock = contextBlock(session.getId());
         List<BrainstormMessageEntity> prior = messages.findBySessionIdOrderBySeqAsc(session.getId());
         int seq = prior.size();
         String userText = req.message() == null ? "" : req.message();
@@ -234,8 +237,8 @@ public class BrainstormService {
 
         if (useClaude) {
             String prompt = session.getRepoPath() != null
-                    ? (ctx.isEmpty() ? userText : "Attached context: " + String.join(", ", ctx) + "\n\n" + userText)
-                    : buildPrompt(ctx, prior, userText);
+                    ? (cblock.isEmpty() ? userText : cblock + "\n" + userText)
+                    : buildPrompt(cblock, prior, userText);
             StringBuilder acc = new StringBuilder();
             String[] result = {null};
             String[] sid = {null};
@@ -267,7 +270,7 @@ public class BrainstormService {
             finalModel = "claude-code";
         } else {
             LlmPort.LlmResult r = llm.generate(new LlmPort.LlmRequest("brainstorm", SYSTEM,
-                    buildPrompt(ctx, prior, userText), req.model()));
+                    buildPrompt(cblock, prior, userText), req.model()));
             finalText = r.text();
             finalModel = r.model();
             onDelta.accept(finalText);
@@ -319,10 +322,49 @@ public class BrainstormService {
         return v == null ? "" : String.valueOf(v);
     }
 
-    private String buildPrompt(List<String> ids, List<BrainstormMessageEntity> prior, String userText) {
+    /**
+     * Expand a session's attached context into rich text the model can brainstorm about:
+     * for a work item (Jira/build/PR/Notion) we inject its title, status, source, metadata
+     * (incl. Jira custom fields) and description — not just its label. Repo context is handled
+     * separately (via cwd), so it's excluded here.
+     */
+    private String contextBlock(Long sessionId) {
+        List<BrainstormContextEntity> items = contexts.findBySessionIdOrderByIdAsc(sessionId).stream()
+                .filter(c -> !"repo".equals(c.getKind())).toList();
+        if (items.isEmpty()) return "";
+        StringBuilder sb = new StringBuilder("Attached context to brainstorm about:\n\n");
+        for (BrainstormContextEntity c : items) {
+            if ("workitem".equals(c.getKind()) && c.getRef() != null) {
+                workItems.findFirstByExtId(c.getRef()).ifPresentOrElse(
+                        w -> sb.append(renderWorkItem(w)),
+                        () -> sb.append("- ").append(c.getLabel()).append("\n\n"));
+            } else if ("file".equals(c.getKind())) {
+                sb.append("- File: ").append(c.getRef() == null ? c.getLabel() : c.getRef()).append("\n\n");
+            } else {
+                sb.append("- Note: ").append(c.getLabel()).append("\n\n");
+            }
+        }
+        return sb.toString();
+    }
+
+    private String renderWorkItem(com.devloom.workmodel.WorkItemEntity w) {
+        StringBuilder b = new StringBuilder();
+        b.append("### ").append(w.getType()).append(" · ").append(w.getExtId())
+                .append(" — ").append(w.getTitle()).append("\n");
+        b.append("Source: ").append(w.getSource()).append(" · Status: ").append(w.getStatus()).append("\n");
+        String meta = w.getMetadata();
+        if (meta != null && !meta.isBlank()) b.append(meta.strip()).append("\n");
+        else if (w.getMetaCsv() != null && !w.getMetaCsv().isBlank()) b.append("Fields: ").append(w.getMetaCsv()).append("\n");
+        if (w.getDescription() != null && !w.getDescription().isBlank()) {
+            b.append("Description:\n").append(w.getDescription().strip()).append("\n");
+        }
+        return b.append("\n").toString();
+    }
+
+    private String buildPrompt(String contextBlock, List<BrainstormMessageEntity> prior, String userText) {
         StringBuilder prompt = new StringBuilder();
-        if (!ids.isEmpty()) {
-            prompt.append("Attached sources for context: ").append(String.join(", ", ids)).append("\n\n");
+        if (contextBlock != null && !contextBlock.isBlank()) {
+            prompt.append(contextBlock).append("\n");
         }
         if (!prior.isEmpty()) {
             prompt.append("Conversation so far:\n");

@@ -67,7 +67,9 @@ public class JiraConnector implements SourceConnector {
                     .uri(uri -> uri.path(apiPath)
                             .queryParam("jql", "assignee = currentUser() ORDER BY updated DESC")
                             .queryParam("maxResults", maxIssues)
-                            .queryParam("fields", "summary,status,priority,project,parent,description")
+                            // *navigable = standard + custom fields; expand=names → field display names.
+                            .queryParam("fields", "*navigable")
+                            .queryParam("expand", "names")
                             .build())
                     .header("Authorization", authHeader)
                     .header("Accept", "application/json")
@@ -76,9 +78,10 @@ public class JiraConnector implements SourceConnector {
 
             List<WorkItemEntity> out = new ArrayList<>();
             List<?> issues = root == null ? List.of() : asList(root.get("issues"));
+            Map<String, Object> names = asMap(root == null ? null : root.get("names")); // fieldId → label
             int order = 100;
             for (Object issueObj : issues) {
-                out.add(map(asMap(issueObj), inst.getName(), order++));
+                out.add(map(asMap(issueObj), names, inst.getName(), order++));
             }
             log.info("Jira sync [{}]: fetched {} issues from {}", inst.getName(), out.size(), baseUrl);
             return out;
@@ -88,7 +91,7 @@ public class JiraConnector implements SourceConnector {
         }
     }
 
-    private WorkItemEntity map(Map<String, Object> issue, String source, int order) {
+    private WorkItemEntity map(Map<String, Object> issue, Map<String, Object> names, String source, int order) {
         String key = str(issue, "key");
         Map<String, Object> f = asMap(issue.get("fields"));
         String summary = str(f, "summary");
@@ -104,8 +107,8 @@ public class JiraConnector implements SourceConnector {
             default -> "info";
         };
         String parentKey = str(asMap(f.get("parent")), "key");
-        Object descObj = f.get("description");
-        String description = descObj instanceof String s ? s : ""; // v3 ADF is an object → skip
+        // Description: v2 (Server/DC) is plain text; v3 (Cloud) is an ADF document → flatten it.
+        String description = jiraValueToString(f.get("description"));
 
         List<String> metaParts = new ArrayList<>();
         if (!priority.isBlank()) metaParts.add(priority);
@@ -114,7 +117,73 @@ public class JiraConnector implements SourceConnector {
         return WorkItemEntity.create(key, "task", title,
                 statusName.isBlank() ? "open" : statusName, tone,
                 String.join(",", metaParts), source, order)
-                .withDetail(description, parentKey);
+                .withDetail(description, parentKey)
+                .withMetadata(buildMetadata(f, names));
+    }
+
+    /**
+     * Rich, model-facing metadata: a few useful standard fields plus every non-empty custom
+     * field, each labelled with its Jira display name ("Sprint: 24.3", "Story Points: 5", …).
+     * Summary/description/status/priority are handled elsewhere, so they're skipped here.
+     */
+    private static String buildMetadata(Map<String, Object> f, Map<String, Object> names) {
+        List<String> lines = new ArrayList<>();
+        for (String std : List.of("assignee", "reporter", "labels", "components", "fixVersions", "issuetype")) {
+            addLine(lines, names, std, f.get(std));
+        }
+        for (Map.Entry<String, Object> e : f.entrySet()) {
+            if (e.getKey().startsWith("customfield_")) addLine(lines, names, e.getKey(), e.getValue());
+        }
+        return String.join("\n", lines);
+    }
+
+    private static void addLine(List<String> lines, Map<String, Object> names, String fieldId, Object value) {
+        String v = jiraValueToString(value);
+        if (v.isBlank()) return;
+        String label = str(names, fieldId);
+        lines.add((label.isBlank() ? fieldId : label) + ": " + (v.length() > 300 ? v.substring(0, 300) + "…" : v));
+    }
+
+    /** Best-effort stringify of a Jira field value (string, number, object, list, or ADF). */
+    @SuppressWarnings("unchecked")
+    private static String jiraValueToString(Object v) {
+        if (v == null) return "";
+        if (v instanceof String s) return s.strip();
+        if (v instanceof Number || v instanceof Boolean) return v.toString();
+        if (v instanceof List<?> list) {
+            List<String> parts = new ArrayList<>();
+            for (Object o : list) { String p = jiraValueToString(o); if (!p.isBlank()) parts.add(p); }
+            return String.join(", ", parts);
+        }
+        if (v instanceof Map<?, ?> m) {
+            Map<String, Object> mm = (Map<String, Object>) m;
+            if (mm.containsKey("type") && mm.containsKey("content")) return adfText(mm).strip(); // ADF doc
+            for (String k : List.of("displayName", "name", "value", "key")) {
+                Object hit = mm.get(k);
+                if (hit != null) return String.valueOf(hit);
+            }
+            return "";
+        }
+        return v.toString();
+    }
+
+    /** Flatten an Atlassian Document Format node tree to plain text. */
+    @SuppressWarnings("unchecked")
+    private static String adfText(Object node) {
+        if (node instanceof Map<?, ?> m) {
+            Map<String, Object> mm = (Map<String, Object>) m;
+            Object text = mm.get("text");
+            StringBuilder sb = new StringBuilder();
+            if (text instanceof String s) sb.append(s);
+            Object content = mm.get("content");
+            if (content instanceof List<?> list) {
+                for (Object child : list) sb.append(adfText(child));
+                String type = String.valueOf(mm.get("type"));
+                if ("paragraph".equals(type) || "heading".equals(type)) sb.append("\n");
+            }
+            return sb.toString();
+        }
+        return "";
     }
 
     @SuppressWarnings("unchecked")

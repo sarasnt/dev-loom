@@ -49,6 +49,9 @@ public class WorkItemEntity {
     @Column(name = "source_instance_id")
     private Long sourceInstanceId;
 
+    @Column(name = "metadata", columnDefinition = "text")
+    private String metadata;
+
     protected WorkItemEntity() {
     }
 
@@ -78,6 +81,12 @@ public class WorkItemEntity {
         return this;
     }
 
+    /** Rich, model-facing metadata (e.g. Jira custom fields as "Name: value" lines). */
+    public WorkItemEntity withMetadata(String metadata) {
+        this.metadata = trim(metadata, 3000);
+        return this;
+    }
+
     private static String trim(String s, int max) {
         if (s == null || s.isBlank()) return null;
         String t = s.strip();
@@ -97,4 +106,5 @@ public class WorkItemEntity {
     public String getParentExtId() { return parentExtId; }
     public Long getSourceInstanceId() { return sourceInstanceId; }
     public void setSourceInstanceId(Long id) { this.sourceInstanceId = id; }
+    public String getMetadata() { return metadata; }
 }
