@@ -1,5 +1,9 @@
-# DevLoom — self-hosted stack (SPEC.md §32).
-# Core: db + backend + frontend. Optional profiles: `ai` (Ollama), `obs` (Langfuse — see note).
+# DevLoom — self-hosted stack, FROM SOURCE (SPEC.md §32). Builds backend/frontend locally
+# and pulls the local models at `up`. For a portable, no-build stack that runs published
+# GHCR images (with models baked in) on a fresh PC, use docker-compose.prebuilt.yml — see
+# docs/DEPLOY.md.
+#
+# Core: db + backend + frontend. Optional profiles: `ai` (Ollama), `obs` (Langfuse).
 #
 #   docker compose up -d --build              # core stack → http://localhost:8088
 #   docker compose --profile ai up -d         # + local Ollama on :11434 (auto-pulls models)

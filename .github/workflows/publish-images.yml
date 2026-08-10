@@ -1,0 +1,124 @@
+# Build and publish DevLoom images to GHCR (GitHub Container Registry), so a fresh
+# machine can run the prebuilt stack (docker-compose.prebuilt.yml) with no build.
+#
+# Publishes:
+#   ghcr.io/<owner>/devloom-backend
+#   ghcr.io/<owner>/devloom-frontend
+#   ghcr.io/<owner>/devloom-ollama    (with models baked in)
+#
+# Triggers:
+#   - push a tag like v1.2.3  → images tagged :1.2.3, :1.2, :latest
+#   - manual (Actions ▸ Run workflow) → pick a tag + which models to bake
+#
+# Images are private by default; make them public in the repo's Packages settings if
+# you want to `pull` on a new PC without `docker login ghcr.io`.
+name: publish-images
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag (e.g. latest or v1.0.0)"
+        default: "latest"
+        required: true
+      ollama_models:
+        description: "Space-separated Ollama models to bake into devloom-ollama"
+        default: "qwen2.5-coder:7b"
+        required: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/devloom-backend
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch' }}
+            type=raw,value=${{ github.event.inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/devloom-frontend
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch' }}
+            type=raw,value=${{ github.event.inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  ollama:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Baked models are large; reclaim runner disk before building.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /usr/local/.ghcup
+          sudo docker image prune -af || true
+          df -h /
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/devloom-ollama
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch' }}
+            type=raw,value=${{ github.event.inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./ollama
+          push: true
+          build-args: |
+            MODELS=${{ github.event.inputs.ollama_models || 'qwen2.5-coder:7b' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

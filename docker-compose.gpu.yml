@@ -1,0 +1,17 @@
+# GPU override — give Ollama the host NVIDIA GPU. Needs Docker Desktop WSL2 GPU support
+# or the NVIDIA Container Toolkit on Linux. Layer it on top of either stack:
+#
+#   docker compose -f docker-compose.prebuilt.yml -f docker-compose.gpu.yml up -d
+#   docker compose -f docker-compose.yml          -f docker-compose.gpu.yml up -d
+#
+# (The from-source docker-compose.yml already reserves the GPU on its own; use this
+# override only with the prebuilt stack, which is CPU-safe by default for portability.)
+services:
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
