@@ -406,7 +406,7 @@ function allowedOrigin(origin) {
   } catch { return false }
 }
 
-function launchArgv(sessionId, resume) {
+function launchArgv(sessionId, resume, cwd) {
   // Build the claude command, then drop the user into a live shell (so the terminal survives
   // claude exiting — they can re-run, resume, or poke around). For a returning session we try
   // --resume but FALL BACK to --session-id with the same id if Claude has no transcript for it
@@ -423,8 +423,47 @@ function launchArgv(sessionId, resume) {
   } else {
     claudeCmd = `claude --resume ${sessionId} || claude --session-id ${sessionId}`
   }
-  if (IS_WIN) return [sh, ['-NoLogo', '-NoExit', '-Command', claudeCmd]]
-  return [sh, ['-lc', `${claudeCmd}; exec ${sh}`]]
+  // Explicitly cd into cwd first — the user's shell profile may change directory (PowerShell
+  // often lands in the home dir), which would make claude open the WRONG workspace (and keep
+  // re-prompting to trust it). -NoProfile also avoids that side effect on Windows.
+  if (IS_WIN) {
+    // PowerShell's Set-Location changes $PWD but NOT [Environment]::CurrentDirectory, which is
+    // what native child processes (claude) inherit — so claude would otherwise open in the
+    // process's start dir (home). Set both so claude's workspace is actually `cwd`.
+    const q = cwd ? cwd.replace(/'/g, "''") : ''
+    const cd = cwd ? `Set-Location -LiteralPath '${q}'; [Environment]::CurrentDirectory = '${q}'; ` : ''
+    return [sh, ['-NoLogo', '-NoProfile', '-NoExit', '-Command', cd + claudeCmd]]
+  }
+  const cd = cwd ? `cd '${cwd.replace(/'/g, "'\\''")}' && ` : ''
+  return [sh, ['-lc', `${cd}${claudeCmd}; exec ${sh}`]]
+}
+
+// Mark a folder as trusted in ~/.claude.json (same effect as answering Claude's "trust this
+// folder?" prompt with Yes). Without this, an interactive claude blocks at the trust prompt —
+// so a fresh terminal session never completes a turn, nothing is saved, and --resume later
+// fails with "No conversation found". We only launch in folders the user chose (repo or the
+// configured working dir), so trusting them is exactly what they'd do by hand.
+function ensureTrusted(dir) {
+  try {
+    if (!dir) return
+    const cfgPath = path.join(os.homedir(), '.claude.json')
+    if (!fs.existsSync(cfgPath)) return
+    const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'))
+    cfg.projects = cfg.projects || {}
+    // Claude keys projects by forward-slash path with a lowercase drive letter on Windows.
+    let key = dir.replace(/\\/g, '/')
+    if (/^[A-Za-z]:/.test(key)) key = key[0].toLowerCase() + key.slice(1)
+    const entry = cfg.projects[key] || {}
+    if (entry.hasTrustDialogAccepted === true) return // already trusted — no write
+    entry.hasTrustDialogAccepted = true
+    cfg.projects[key] = entry
+    const tmp = cfgPath + '.devloom.tmp'
+    fs.writeFileSync(tmp, JSON.stringify(cfg, null, 2))
+    fs.renameSync(tmp, cfgPath)
+    console.log('pty: pre-trusted folder', key)
+  } catch (e) {
+    console.log('pty: could not pre-trust folder:', e.message)
+  }
 }
 
 async function startPty(ws, url) {
@@ -441,7 +480,9 @@ async function startPty(ws, url) {
   const cols = Math.max(1, Number(q.get('cols')) || 80)
   const rows = Math.max(1, Number(q.get('rows')) || 24)
 
-  const [cmd, args] = launchArgv(sessionId, resume)
+  ensureTrusted(cwd) // skip Claude's "trust this folder?" prompt so the session can start
+
+  const [cmd, args] = launchArgv(sessionId, resume, cwd)
 
   // The agent may itself have been launched from inside Claude Code (e.g. started by a
   // `claude` session). Its env then carries "child session" markers that turn OFF transcript
