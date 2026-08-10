@@ -51,14 +51,19 @@ services:
       DEVLOOM_SECRET: ${DEVLOOM_SECRET:-}
       # DevLoom host agent (Claude subscription bridge + repos), reached on the host.
       DEVLOOM_HOST_AGENT_URL: ${DEVLOOM_HOST_AGENT_URL:-http://host.docker.internal:8765}
+      # Langfuse export. Keys default to the LANGFUSE_INIT_* bootstrap below so it works
+      # out of the box with `--profile obs`; flip DEVLOOM_LANGFUSE_ENABLED=true to send.
       DEVLOOM_LANGFUSE_ENABLED: ${DEVLOOM_LANGFUSE_ENABLED:-false}
+      DEVLOOM_LANGFUSE_HOST: ${DEVLOOM_LANGFUSE_HOST:-http://langfuse:3000}
+      DEVLOOM_LANGFUSE_PUBLIC_KEY: ${DEVLOOM_LANGFUSE_PUBLIC_KEY:-pk-lf-devloom-local}
+      DEVLOOM_LANGFUSE_SECRET_KEY: ${DEVLOOM_LANGFUSE_SECRET_KEY:-sk-lf-devloom-local}
     # Make host.docker.internal resolve on Linux/Debian too (Docker Desktop provides it already).
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
       - "8080:8080"
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health || exit 1"]
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/actuator/health || exit 1"]
       interval: 10s
       timeout: 3s
       retries: 20
@@ -123,18 +128,36 @@ services:
       POSTGRES_DB: langfuse
     volumes:
       - devloom_langfuse_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U langfuse -d langfuse"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
 
   langfuse:
     image: langfuse/langfuse:2
     profiles: ["obs"]
     depends_on:
-      - langfuse-db
+      langfuse-db:
+        condition: service_healthy   # wait until Postgres accepts connections, not just started
+    restart: unless-stopped          # migrations can race the DB on a cold volume; retry
     environment:
       DATABASE_URL: postgresql://langfuse:langfuse@langfuse-db:5432/langfuse
       NEXTAUTH_URL: http://localhost:3000
       NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:-devloom-langfuse-dev-secret-change-me}
       SALT: ${LANGFUSE_SALT:-devloom-langfuse-dev-salt-change-me}
       TELEMETRY_ENABLED: "false"
+      # Headless bootstrap: an org/project/user + fixed API keys on first boot, so DevLoom
+      # can export with no manual setup. Log in with the email/password below to view traces.
+      LANGFUSE_INIT_ORG_ID: devloom
+      LANGFUSE_INIT_ORG_NAME: DevLoom
+      LANGFUSE_INIT_PROJECT_ID: devloom
+      LANGFUSE_INIT_PROJECT_NAME: DevLoom
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${DEVLOOM_LANGFUSE_PUBLIC_KEY:-pk-lf-devloom-local}
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: ${DEVLOOM_LANGFUSE_SECRET_KEY:-sk-lf-devloom-local}
+      LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_INIT_USER_EMAIL:-admin@devloom.local}
+      LANGFUSE_INIT_USER_NAME: DevLoom Admin
+      LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD:-devloom-admin}
     ports:
       - "3000:3000"
 

@@ -65,3 +65,8 @@ devloom:
     interval-ms: ${DEVLOOM_SYNC_INTERVAL_MS:300000}
   langfuse:
     enabled: ${DEVLOOM_LANGFUSE_ENABLED:false}
+    # Self-hosted Langfuse base URL + project keys (from the project's settings, or the
+    # LANGFUSE_INIT_* bootstrap in docker-compose). Export is off until enabled + keys set.
+    host: ${DEVLOOM_LANGFUSE_HOST:http://localhost:3000}
+    public-key: ${DEVLOOM_LANGFUSE_PUBLIC_KEY:}
+    secret-key: ${DEVLOOM_LANGFUSE_SECRET_KEY:}

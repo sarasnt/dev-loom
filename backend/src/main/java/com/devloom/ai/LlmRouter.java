@@ -84,6 +84,16 @@ public class LlmRouter {
      * Resilient: any provider error falls back to the offline stub so a feature never fails.
      */
     public LlmPort.LlmResult generate(LlmPort.LlmRequest request) {
+        // Mark the feature so any model call on this thread exports to Langfuse named by it.
+        tracer.setFeature(request.feature());
+        try {
+            return doGenerate(request);
+        } finally {
+            tracer.clearFeature();
+        }
+    }
+
+    private LlmPort.LlmResult doGenerate(LlmPort.LlmRequest request) {
         String model = request.model();
         if (model == null || model.isBlank()) {
             model = modelPref.active();

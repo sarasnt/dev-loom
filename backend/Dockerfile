@@ -17,6 +17,9 @@ RUN mvn -B package
 
 # ---- runtime stage ----
 FROM eclipse-temurin:25-jre AS runtime
+# curl for the compose healthcheck (the JRE image ships neither curl nor wget).
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build /app/target/devloom-backend-*.jar app.jar
 EXPOSE 8080

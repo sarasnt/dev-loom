@@ -41,11 +41,13 @@ public class ModelMonitor implements ChatModelListener {
     private static final int MAX_RECENT = 100;
 
     private final MeterRegistry meters;
+    private final LangfuseTracer langfuse;
     private final Deque<Call> recent = new ArrayDeque<>();
     private final Map<String, Agg> byModel = new LinkedHashMap<>();
 
-    public ModelMonitor(MeterRegistry meters) {
+    public ModelMonitor(MeterRegistry meters, LangfuseTracer langfuse) {
         this.meters = meters;
+        this.langfuse = langfuse;
     }
 
     /** One observed model call (already redacted upstream — no prompt/response text kept). */
@@ -111,6 +113,10 @@ public class ModelMonitor implements ChatModelListener {
 
         log.info("llm-monitor provider={} model={} latencyMs={} in={} out={} ok={}",
                 c.provider(), c.model(), c.latencyMs(), c.inputTokens(), c.outputTokens(), c.ok());
+
+        // Export to Langfuse (no-op unless enabled + keys present); async, never blocks.
+        langfuse.export(c.provider(), c.model(), c.at(), c.latencyMs(),
+                c.inputTokens(), c.outputTokens(), c.ok(), c.error());
     }
 
     /** Snapshot for the API: recent calls (newest first) + per-model totals. */
