@@ -356,6 +356,31 @@ public class BrainstormService {
                 inContext, msgs, s.getRepoPath());
     }
 
+    /**
+     * Descriptor for opening an interactive Claude Code terminal (claude-cli mode) on a session.
+     * Reuses the session's stored Claude session id so the embedded terminal, the programmatic
+     * claude-code chat, and a plain {@code claude --resume} in the user's own terminal are all
+     * the same conversation. Mints + persists a fresh UUID the first time (so the terminal
+     * starts with {@code --session-id}); later opens resume it ({@code --resume}).
+     */
+    @Transactional
+    public Map<String, Object> terminalInfo(String id) {
+        BrainstormSessionEntity session = sessions.findById(parse(id))
+                .orElseThrow(() -> new IllegalArgumentException("no session " + id));
+        String sid = session.getClaudeSessionId();
+        boolean resume = sid != null && !sid.isBlank();
+        if (!resume) {
+            sid = java.util.UUID.randomUUID().toString();
+            session.setClaudeSessionId(sid);
+            sessions.save(session);
+        }
+        Map<String, Object> m = new java.util.LinkedHashMap<>();
+        m.put("cwd", session.getRepoPath());   // null → agent opens in the user's home dir
+        m.put("sessionId", sid);
+        m.put("resume", resume);
+        return m;
+    }
+
     private static Long parse(String id) {
         try {
             return Long.valueOf(id);

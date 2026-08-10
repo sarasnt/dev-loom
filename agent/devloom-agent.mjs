@@ -6,8 +6,10 @@
 //   node agent/devloom-agent.mjs           # listens on 127.0.0.1:8765
 //   DEVLOOM_AGENT_PORT=9000 node agent/devloom-agent.mjs
 //
-// No dependencies — Node built-ins only. Prereqs for the Claude bridge: the `claude` CLI
-// installed and logged in (claude 2.x). Repos features also use `git` and `gh`/`glab`.
+// HTTP endpoints use Node built-ins only. The embedded terminal (/pty, for brainstorm's
+// claude-cli mode) additionally needs `ws` + `node-pty` — run `npm install` in this folder;
+// they're lazy-loaded, so everything else works without them. Prereqs for the Claude bridge:
+// the `claude` CLI installed and logged in (claude 2.x). Repos features also use `git`/`gh`/`glab`.
 
 import http from 'node:http'
 import { spawn } from 'node:child_process'
@@ -375,7 +377,99 @@ const server = http.createServer(async (req, res) => {
   }
 })
 
+// ---- embedded terminal (/pty) — real interactive `claude` TUI over a WebSocket ----
+// Powers brainstorm's claude-cli mode: the browser (xterm.js) attaches to a PTY here so the
+// full Claude Code TUI runs with no offloading. Deps (ws + node-pty) are lazy-loaded so the
+// rest of the agent needs no npm install. Guarded: 127.0.0.1 bind + localhost-origin allowlist.
+let _wss = null
+let _pty = null
+async function getWss() {
+  if (_wss) return _wss
+  const { WebSocketServer } = await import('ws')
+  _wss = new WebSocketServer({ noServer: true })
+  return _wss
+}
+async function getPty() {
+  if (_pty) return _pty
+  const m = await import('node-pty')
+  _pty = m.default ?? m
+  return _pty
+}
+
+// Only allow the local DevLoom UI (or same-host tools) to open a terminal — blocks a random
+// website from driving your shell (CSWSH). Combined with the 127.0.0.1 bind below.
+function allowedOrigin(origin) {
+  if (!origin) return true // non-browser clients (curl/tests) send no Origin
+  try {
+    const h = new URL(origin).hostname
+    return h === 'localhost' || h === '127.0.0.1' || h === '::1'
+  } catch { return false }
+}
+
+function launchArgv(sessionId, resume) {
+  // Auto-run claude in the session, then drop the user into a live shell (so the terminal
+  // survives claude exiting — they can re-run, resume, or poke around).
+  const idArg = sessionId ? (resume ? `--resume ${sessionId}` : `--session-id ${sessionId}`) : ''
+  const launch = `claude ${idArg}`.trim()
+  if (IS_WIN) return ['powershell.exe', ['-NoLogo', '-NoExit', '-Command', launch]]
+  const shell = process.env.SHELL || '/bin/bash'
+  return [shell, ['-lc', `${launch}; exec ${shell}`]]
+}
+
+async function startPty(ws, url) {
+  let pty
+  try { pty = await getPty() } catch (e) {
+    try { ws.send(`\r\n[terminal unavailable — run \`npm install\` in agent/ (${e.message})]\r\n`); ws.close() } catch {}
+    return
+  }
+  const q = url.searchParams
+  const wanted = q.get('cwd') || ''
+  const cwd = wanted && fs.existsSync(wanted) ? wanted : os.homedir()
+  const sessionId = q.get('sessionId') || ''
+  const resume = q.get('resume') === 'true'
+  const cols = Math.max(1, Number(q.get('cols')) || 80)
+  const rows = Math.max(1, Number(q.get('rows')) || 24)
+
+  const [cmd, args] = launchArgv(sessionId, resume)
+  let term
+  try {
+    term = pty.spawn(cmd, args, {
+      name: 'xterm-256color', cols, rows, cwd,
+      env: { ...process.env, TERM: 'xterm-256color' },
+    })
+  } catch (e) {
+    try { ws.send(`\r\n[failed to start terminal: ${e.message}]\r\n`); ws.close() } catch {}
+    return
+  }
+
+  term.onData((d) => { try { ws.send(d) } catch {} })
+  term.onExit(({ exitCode }) => { try { ws.send(`\r\n[terminal exited (${exitCode})]\r\n`); ws.close() } catch {} })
+
+  ws.on('message', (raw) => {
+    let msg
+    try { msg = JSON.parse(raw.toString()) } catch { return }
+    if (msg.type === 'input' && typeof msg.data === 'string') term.write(msg.data)
+    else if (msg.type === 'resize') { try { term.resize(Math.max(1, msg.cols | 0), Math.max(1, msg.rows | 0)) } catch {} }
+  })
+  ws.on('close', () => { try { term.kill() } catch {} })
+  console.log(`pty: ${cmd} (${resume ? 'resume' : 'session'} ${sessionId || 'none'}) in ${cwd}`)
+}
+
+server.on('upgrade', async (req, socket, head) => {
+  const url = new URL(req.url, `http://${req.headers.host}`)
+  if (url.pathname !== '/pty') { socket.destroy(); return }
+  if (!allowedOrigin(req.headers.origin)) {
+    socket.write('HTTP/1.1 403 Forbidden\r\n\r\n'); socket.destroy(); return
+  }
+  let wss
+  try { wss = await getWss() } catch (e) {
+    socket.write('HTTP/1.1 501 Not Implemented\r\n\r\nterminal deps missing: run `npm install` in agent/\r\n')
+    socket.destroy(); return
+  }
+  wss.handleUpgrade(req, socket, head, (ws) => startPty(ws, url))
+})
+
 server.listen(PORT, HOST, () => {
   console.log(`DevLoom host agent listening on http://${HOST}:${PORT}`)
-  console.log('Endpoints: GET /health, POST /claude  (repos endpoints coming next)')
+  console.log('Endpoints: GET /health, POST /claude, WS /pty (terminal), repos endpoints')
 })

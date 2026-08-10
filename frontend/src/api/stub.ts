@@ -120,6 +120,9 @@ const PROVIDERS: ProvidersData = {
 export function fetchProviders(): Promise<ProvidersData> {
   return delay(PROVIDERS)
 }
+export function openBrainstormTerminal(_id: string): Promise<import('../types').TerminalInfo> {
+  return delay({ cwd: null, sessionId: 'offline-stub', resume: false })
+}
 export function fetchMonitoring(): Promise<import('../types').MonitoringData> {
   return delay({
     models: [],

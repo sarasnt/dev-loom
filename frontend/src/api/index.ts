@@ -14,6 +14,7 @@ export const fetchHandoff = api.fetchHandoff
 export const fetchIntegrations = api.fetchIntegrations
 export const fetchProviders = api.fetchProviders
 export const fetchMonitoring = api.fetchMonitoring
+export const openBrainstormTerminal = api.openBrainstormTerminal
 export const setActiveModel = api.setActiveModel
 export const setProviderKey = api.setProviderKey
 export const clearProviderKey = api.clearProviderKey

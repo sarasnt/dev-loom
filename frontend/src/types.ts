@@ -271,6 +271,13 @@ export interface MonitoringData {
   metricsPath: string
 }
 
+// ---- claude-cli embedded terminal ----
+export interface TerminalInfo {
+  cwd: string | null // repo dir, or null → agent opens in home
+  sessionId: string // Claude Code session id (shared with claude-code chat + `claude --resume`)
+  resume: boolean // true → `claude --resume <id>`; false → `claude --session-id <id>`
+}
+
 // ---- Brainstorm ----
 export interface BrainstormMessage {
   role: 'you' | 'ai'

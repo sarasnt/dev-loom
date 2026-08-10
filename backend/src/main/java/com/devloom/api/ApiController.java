@@ -369,6 +369,12 @@ public class ApiController {
         return brainstormService.removeContext(id, ctxId);
     }
 
+    /** Open an interactive Claude Code terminal (claude-cli mode) for a session → cwd + session id. */
+    @PostMapping("/brainstorm/sessions/{id}/terminal")
+    public Map<String, Object> brainstormTerminal(@PathVariable String id) {
+        return brainstormService.terminalInfo(id);
+    }
+
     /** Send a brainstorm message + attached sources → local-model reply (SPEC §Brainstorming). */
     @PostMapping("/brainstorm/messages")
     public Dto.BrainstormMessage brainstormSend(@RequestBody Dto.BrainstormSend body) {

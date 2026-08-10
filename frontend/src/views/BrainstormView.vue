@@ -19,6 +19,7 @@ import { useDashboardStore } from '../stores/dashboard'
 import SourceChip from '../components/SourceChip.vue'
 import BoundaryToken from '../components/BoundaryToken.vue'
 import LoomLoader from '../components/LoomLoader.vue'
+import TerminalPane from '../components/TerminalPane.vue'
 import { renderMarkdown } from '../utils/markdown'
 
 const thinkingSteps = [
@@ -80,6 +81,13 @@ async function streamReply(
     }
   }
 }
+
+// Effective model for this session: per-session /model override, else the rail's active model.
+// When it's "claude-cli" we swap the chat for an embedded interactive terminal.
+const effectiveModel = computed(
+  () => sessionModel.value || activeModel.value || data.value?.active.model || '',
+)
+const isCliMode = computed(() => effectiveModel.value === 'claude-cli')
 
 const route = useRoute()
 const editingSession = ref<string | null>(null)
@@ -317,6 +325,9 @@ async function redoLast() {
 
     <!-- conversation -->
     <main class="chat">
+      <!-- claude-cli: full interactive Claude Code in an embedded terminal -->
+      <TerminalPane v-if="isCliMode" :key="data.active.id" :session-id="data.active.id" class="termpane" />
+      <template v-else>
       <div v-if="data.active.repoPath" class="repobar mono">
         ⑂ Claude Code · iterating in <b>{{ data.active.repoPath }}</b> (read-only)
       </div>
@@ -363,6 +374,7 @@ async function redoLast() {
         <span class="chip">Note</span><span class="chip">Task</span>
         <span class="chip">Decision</span><span class="chip">Draft spec</span>
       </div>
+      </template>
     </main>
 
     <!-- source tray -->
@@ -389,7 +401,7 @@ async function redoLast() {
         <button class="chip" :disabled="!freeInput.trim()" @click="addFree">Add</button>
       </div>
       <div class="lab mono">Model</div>
-      <div class="select mono">{{ activeModel || data.active.model }} · <span class="railhint">choose in the left rail</span></div>
+      <div class="select mono">{{ effectiveModel || data.active.model }} · <span class="railhint">rail, or /model claude-cli</span></div>
       <BoundaryToken class="bt" :boundary="data.active.boundary" />
     </aside>
   </div>
@@ -442,6 +454,7 @@ async function redoLast() {
 .spring { margin-top: auto; }
 .vis { font-size: 12px; color: var(--faint-text); }
 .chat { display: flex; flex-direction: column; padding: 16px 18px; min-height: 0; }
+.termpane { flex: 1; min-height: 0; }
 .repobar { font-size: 12px; color: var(--warp-hi); border: 1px solid var(--warp); background: var(--warp-weft); border-radius: 8px; padding: 7px 12px; margin-bottom: 12px; }
 .stream { flex: 1; overflow: auto; min-height: 0; }
 .msg { margin-bottom: 16px; max-width: 58ch; }

@@ -16,6 +16,7 @@ import type {
   BrowseResult,
   RepoChanges,
   MonitoringData,
+  TerminalInfo,
 } from '../types'
 
 type SourceUpsert = {
@@ -78,6 +79,8 @@ export const fetchHandoff = (id: string) => get<Handoff>(`/handoffs/${id}`)
 export const fetchIntegrations = () => get<Integration[]>('/integrations')
 export const fetchProviders = () => get<ProvidersData>('/providers')
 export const fetchMonitoring = () => get<MonitoringData>('/monitoring/models')
+export const openBrainstormTerminal = (id: string) =>
+  post<TerminalInfo>(`/brainstorm/sessions/${id}/terminal`, {})
 export const setActiveModel = (name: string) => post<ProvidersData>('/providers/model', { name })
 export const setProviderKey = (provider: string, key: string) =>
   post<ProvidersData>('/providers/keys', { provider, key })

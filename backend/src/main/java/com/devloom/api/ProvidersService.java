@@ -24,6 +24,9 @@ public class ProvidersService {
     private static final List<String> OPENAI_MODELS = List.of("gpt-4o", "gpt-4o-mini");
 
     private static final String CLAUDE_CODE = "claude-code";
+    // Interactive Claude Code in an embedded terminal (full TUI via the host agent's PTY),
+    // as opposed to the programmatic claude-code chat. Selectable only when claude is available.
+    private static final String CLAUDE_CLI = "claude-cli";
 
     private final OllamaLlm ollama;
     private final CostBudget budget;
@@ -62,7 +65,7 @@ public class ProvidersService {
     /** Every model a user could select right now — local + keyed remote + agent (subscription). */
     public List<String> allModels() {
         List<String> all = new java.util.ArrayList<>(ollama.models());
-        if (agent.claudeAvailable()) all.add(CLAUDE_CODE);
+        if (agent.claudeAvailable()) { all.add(CLAUDE_CODE); all.add(CLAUDE_CLI); }
         if (credentials.hasKey("anthropic")) all.addAll(ANTHROPIC_MODELS);
         if (credentials.hasKey("openai")) all.addAll(OPENAI_MODELS);
         return all;
@@ -82,7 +85,7 @@ public class ProvidersService {
         Dto.KeyProvider openai = keyProvider("OpenAI", "openai",
                 "leaves for OpenAI", OPENAI_MODELS);
 
-        List<String> agentModels = agent.claudeAvailable() ? List.of(CLAUDE_CODE) : List.of();
+        List<String> agentModels = agent.claudeAvailable() ? List.of(CLAUDE_CODE, CLAUDE_CLI) : List.of();
         return new Dto.Providers(local, anthropic, openai, false, credentials.canStore(), agentModels);
     }
 

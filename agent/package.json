@@ -1,0 +1,16 @@
+{
+  "name": "devloom-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "DevLoom host agent — Claude bridge, git/repos, and the embedded-terminal PTY.",
+  "bin": { "devloom-agent": "devloom-agent.mjs" },
+  "scripts": {
+    "start": "node devloom-agent.mjs"
+  },
+  "comment": "Deps are ONLY needed for the embedded terminal (claude-cli). The HTTP endpoints run on Node built-ins alone — `node devloom-agent.mjs` works without npm install. For the terminal, run `npm install` here (node-pty ships prebuilt N-API binaries, so no build tools needed on Win/macOS/Linux).",
+  "dependencies": {
+    "node-pty": "^1.0.0",
+    "ws": "^8.18.0"
+  }
+}
