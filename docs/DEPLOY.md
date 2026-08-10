@@ -58,12 +58,24 @@ Override the registry/tag if you forked:
 
 ## Publishing the images (CI)
 
-`.github/workflows/publish-images.yml` builds and pushes all three images to GHCR:
+`.github/workflows/publish-images.yml` keeps the GHCR images current:
 
-- **Automatic:** push a tag — `git tag v1.0.0 && git push origin v1.0.0` →
-  images tagged `:1.0.0`, `:1.0`, `:latest`.
-- **Manual:** GitHub → **Actions → publish-images → Run workflow**, then pick the
-  image tag and which models to bake into `devloom-ollama`.
+- **On every push to `main`:** rebuilds + publishes `:latest` (and `:main-<sha>`) for
+  **only the image whose files changed** — a `backend/**` commit rebuilds
+  `devloom-backend` alone and leaves the multi-GB `devloom-ollama` untouched. This is
+  what keeps `docker-compose.prebuilt.yml` (which pulls `:latest`) working everywhere.
+- **On a version tag:** `git tag v1.0.0 && git push origin v1.0.0` → a full release of
+  **all three** images, tagged `:1.0.0`, `:1.0`, `:latest`.
+- **Manual:** GitHub → **Actions → publish-images → Run workflow** → all three; pick the
+  extra tag and which models to bake into `devloom-ollama`.
+
+Builds are `linux/amd64`. For Apple Silicon, add `linux/arm64` to each job's `platforms`
+(slower — it builds under QEMU emulation).
+
+> First run: GitHub Actions needs to be enabled for the repo, and the `GITHUB_TOKEN` has
+> `packages: write` (already set in the workflow). After the first successful run the
+> three `devloom-*` packages appear under the repo's **Packages**; flip them to Public
+> there if you want key-less `pull` on other machines.
 
 ### Baked Ollama models — mind the size
 

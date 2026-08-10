@@ -7,20 +7,24 @@
 #   ghcr.io/<owner>/devloom-ollama    (with models baked in)
 #
 # Triggers:
-#   - push a tag like v1.2.3  → images tagged :1.2.3, :1.2, :latest
-#   - manual (Actions ▸ Run workflow) → pick a tag + which models to bake
+#   - push to main  → rebuilds+publishes :latest for ONLY the image whose files changed
+#     (path-filtered), so a backend commit doesn't rebuild the multi-GB Ollama image.
+#   - push a tag v1.2.3 → full release: ALL three images, tagged :1.2.3, :1.2, :latest.
+#   - manual (Actions ▸ Run workflow) → all three; pick a tag + which models to bake.
 #
 # Images are private by default; make them public in the repo's Packages settings if
-# you want to `pull` on a new PC without `docker login ghcr.io`.
+# you want to `pull` on a new PC without `docker login ghcr.io`. Builds are linux/amd64;
+# add linux/arm64 to `platforms` below for Apple Silicon (slower — QEMU emulation).
 name: publish-images
 
 on:
   push:
+    branches: [main]
     tags: ["v*"]
   workflow_dispatch:
     inputs:
       tag:
-        description: "Image tag (e.g. latest or v1.0.0)"
+        description: "Extra image tag (e.g. v1.0.0)"
         default: "latest"
         required: true
       ollama_models:
@@ -28,12 +32,47 @@ on:
         default: "qwen2.5-coder:7b"
         required: true
 
+# Newer pushes supersede in-flight runs on the same ref (but let tag releases finish).
+concurrency:
+  group: publish-images-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
 permissions:
   contents: read
   packages: write
 
 jobs:
+  # Decide which images to (re)build. A main push builds only what changed; a tag or a
+  # manual run builds everything (full release / explicit request).
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.decide.outputs.backend }}
+      frontend: ${{ steps.decide.outputs.frontend }}
+      ollama: ${{ steps.decide.outputs.ollama }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+            frontend:
+              - 'frontend/**'
+            ollama:
+              - 'ollama/**'
+      - id: decide
+        env:
+          ALL: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/') }}
+        run: |
+          echo "backend=$([[ "$ALL" == "true" || "${{ steps.filter.outputs.backend }}" == "true" ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "frontend=$([[ "$ALL" == "true" || "${{ steps.filter.outputs.frontend }}" == "true" ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "ollama=$([[ "$ALL" == "true" || "${{ steps.filter.outputs.ollama }}" == "true" ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
   backend:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -48,20 +87,24 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository_owner }}/devloom-backend
           tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,prefix=main-,enable=${{ github.ref == 'refs/heads/main' }}
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch' }}
             type=raw,value=${{ github.event.inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
       - uses: docker/build-push-action@v6
         with:
           context: ./backend
+          platforms: linux/amd64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
 
   frontend:
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -76,20 +119,24 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository_owner }}/devloom-frontend
           tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,prefix=main-,enable=${{ github.ref == 'refs/heads/main' }}
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch' }}
             type=raw,value=${{ github.event.inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
       - uses: docker/build-push-action@v6
         with:
           context: ./frontend
+          platforms: linux/amd64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
 
   ollama:
+    needs: changes
+    if: needs.changes.outputs.ollama == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -110,13 +157,14 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository_owner }}/devloom-ollama
           tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch' }}
             type=raw,value=${{ github.event.inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
       - uses: docker/build-push-action@v6
         with:
           context: ./ollama
+          platforms: linux/amd64
           push: true
           build-args: |
             MODELS=${{ github.event.inputs.ollama_models || 'qwen2.5-coder:7b' }}
