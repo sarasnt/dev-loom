@@ -182,3 +182,10 @@ export const repoFetch = (id: string) =>
   post<{ ok: boolean; error?: string | null; at?: string | null }>(`/repos/${id}/fetch`, {})
 export const repoConflict = (id: string, branch: string) =>
   get<import('../types').ConflictStatus>(`/repos/${id}/conflict?branch=${encodeURIComponent(branch)}`)
+
+// ---- Fleet (agent runs) ----
+export const fleetRuns = () => get<import('../types').AgentRun[]>('/fleet/runs')
+export const fleetRun = (id: string) => get<import('../types').AgentRun>(`/fleet/runs/${id}`)
+export const launchRun = (body: import('../types').RunLaunch) =>
+  post<import('../types').AgentRun>('/fleet/runs', body)
+export const cancelRun = (id: string) => post<import('../types').AgentRun>(`/fleet/runs/${id}/cancel`, {})

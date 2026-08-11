@@ -99,6 +99,64 @@ async function claude(system, prompt, cwd, sessionId) {
   }
 }
 
+// ---- background agent runs (Fleet) ----
+// Detached, headless `claude -p` runs the backend fans out. Tracked in-memory; the backend polls
+// status. Permission: 'readonly' → plan mode (writes nothing); 'edit' → acceptEdits (auto-accepts
+// file edits; bash/push are NOT auto-approved so a headless run cannot push/deploy).
+const runs = new Map()
+const RUN_SAFETY =
+  'You are a background coding agent invoked by DevLoom. Hard constraints: do NOT push, merge, ' +
+  'deploy, or delete anything; do not make network calls beyond what the task strictly needs; ' +
+  'never run destructive git. Make the change in this repo, then stop — a human will review your diff.'
+
+function startRun({ cwd, prompt, model, permission }) {
+  const id = 'run_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
+  const args = ['-p', '--output-format', 'json']
+  if (model) args.push('--model', model)
+  args.push('--permission-mode', permission === 'edit' ? 'acceptEdits' : 'plan')
+  args.push('--append-system-prompt', RUN_SAFETY)
+  const rec = { id, status: 'running', out: '', err: '', result: null, error: null, exitCode: null, child: null }
+  runs.set(id, rec)
+  let child
+  try {
+    child = spawn('claude', args, { cwd: cwd || undefined, shell: IS_WIN })
+  } catch (e) {
+    rec.status = 'failed'; rec.error = String(e).slice(0, 400); return id
+  }
+  rec.child = child
+  child.stdout.on('data', (d) => { rec.out += d })
+  child.stderr.on('data', (d) => { rec.err += d })
+  child.on('error', (e) => { rec.status = 'failed'; rec.error = String(e).slice(0, 400) })
+  child.on('close', (code) => {
+    rec.exitCode = code
+    if (rec.status === 'canceled') return
+    if (code === 0) {
+      try { const p = JSON.parse(rec.out); rec.result = String(p.result ?? p.text ?? '') }
+      catch { rec.result = rec.out.trim() }
+      rec.status = 'done'
+    } else {
+      rec.status = 'failed'
+      rec.error = (rec.err || rec.out || `claude exited ${code}`).trim().slice(0, 800)
+    }
+  })
+  if (prompt != null) { try { child.stdin.write(prompt); child.stdin.end() } catch { /* ignore */ } }
+  return id
+}
+
+function runStatus(id) {
+  const rec = runs.get(id)
+  if (!rec) return { status: 'unknown' }
+  return { status: rec.status, result: rec.result, error: rec.error, exitCode: rec.exitCode }
+}
+
+function cancelRun(id) {
+  const rec = runs.get(id)
+  if (!rec) return { ok: false, error: 'unknown run' }
+  rec.status = 'canceled'
+  try { rec.child && rec.child.kill('SIGKILL') } catch { /* ignore */ }
+  return { ok: true }
+}
+
 // ---- git / repositories ----
 function git(cwd, args) {
   return run('git', args, { cwd, timeoutMs: 120000 })
@@ -486,6 +544,22 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/notify') {
       const { title, body, urgency } = await readBody(req)
       return json(res, 200, await osNotify(title, body, urgency))
+    }
+    if (req.method === 'POST' && url.pathname === '/agent/run') {
+      const body = await readBody(req)
+      return json(res, 200, { runId: startRun(body) })
+    }
+    if (req.method === 'GET' && url.pathname.startsWith('/agent/run/') && url.pathname.endsWith('/cancel')) {
+      const id = url.pathname.slice('/agent/run/'.length, -'/cancel'.length)
+      return json(res, 200, cancelRun(id))
+    }
+    if (req.method === 'POST' && url.pathname.startsWith('/agent/run/') && url.pathname.endsWith('/cancel')) {
+      const id = url.pathname.slice('/agent/run/'.length, -'/cancel'.length)
+      return json(res, 200, cancelRun(id))
+    }
+    if (req.method === 'GET' && url.pathname.startsWith('/agent/run/')) {
+      const id = url.pathname.slice('/agent/run/'.length)
+      return json(res, 200, runStatus(id))
     }
     if (req.method === 'POST' && url.pathname === '/claude') {
       const body = await readBody(req)

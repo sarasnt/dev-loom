@@ -72,3 +72,7 @@ export const setRepoSource = api.setRepoSource
 export const repoWorktrees = api.repoWorktrees
 export const repoFetch = api.repoFetch
 export const repoConflict = api.repoConflict
+export const fleetRuns = api.fleetRuns
+export const fleetRun = api.fleetRun
+export const launchRun = api.launchRun
+export const cancelRun = api.cancelRun

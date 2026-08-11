@@ -28,6 +28,7 @@ const nav = [
   { to: '/builds', label: 'Builds', ic: '⚡', badge: true },
   { to: '/brainstorm', label: 'Brainstorm', ic: '✎' },
   { to: '/repos', label: 'Repos', ic: '⑂' },
+  { to: '/fleet', label: 'Fleet', ic: '⛆' },
   { to: '/handoffs/h1', label: 'Handoffs', ic: '⇥' },
 ]
 </script>

@@ -263,6 +263,36 @@ public class HostAgentClient {
         return post("/repos/checkout", Map.of("path", path, "branch", branch, "create", create));
     }
 
+    // ---- Fleet: background agent runs ----
+
+    /** Start a detached headless `claude -p` run in {@code cwd}; returns {@code {runId}}. */
+    public Map<String, Object> startRun(String cwd, String prompt, String model,
+                                        String permission, boolean allowTests) {
+        Map<String, Object> body = new java.util.HashMap<>();
+        body.put("cwd", cwd);
+        body.put("prompt", prompt == null ? "" : prompt);
+        if (model != null) body.put("model", model);
+        body.put("permission", permission == null ? "readonly" : permission);
+        body.put("allowTests", allowTests);
+        return post("/agent/run", body);
+    }
+
+    /** Poll a background run's status: {@code {status, result, error, exitCode}}. */
+    public Map<String, Object> runStatus(String agentRunId) {
+        return get("/agent/run/" + agentRunId);
+    }
+
+    /** Cancel (kill) a background run. */
+    public Map<String, Object> cancelRun(String agentRunId) {
+        return post("/agent/run/" + agentRunId + "/cancel", Map.of());
+    }
+
+    private Map<String, Object> get(String path) {
+        Map<String, Object> resp = http.get().uri(path).retrieve().body(MAP);
+        if (resp == null) throw new IllegalStateException("no response from host agent");
+        return resp;
+    }
+
     private Map<String, Object> post(String path, Map<String, Object> body) {
         Map<String, Object> resp = http.post().uri(path).body(body).retrieve().body(MAP);
         if (resp == null) throw new IllegalStateException("no response from host agent");

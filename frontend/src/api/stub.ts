@@ -367,3 +367,7 @@ export function repoConflict() {
     reason: null as string | null, lastFetch: null as string | null, stale: true,
   })
 }
+export function fleetRuns() { return delay([] as import('../types').AgentRun[]) }
+export function fleetRun() { return delay(null as unknown as import('../types').AgentRun) }
+export function launchRun() { return delay(null as unknown as import('../types').AgentRun) }
+export function cancelRun() { return delay(null as unknown as import('../types').AgentRun) }

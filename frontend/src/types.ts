@@ -390,6 +390,35 @@ export interface BrainstormData {
   active: BrainstormSession
 }
 
+// ---- Fleet (agent runs) ----
+export type RunStatus = 'running' | 'review' | 'done' | 'failed' | 'canceled' | 'active' | 'ended'
+export interface AgentRun {
+  id: string
+  title: string
+  repoPath: string
+  runDir: string | null
+  branch: string | null
+  kind: 'interactive' | 'background'
+  permission: 'readonly' | 'edit' | null
+  allowTests: boolean
+  isolated: boolean
+  model: string | null
+  status: RunStatus
+  resultSummary: string | null
+  error: string | null
+  createdAt: string
+  startedAt: string | null
+  finishedAt: string | null
+}
+export interface RunLaunch {
+  repoId: string
+  prompt: string
+  model?: string
+  permission: 'readonly' | 'edit'
+  allowTests: boolean
+  isolate: boolean
+}
+
 // ---- Onboarding ----
 export interface OnboardStep {
   n: number | string
