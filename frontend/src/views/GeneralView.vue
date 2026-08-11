@@ -5,6 +5,7 @@ import type { BrowseResult } from '../types'
 import { fetchSettings, saveTerminalWorkdir, browseFs } from '../api'
 import { useDashboardStore } from '../stores/dashboard'
 import SettingsTabs from '../components/SettingsTabs.vue'
+import ModelSelect from '../components/ModelSelect.vue'
 
 const store = useDashboardStore()
 const { brainstormSwitch } = storeToRefs(store)
@@ -86,6 +87,19 @@ function useFolder() {
           />
           <button class="btn" :disabled="saving" @click="openBrowse">Browse…</button>
           <button class="btn pri" :disabled="saving" @click="save">Save</button>
+        </div>
+      </section>
+
+      <section class="block">
+        <div class="lab mono">Builds — default analysis model</div>
+        <p class="prose">
+          The model the Build-failure screen opens with. You can still pick a different one there
+          for a single re-run without changing this default. (Local + your keyed remote models;
+          Claude Code CLI is Brainstorm-only.)
+        </p>
+        <div class="row">
+          <span class="mono fld">Default model</span>
+          <ModelSelect screen="builds" />
         </div>
       </section>
 

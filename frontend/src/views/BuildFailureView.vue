@@ -13,8 +13,13 @@ const API = (import.meta.env.VITE_API_BASE as string) ?? '/api/v1'
 const route = useRoute()
 const router = useRouter()
 const store = useDashboardStore()
-// Model is bounded to the Builds screen (agent modes excluded — those are Brainstorm-only).
-const buildsModel = computed(() => store.modelFor('builds'))
+// Opens with the Builds default (Settings > General); the on-screen picker overrides it just
+// for the current run without changing the default. Agent modes excluded (Brainstorm-only).
+const runModel = ref('')
+function pickRun(m: string) {
+  runModel.value = m
+  store.reflectModel(m)
+}
 
 const data = ref<BuildFailure | null>(null)
 const loading = ref(true)
@@ -38,7 +43,7 @@ function analyze() {
   step.value = 'Connecting…'
   progress.value = 3
   const id = route.params.id ? String(route.params.id) : ''
-  const m = buildsModel.value ? `?model=${encodeURIComponent(buildsModel.value)}` : ''
+  const m = runModel.value ? `?model=${encodeURIComponent(runModel.value)}` : ''
   const url = `${API}/builds/${id ? id + '/stream' : 'stream'}${m}`
   try {
     es = new EventSource(url)
@@ -73,7 +78,7 @@ function analyze() {
 async function loadFallback() {
   const id = route.params.id ? String(route.params.id) : ''
   try {
-    data.value = id ? await fetchBuildFailure(id, buildsModel.value) : await fetchLatestBuild(buildsModel.value)
+    data.value = id ? await fetchBuildFailure(id, runModel.value) : await fetchLatestBuild(runModel.value)
     resultModel.value = data.value?.analyzedBy ?? ''
   } finally {
     loading.value = false
@@ -88,17 +93,17 @@ const canRedo = computed(
     data.value.id !== 'none' &&
     !!resultModel.value &&
     resultModel.value !== 'deterministic' &&
-    !!buildsModel.value &&
-    buildsModel.value !== resultModel.value,
+    !!runModel.value &&
+    runModel.value !== resultModel.value,
 )
 
 onMounted(async () => {
   await store.ensureLoaded()
-  store.reflectModel(buildsModel.value) // rail boundary reflects the Builds screen model
+  runModel.value = store.modelFor('builds') // open with the configured default
+  store.reflectModel(runModel.value)
   analyze()
 })
 watch(() => route.params.id, analyze)
-watch(buildsModel, (m) => store.reflectModel(m))
 onUnmounted(closeStream)
 </script>
 
@@ -121,7 +126,7 @@ onUnmounted(closeStream)
       <div class="head">
         <h1>Build failure · run <span class="mono">{{ data.run }}</span></h1>
         <div class="headright">
-          <ModelSelect screen="builds" label="analyze with" />
+          <ModelSelect screen="builds" label="run with" manual :model-value="runModel" @change="pickRun" />
           <span class="when">{{ data.branch }}<template v-if="data.pr"> · PR #{{ data.pr }}</template> · {{ data.failedAgo }}</span>
         </div>
       </div>
@@ -130,9 +135,9 @@ onUnmounted(closeStream)
       <div v-if="canRedo" class="redo">
         <span>
           Analyzed by <b class="mono">{{ resultModel }}</b> · you've switched to
-          <b class="mono">{{ buildsModel }}</b>.
+          <b class="mono">{{ runModel }}</b>.
         </span>
-        <button class="redo-btn" @click="analyze()">Re-run with {{ buildsModel }} ↻</button>
+        <button class="redo-btn" @click="analyze()">Re-run with {{ runModel }} ↻</button>
       </div>
 
       <section class="step">
