@@ -65,9 +65,9 @@ async function submit() {
     const run = await launchRun({ ...form.value, model: form.value.model || undefined })
     dlg.value = false
     runs.value = [run, ...runs.value]
-  } catch (e) {
-    flash.value = (e as Error).message.includes('500')
-      ? 'Launch failed — for an edit run the working tree must be clean (or the agent may be offline).'
+  } catch {
+    flash.value = form.value.permission === 'edit'
+      ? 'Launch failed — an edit run needs a clean working tree (commit or stash first). Worktree isolation lands in a later update.'
       : 'Launch failed — is the host agent running?'
   } finally { busy.value = false }
 }
