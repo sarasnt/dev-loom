@@ -240,7 +240,7 @@ public class RepoService {
     private GitRepoEntity persist(Map<String, Object> info) {
         String path = str(info, "path");
         if (path.isBlank()) return null;
-        return repos.findByPath(path).orElseGet(() ->
+        return repos.findByPathIgnoreCase(path).orElseGet(() ->
                 repos.save(GitRepoEntity.of(path, str(info, "name"), str(info, "host"))));
     }
 
