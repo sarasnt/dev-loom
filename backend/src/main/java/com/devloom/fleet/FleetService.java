@@ -32,14 +32,17 @@ public class FleetService {
     private final HostAgentClient agent;
     private final AuditService audit;
     private final NotificationService notifications;
+    private final com.devloom.brainstorm.BrainstormSessionRepository brainstormSessions;
 
     public FleetService(AgentRunRepository runs, GitRepoRepository repos,
-                        HostAgentClient agent, AuditService audit, NotificationService notifications) {
+                        HostAgentClient agent, AuditService audit, NotificationService notifications,
+                        com.devloom.brainstorm.BrainstormSessionRepository brainstormSessions) {
         this.runs = runs;
         this.repos = repos;
         this.agent = agent;
         this.audit = audit;
         this.notifications = notifications;
+        this.brainstormSessions = brainstormSessions;
     }
 
     public List<Dto.AgentRun> list() {
@@ -118,17 +121,33 @@ public class FleetService {
         return toDto(run);
     }
 
-    /** Apply an isolated run's result: commit its edits onto its branch, drop the worktree. */
+    /**
+     * Apply an isolated run's result. Mode {@code branch} (default) commits its edits onto its
+     * {@code devloom/run-N} branch and drops the worktree; mode {@code patch} applies the diff
+     * directly onto the main checkout's current branch (on conflict the worktree is kept and the
+     * run stays in review with the error surfaced).
+     */
     @Transactional
-    public Dto.AgentRun apply(String id) {
+    public Dto.AgentRun apply(String id, String mode) {
         AgentRunEntity run = runs.findById(parse(id)).orElseThrow();
+        boolean patch = "patch".equals(mode);
         if (run.isIsolated() && run.getBranch() != null) {
-            agent.worktreeFinalize(run.getRepoPath(), run.getRunDir(), run.getBranch(), "apply");
-            run.setResultSummary("Applied — changes are on branch " + run.getBranch()
-                    + " (check it out in Repos to review, commit and push).\n\n" + nz(run.getResultSummary()));
+            Map<String, Object> r = agent.worktreeFinalize(
+                    run.getRepoPath(), run.getRunDir(), run.getBranch(), patch ? "patch" : "apply");
+            if (patch && !Boolean.TRUE.equals(r.get("ok"))) {
+                // Conflict (or failure): keep the run reviewable; the worktree is left intact.
+                run.setError("Apply as patch failed: " + str(r.get("error")));
+                audit.record("fleet_apply_conflict", run.getRepoPath(), run.getBranch());
+                return toDto(runs.save(run));
+            }
+            run.setResultSummary((patch
+                    ? "Applied as a patch onto your current branch — review, commit and push from Repos."
+                    : "Applied — changes are on branch " + run.getBranch()
+                        + " (check it out in Repos to review, commit and push).")
+                    + "\n\n" + nz(run.getResultSummary()));
         }
         run.setStatus("done");
-        audit.record("fleet_apply", run.getRepoPath(), run.getBranch());
+        audit.record("fleet_apply", run.getRepoPath(), (patch ? "patch" : "branch") + " · " + run.getBranch());
         return toDto(runs.save(run));
     }
 
@@ -187,10 +206,14 @@ public class FleetService {
                 r.getPermission() == null ? "readonly" : r.getPermission(), r.isAllowTests(), false));
     }
 
-    /** Remove a run from the board (does not touch any files it produced). */
+    /** Remove a run from the board, cleaning up an isolated run's leftover worktree/branch. */
     @Transactional
     public void delete(String id) {
-        runs.findById(parse(id)).ifPresent(runs::delete);
+        runs.findById(parse(id)).ifPresent(run -> {
+            // A dismissed review/failed run that was never applied still owns a worktree — reap it.
+            if (!"done".equals(run.getStatus())) cleanupWorktree(run);
+            runs.delete(run);
+        });
     }
 
     // ---- interactive runs (claude-cli sessions surface on the board) ----
@@ -252,11 +275,122 @@ public class FleetService {
                     run.setStatus("failed");
                     run.setError("run lost — the host agent restarted while it was running");
                     run.setFinishedAt(Instant.now());
+                    cleanupWorktree(run); // nothing meaningful in a lost run's worktree
                 }
                 default -> { /* still running */ }
             }
             runs.save(run);
         }
+        syncInteractive();
+        reapStaleChats();
+    }
+
+    /**
+     * Keep interactive terminal runs in step with the host agent's live PTYs: attached → active,
+     * detached-but-alive → running, detached + silent for a while → input ("may need you"),
+     * previously-alive PTY now gone → ended.
+     */
+    private void syncInteractive() {
+        List<AgentRunEntity> live = runs.findByStatusIn(List.of("active", "running", "input")).stream()
+                .filter(r -> "interactive".equals(r.getKind())).toList();
+        if (live.isEmpty()) return;
+        Map<String, Map<String, Object>> ptys = new java.util.HashMap<>();
+        try {
+            Object list = agent.ptySessions().get("sessions");
+            if (list instanceof List<?> items) {
+                for (Object o : items) {
+                    if (o instanceof Map<?, ?> m && m.get("sessionId") != null) {
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> mm = (Map<String, Object>) m;
+                        ptys.put(String.valueOf(m.get("sessionId")), mm);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            return; // agent unreachable — try next tick
+        }
+        for (AgentRunEntity run : live) {
+            // The PTY is keyed by the claude session id; pick it up from the brainstorm session
+            // once the terminal has actually been opened.
+            if (run.getClaudeSessionId() == null && run.getBrainstormSessionId() != null) {
+                brainstormSessions.findById(run.getBrainstormSessionId())
+                        .map(s -> s.getClaudeSessionId())
+                        .ifPresent(run::setClaudeSessionId);
+            }
+            if (run.getClaudeSessionId() == null) continue;
+            Map<String, Object> pty = ptys.get(run.getClaudeSessionId());
+            String next;
+            if (pty != null && Boolean.TRUE.equals(pty.get("alive"))) {
+                boolean attached = Boolean.TRUE.equals(pty.get("attached"));
+                // Primary signal: claude explicitly emitted the needs-input marker. Fallback: a
+                // detached terminal that has been silent for a while probably wants the user too.
+                boolean needsInput = Boolean.TRUE.equals(pty.get("needsInput"));
+                long idle = pty.get("idleMs") instanceof Number n ? n.longValue() : 0;
+                next = attached ? "active" : (needsInput || idle >= 90_000 ? "input" : "running");
+            } else if (!"active".equals(run.getStatus())) {
+                // We saw a live detached PTY before and it's gone now → the terminal exited.
+                next = "ended";
+            } else {
+                continue; // 'active' with no PTY yet — terminal simply not opened; leave it be
+            }
+            if (!next.equals(run.getStatus())) {
+                run.setStatus(next);
+                if ("ended".equals(next)) run.setFinishedAt(Instant.now());
+                if ("input".equals(next)) {
+                    notifications.notify("Agent may need you", run.getTitle() + " — terminal is idle", false);
+                }
+                runs.save(run);
+            }
+        }
+    }
+
+    /** A chat turn that never finished (backend restarted mid-turn) must not sit running forever. */
+    private void reapStaleChats() {
+        for (AgentRunEntity run : runs.findByStatus("running")) {
+            if (!"chat".equals(run.getKind())) continue;
+            Instant started = run.getStartedAt() == null ? run.getCreatedAt() : run.getStartedAt();
+            if (started.isBefore(Instant.now().minusSeconds(30 * 60))) {
+                run.setStatus("failed");
+                run.setError("chat turn lost (backend restarted while it was generating)");
+                run.setFinishedAt(Instant.now());
+                runs.save(run);
+            }
+        }
+    }
+
+    /** Best-effort removal of an isolated run's worktree + branch (used for lost runs + dismiss). */
+    private void cleanupWorktree(AgentRunEntity run) {
+        if (!run.isIsolated() || run.getBranch() == null) return;
+        try {
+            agent.worktreeFinalize(run.getRepoPath(), run.getRunDir(), run.getBranch(), "discard");
+        } catch (Exception ignore) { /* agent offline — a later dismiss retries */ }
+    }
+
+    // ---- chat turns (local-model visibility) ----
+
+    /** Record an in-flight chat turn so it shows on the board while a (slow) model generates. */
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.REQUIRES_NEW)
+    public Long chatStarted(String title, String repoPath, String model, Long brainstormSessionId) {
+        return runs.save(AgentRunEntity.chat(title, repoPath, model, brainstormSessionId)).getId();
+    }
+
+    /**
+     * Close out a chat-turn row. Success removes it (the reply lives in the brainstorm session —
+     * the row's only job was live visibility); failure keeps it on the board so the user knows.
+     */
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.REQUIRES_NEW)
+    public void chatFinished(Long id, boolean ok, String error) {
+        if (id == null) return;
+        runs.findById(id).ifPresent(run -> {
+            if (ok) {
+                runs.delete(run);
+                return;
+            }
+            run.setStatus("failed");
+            run.setError(error);
+            run.setFinishedAt(Instant.now());
+            runs.save(run);
+        });
     }
 
     // ---- helpers ----

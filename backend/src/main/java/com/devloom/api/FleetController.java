@@ -53,8 +53,8 @@ public class FleetController {
     }
 
     @PostMapping("/runs/{id}/apply")
-    public Dto.AgentRun apply(@PathVariable String id) {
-        return fleet.apply(id);
+    public Dto.AgentRun apply(@PathVariable String id, @RequestBody(required = false) Dto.RunApply body) {
+        return fleet.apply(id, body == null ? "branch" : body.mode());
     }
 
     @PostMapping("/runs/{id}/discard")

@@ -292,10 +292,16 @@ public class HostAgentClient {
         return post("/agent/worktree/add", Map.of("repoPath", repoPath, "branch", branch));
     }
 
-    /** Finalize a run's worktree: {@code apply} keeps the branch (committing edits), {@code discard} removes both. */
+    /** Finalize a run's worktree: {@code apply} keeps the branch (committing edits), {@code patch}
+     *  applies the diff onto the main checkout, {@code discard} removes worktree + branch. */
     public Map<String, Object> worktreeFinalize(String repoPath, String wtPath, String branch, String mode) {
         return post("/agent/worktree/finalize", Map.of("repoPath", repoPath, "wtPath", wtPath,
                 "branch", branch == null ? "" : branch, "mode", mode));
+    }
+
+    /** Live PTY sessions on the host agent (sessionId, alive, attached, idleMs). */
+    public Map<String, Object> ptySessions() {
+        return get("/pty/sessions");
     }
 
     private Map<String, Object> get(String path) {

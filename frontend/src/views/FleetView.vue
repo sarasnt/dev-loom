@@ -21,8 +21,8 @@ const loading = ref(true)
 const flash = ref('')
 let timer: number | undefined
 
-// Attention-routed groups.
-const needsReview = computed(() => runs.value.filter((r) => r.status === 'review' || r.status === 'failed'))
+// Attention-routed groups. 'input' = a detached terminal that went quiet — it may be waiting on you.
+const needsReview = computed(() => runs.value.filter((r) => ['review', 'failed', 'input'].includes(r.status)))
 const running = computed(() => runs.value.filter((r) => r.status === 'running'))
 const active = computed(() => runs.value.filter((r) => r.status === 'active'))
 const recent = computed(() => runs.value.filter((r) => ['done', 'canceled', 'ended'].includes(r.status)))
@@ -55,7 +55,7 @@ function elapsed(r: AgentRun): string {
 }
 const statusLabel: Record<string, string> = {
   running: 'running', review: 'needs review', done: 'done', failed: 'failed',
-  canceled: 'canceled', active: 'active', ended: 'ended',
+  canceled: 'canceled', active: 'active', ended: 'ended', input: 'may need input',
 }
 
 // ---- launch dialog ----
@@ -111,10 +111,11 @@ async function dismiss(r: AgentRun) {
   try { await deleteRun(r.id); runs.value = runs.value.filter((x) => x.id !== r.id); if (detail.value?.id === r.id) detail.value = null }
   finally { detailBusy.value = false }
 }
-// Apply an isolated run: keep its branch (edits committed to devloom/run-<id>). Discard: drop it.
-async function applyIsolated(r: AgentRun) {
+// Apply an isolated run: 'branch' keeps devloom/run-<id>; 'patch' lands the diff on your current
+// branch (on conflict the run stays reviewable with the error shown).
+async function applyIsolated(r: AgentRun, mode: 'branch' | 'patch' = 'branch') {
   detailBusy.value = true
-  try { const u = await applyRun(r.id); runs.value = runs.value.map((x) => (x.id === u.id ? u : x)); detail.value = u }
+  try { const u = await applyRun(r.id, mode); runs.value = runs.value.map((x) => (x.id === u.id ? u : x)); detail.value = u }
   catch { flash.value = 'Apply failed — is the host agent running?' }
   finally { detailBusy.value = false }
 }
@@ -156,33 +157,38 @@ async function openInTerminal(r: AgentRun) {
 
     <template v-else>
       <section v-if="needsReview.length" class="grp">
-        <div class="glab mono">Needs review</div>
-        <button v-for="r in needsReview" :key="r.id" class="run" :class="r.status" @click="openDetail(r)">
+        <div class="glab mono">Needs {{ needsReview.some((r) => r.status === 'input') ? 'you' : 'review' }}</div>
+        <button v-for="r in needsReview" :key="r.id" class="run" :class="r.status"
+                @click="r.status === 'input' ? openInTerminal(r) : openDetail(r)">
           <span class="rstatus mono" :class="r.status">{{ statusLabel[r.status] }}</span>
           <span class="rtitle">{{ r.title }}</span>
           <span class="rbadges mono">
+            <span v-if="r.kind !== 'background'" class="rb kindb">{{ r.kind === 'interactive' ? '⌨' : '✎' }} {{ r.kind }}</span>
             <span class="rb">{{ repoName(r.repoPath) }}</span>
-            <span class="rb" :class="r.permission || ''">{{ r.permission }}</span>
+            <span v-if="r.permission" class="rb" :class="r.permission">{{ r.permission }}</span>
             <span v-if="r.model" class="rb">{{ r.model }}</span>
             <span class="rb">{{ elapsed(r) }}</span>
           </span>
-          <span class="chev">›</span>
+          <span class="chev">{{ r.status === 'input' ? 'open ›' : '›' }}</span>
         </button>
       </section>
 
       <section v-if="running.length" class="grp">
         <div class="glab mono">Running</div>
-        <div v-for="r in running" :key="r.id" class="run running">
+        <component :is="r.kind === 'chat' ? 'div' : 'button'" v-for="r in running" :key="r.id"
+                   class="run running" @click="r.kind === 'interactive' ? openInTerminal(r) : undefined">
           <span class="rstatus mono running"><span class="spin"></span>running</span>
           <span class="rtitle">{{ r.title }}</span>
           <span class="rbadges mono">
+            <span v-if="r.kind !== 'background'" class="rb kindb">{{ r.kind === 'interactive' ? '⌨' : '✎' }} {{ r.kind }}</span>
             <span class="rb">{{ repoName(r.repoPath) }}</span>
-            <span class="rb" :class="r.permission || ''">{{ r.permission }}</span>
+            <span v-if="r.permission" class="rb" :class="r.permission">{{ r.permission }}</span>
             <span v-if="r.model" class="rb">{{ r.model }}</span>
             <span class="rb">{{ elapsed(r) }}</span>
           </span>
-          <button class="link mono danger" @click="stop(r)">cancel</button>
-        </div>
+          <button v-if="r.kind === 'background'" class="link mono danger" @click.stop="stop(r)">cancel</button>
+          <span v-else-if="r.kind === 'interactive'" class="chev">open ›</span>
+        </component>
       </section>
 
       <section v-if="active.length" class="grp">
@@ -241,12 +247,13 @@ async function openInTerminal(r: AgentRun) {
           <pre class="rbody mono">{{ detail.error || detail.resultSummary || '(no output)' }}</pre>
         </div>
 
-        <p v-if="detail.isolated && detail.branch" class="wtnote mono">⑂ isolated on <b>{{ detail.branch }}</b> — apply keeps that branch; discard removes it.</p>
+        <p v-if="detail.isolated && detail.branch" class="wtnote mono">⑂ isolated on <b>{{ detail.branch }}</b> — apply keeps that branch, patch lands it on your current branch, discard removes it.</p>
         <div class="df">
-          <button v-if="detail.status === 'running'" class="btn danger" @click="stop(detail)">Cancel</button>
-          <button v-if="isolatedReview" class="btn pri" :disabled="detailBusy" @click="applyIsolated(detail)">Apply ✓</button>
+          <button v-if="detail.status === 'running' && detail.kind === 'background'" class="btn danger" @click="stop(detail)">Cancel</button>
+          <button v-if="isolatedReview" class="btn pri" :disabled="detailBusy" @click="applyIsolated(detail, 'branch')">Apply → branch</button>
+          <button v-if="isolatedReview" class="btn" :disabled="detailBusy" @click="applyIsolated(detail, 'patch')">Apply as patch</button>
           <button v-if="isolatedReview" class="btn danger" :disabled="detailBusy" @click="discardIsolated(detail)">Discard</button>
-          <button class="btn" :disabled="detailBusy" @click="openInTerminal(detail)">Open in terminal ▸</button>
+          <button v-if="detail.kind !== 'chat'" class="btn" :disabled="detailBusy" @click="openInTerminal(detail)">Open in terminal ▸</button>
           <button v-if="detail.kind === 'background'" class="btn" :disabled="detailBusy" @click="rerun(detail)">Re-run</button>
           <span class="grow"></span>
           <button class="btn ghost" :disabled="detailBusy" @click="dismiss(detail)">Dismiss</button>
@@ -315,6 +322,9 @@ button.run:hover { border-color: var(--warp); }
 .rstatus.running { color: var(--warp-hi); border-color: var(--warp); }
 .rstatus.done { color: var(--healthy); }
 .rstatus.active { color: var(--warp-hi); border-color: var(--warp); }
+.rstatus.input { color: var(--on-warp); background: var(--warp); border-color: var(--warp); }
+.run.input { border-left: 2px solid var(--warp); }
+.rb.kindb { color: var(--warp-hi); }
 .rbadges { display: flex; gap: 6px; }
 .rb { font-size: 10px; color: var(--faint-text); border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; }
 .rb.edit { color: var(--warp-hi); border-color: var(--warp); }

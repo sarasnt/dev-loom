@@ -146,6 +146,7 @@ public final class Dto {
             String claudeSessionId, String brainstormSessionId) {}
     public record RunLaunch(String repoId, String prompt, String model, String permission,
                             boolean allowTests, boolean isolate) {}
+    public record RunApply(String mode) {} // 'branch' | 'patch'
 
     // ---- Audit ----
     public record AuditEntry(String action, String target, String metadata, String at) {}

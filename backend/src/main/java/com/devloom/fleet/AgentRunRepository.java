@@ -6,5 +6,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface AgentRunRepository extends JpaRepository<AgentRunEntity, Long> {
     List<AgentRunEntity> findByStatus(String status);
+    List<AgentRunEntity> findByStatusIn(List<String> statuses);
     List<AgentRunEntity> findAllByOrderByCreatedAtDesc();
 }

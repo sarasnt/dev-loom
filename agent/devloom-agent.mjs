@@ -118,6 +118,21 @@ function startRun({ cwd, prompt, model, permission }) {
   if (model) args.push('--model', model)
   args.push('--permission-mode', permission === 'edit' ? 'acceptEdits' : 'plan')
   args.push('--append-system-prompt', RUN_SAFETY)
+  let denyFile = null
+  if (permission === 'edit') {
+    // HARD deny for pushes/deploys/destructive git — a permission rule claude enforces, not just
+    // a prompt. Passed via a settings file because deny patterns contain spaces, which the
+    // Windows cmd shell (needed for the claude .cmd shim) would re-split if passed as an arg.
+    denyFile = path.join(os.tmpdir(), 'devloom-deny-' + id + '.json')
+    try {
+      fs.writeFileSync(denyFile, JSON.stringify({ permissions: { deny: [
+        'Bash(git push:*)', 'Bash(git push)',
+        'Bash(gh pr merge:*)', 'Bash(gh release:*)',
+        'Bash(git reset --hard:*)', 'Bash(git clean:*)', 'Bash(git branch -D:*)',
+      ] } }))
+      args.push('--settings', IS_WIN ? `"${denyFile}"` : denyFile)
+    } catch { denyFile = null /* fall back to prompt-level safety */ }
+  }
   const rec = { id, status: 'running', out: '', err: '', result: null, error: null, exitCode: null, sessionId: null, child: null }
   runs.set(id, rec)
   let child
@@ -132,6 +147,7 @@ function startRun({ cwd, prompt, model, permission }) {
   child.on('error', (e) => { rec.status = 'failed'; rec.error = String(e).slice(0, 400) })
   child.on('close', (code) => {
     rec.exitCode = code
+    if (denyFile) { try { fs.unlinkSync(denyFile) } catch { /* ignore */ } }
     if (rec.status === 'canceled') return
     if (code === 0) {
       try {
@@ -191,6 +207,27 @@ async function worktreeFinalize(repoPath, wtPath, branch, mode) {
     const committed = commit.code === 0
     const rm = await git(repoPath, ['worktree', 'remove', '--force', wtPath])
     return { ok: rm.code === 0, committed, branch, output: (commit.out + commit.err).trim().slice(0, 400) }
+  }
+  if (mode === 'patch') {
+    // Apply the run's diff onto the main checkout's current branch. On conflict the worktree is
+    // left intact so the user can inspect/resolve; nothing is half-applied thanks to --3way.
+    await git(wtPath, ['add', '-A'])
+    const diff = await git(wtPath, ['diff', '--cached', '--binary'])
+    if (diff.code !== 0) return { ok: false, error: (diff.err || 'diff failed').trim().slice(0, 300) }
+    if (diff.out.trim()) {
+      const patchFile = path.join(os.tmpdir(), 'devloom-patch-' + Date.now().toString(36) + '.patch')
+      fs.writeFileSync(patchFile, diff.out)
+      const apply = await git(repoPath, ['apply', '--3way', patchFile])
+      try { fs.unlinkSync(patchFile) } catch { /* ignore */ }
+      if (apply.code !== 0) {
+        return { ok: false, conflict: true,
+          error: 'patch did not apply cleanly — worktree kept for inspection: '
+            + (apply.err || apply.out).trim().slice(0, 300) }
+      }
+    }
+    const rm = await git(repoPath, ['worktree', 'remove', '--force', wtPath])
+    if (branch) await git(repoPath, ['branch', '-D', branch])
+    return { ok: rm.code === 0, applied: true, output: (rm.out + rm.err).trim().slice(0, 300) }
   }
   // discard: remove the worktree and delete its branch — nothing is kept.
   const rm = await git(repoPath, ['worktree', 'remove', '--force', wtPath])
@@ -581,6 +618,9 @@ const server = http.createServer(async (req, res) => {
       const { title, body, urgency } = await readBody(req)
       return json(res, 200, await osNotify(title, body, urgency))
     }
+    if (req.method === 'GET' && url.pathname === '/pty/sessions') {
+      return json(res, 200, { sessions: ptySessionList() })
+    }
     if (req.method === 'POST' && url.pathname === '/agent/worktree/add') {
       const { repoPath, branch } = await readBody(req)
       return json(res, 200, await worktreeAdd(repoPath, branch))
@@ -756,6 +796,14 @@ function allowedOrigin(origin) {
   } catch { return false }
 }
 
+// Explicit needs-input signal (user request): claude is instructed to end a message with this
+// literal marker whenever it stops to wait on the user; the PTY scanner flags the session and
+// the Fleet routes attention to it — far more precise than an idle timer.
+const INPUT_MARKER = '[DEVLOOM:INPUT]'
+const INPUT_MARKER_PROMPT =
+  'When you stop because you need the user to answer a question, make a decision or approve '
+  + 'something before you can continue, end that message with the literal text ' + INPUT_MARKER
+
 function launchArgv(sessionId, resume, cwd) {
   // Build the claude command, then drop the user into a live shell (so the terminal survives
   // claude exiting — they can re-run, resume, or poke around). For a returning session we try
@@ -763,15 +811,17 @@ function launchArgv(sessionId, resume, cwd) {
   // yet (e.g. the first open never completed a turn) — otherwise `--resume` dead-ends with
   // "No conversation found with session ID".
   const sh = IS_WIN ? 'powershell.exe' : (process.env.SHELL || '/bin/bash')
+  // Single-quoted for both PowerShell and POSIX shells (the prompt text contains no quotes).
+  const flags = ` --append-system-prompt '${INPUT_MARKER_PROMPT}'`
   let claudeCmd
   if (!sessionId) {
-    claudeCmd = 'claude'
+    claudeCmd = 'claude' + flags
   } else if (!resume) {
-    claudeCmd = `claude --session-id ${sessionId}`
+    claudeCmd = `claude --session-id ${sessionId}${flags}`
   } else if (IS_WIN) {
-    claudeCmd = `claude --resume ${sessionId}; if ($LASTEXITCODE -ne 0) { claude --session-id ${sessionId} }`
+    claudeCmd = `claude --resume ${sessionId}${flags}; if ($LASTEXITCODE -ne 0) { claude --session-id ${sessionId}${flags} }`
   } else {
-    claudeCmd = `claude --resume ${sessionId} || claude --session-id ${sessionId}`
+    claudeCmd = `claude --resume ${sessionId}${flags} || claude --session-id ${sessionId}${flags}`
   }
   // Explicitly cd into cwd first — the user's shell profile may change directory (PowerShell
   // often lands in the home dir), which would make claude open the WRONG workspace (and keep
@@ -829,6 +879,19 @@ function ptyAlive(sessionId) {
   return !!(s && s.alive)
 }
 
+/** Snapshot of every live PTY session — the Fleet uses this to route attention. */
+function ptySessionList() {
+  const now = Date.now()
+  const out = []
+  for (const [id, s] of ptySessions) {
+    out.push({ sessionId: id, alive: s.alive, attached: !!s.client,
+               idleMs: now - s.lastActivity, needsInput: !!s.needsInput })
+  }
+  return out
+}
+
+const ANSI_RE = /\x1b\[[0-9;?]*[ -/]*[@-~]/g // CSI escapes claude's TUI interleaves with text
+
 // Wire a WebSocket client to a session: replay scrollback, forward input, detach (not kill) on close.
 function attachPtyClient(sess, ws) {
   sess.client = ws
@@ -836,8 +899,14 @@ function attachPtyClient(sess, ws) {
   ws.on('message', (raw) => {
     let msg
     try { msg = JSON.parse(raw.toString()) } catch { return }
-    if (msg.type === 'input' && typeof msg.data === 'string') { sess.lastActivity = Date.now(); try { sess.term.write(msg.data) } catch {} }
-    else if (msg.type === 'resize') { try { sess.term.resize(Math.max(1, msg.cols | 0), Math.max(1, msg.rows | 0)) } catch {} }
+    if (msg.type === 'input' && typeof msg.data === 'string') {
+      sess.lastActivity = Date.now()
+      sess.needsInput = false // the user is answering — clear the flag (and the scan tail)
+      sess.tail = ''
+      try { sess.term.write(msg.data) } catch {}
+    } else if (msg.type === 'resize') {
+      try { sess.term.resize(Math.max(1, msg.cols | 0), Math.max(1, msg.rows | 0)) } catch {}
+    }
   })
   ws.on('close', () => { if (sess.client === ws) sess.client = null }) // detach — the PTY keeps running
 }
@@ -890,13 +959,17 @@ async function startPty(ws, url) {
     return
   }
 
-  const sess = { term, buffer: [], bufBytes: 0, client: null, lastActivity: Date.now(), alive: true }
+  const sess = { term, buffer: [], bufBytes: 0, client: null, lastActivity: Date.now(), alive: true,
+                 tail: '', needsInput: false }
   ptySessions.set(sessionId, sess)
 
   term.onData((d) => {
     const s = String(d)
     sess.buffer.push(s); sess.bufBytes += s.length; sess.lastActivity = Date.now()
     while (sess.bufBytes > PTY_BUFFER_MAX && sess.buffer.length > 1) sess.bufBytes -= sess.buffer.shift().length
+    // Scan a rolling ANSI-stripped tail for the explicit needs-input marker claude emits.
+    sess.tail = (sess.tail + s).slice(-4096)
+    if (sess.tail.replace(ANSI_RE, '').includes(INPUT_MARKER)) { sess.needsInput = true; sess.tail = '' }
     if (sess.client) { try { sess.client.send(s) } catch {} }
   })
   term.onExit(({ exitCode }) => {

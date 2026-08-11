@@ -210,9 +210,20 @@ public class BrainstormService {
         // Chat replies route through the router with the session's model (repo pinned as context).
         String prompt = buildPrompt(cblock, prior, userText);
         String model = req.model() != null ? req.model() : session.getModel();
-        LlmPort.LlmResult r = llm.generate(new LlmPort.LlmRequest("brainstorm", SYSTEM, prompt, model));
-        String replyText = r.text();
-        String replyModel = r.model();
+        // Surface the in-flight turn on the Fleet board (ephemeral: removed once it completes).
+        Long chatRun = fleet.chatStarted("Chat · " + nzTitle(session.getTitle()),
+                session.getRepoPath(), model, session.getId());
+        String replyText;
+        String replyModel;
+        try {
+            LlmPort.LlmResult r = llm.generate(new LlmPort.LlmRequest("brainstorm", SYSTEM, prompt, model));
+            replyText = r.text();
+            replyModel = r.model();
+            fleet.chatFinished(chatRun, true, null);
+        } catch (RuntimeException e) {
+            fleet.chatFinished(chatRun, false, e.getMessage());
+            throw e;
+        }
 
         messages.save(BrainstormMessageEntity.of(session.getId(), seq, "ai", replyText, replyModel, true));
 
@@ -289,10 +300,18 @@ public class BrainstormService {
             finalModel = "claude-code";
         } else {
             String chatModel = reqModel != null ? reqModel : session.getModel();
-            LlmPort.LlmResult r = llm.generate(new LlmPort.LlmRequest("brainstorm", SYSTEM,
-                    buildPrompt(cblock, prior, userText), chatModel));
-            finalText = r.text();
-            finalModel = r.model();
+            Long chatRun = fleet.chatStarted("Chat · " + nzTitle(session.getTitle()),
+                    session.getRepoPath(), chatModel, session.getId());
+            try {
+                LlmPort.LlmResult r = llm.generate(new LlmPort.LlmRequest("brainstorm", SYSTEM,
+                        buildPrompt(cblock, prior, userText), chatModel));
+                finalText = r.text();
+                finalModel = r.model();
+                fleet.chatFinished(chatRun, true, null);
+            } catch (RuntimeException e) {
+                fleet.chatFinished(chatRun, false, e.getMessage());
+                throw e;
+            }
             onDelta.accept(finalText);
         }
 
@@ -306,6 +325,10 @@ public class BrainstormService {
     }
 
     // ---- helpers --------------------------------------------------------------
+
+    private static String nzTitle(String title) {
+        return title == null || title.isBlank() ? "brainstorm" : title;
+    }
 
     @SuppressWarnings("unchecked")
     private static String deltaText(Map<String, Object> ev) {

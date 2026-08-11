@@ -402,14 +402,14 @@ export interface BrainstormData {
 }
 
 // ---- Fleet (agent runs) ----
-export type RunStatus = 'running' | 'review' | 'done' | 'failed' | 'canceled' | 'active' | 'ended'
+export type RunStatus = 'running' | 'review' | 'done' | 'failed' | 'canceled' | 'active' | 'ended' | 'input'
 export interface AgentRun {
   id: string
   title: string
   repoPath: string
   runDir: string | null
   branch: string | null
-  kind: 'interactive' | 'background'
+  kind: 'interactive' | 'background' | 'chat'
   permission: 'readonly' | 'edit' | null
   allowTests: boolean
   isolated: boolean

@@ -87,6 +87,22 @@ public class AgentRunEntity {
         return e;
     }
 
+    /** An in-flight chat turn (e.g. a local model generating) — visible on the board while running. */
+    public static AgentRunEntity chat(String title, String repoPath, String model, Long brainstormSessionId) {
+        AgentRunEntity e = new AgentRunEntity();
+        e.title = title;
+        e.repoPath = repoPath == null ? "" : repoPath;
+        e.runDir = e.repoPath;
+        e.kind = "chat";
+        e.allowTests = false;
+        e.isolated = false;
+        e.model = model;
+        e.status = "running";
+        e.brainstormSessionId = brainstormSessionId;
+        e.startedAt = Instant.now();
+        return e;
+    }
+
     /** An interactive claude-cli terminal run (surfaces on the Fleet board as 'active'). */
     public static AgentRunEntity interactive(String title, String repoPath,
                                              Long brainstormSessionId, String claudeSessionId) {

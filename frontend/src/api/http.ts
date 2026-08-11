@@ -193,7 +193,8 @@ export const fleetRunChanges = (id: string) =>
   get<import('../types').RepoChanges>(`/fleet/runs/${id}/changes`)
 export const rerunRun = (id: string) => post<import('../types').AgentRun>(`/fleet/runs/${id}/rerun`, {})
 export const deleteRun = (id: string) => del<{ deleted: string }>(`/fleet/runs/${id}`)
-export const applyRun = (id: string) => post<import('../types').AgentRun>(`/fleet/runs/${id}/apply`, {})
+export const applyRun = (id: string, mode: 'branch' | 'patch' = 'branch') =>
+  post<import('../types').AgentRun>(`/fleet/runs/${id}/apply`, { mode })
 export const discardRun = (id: string) => post<import('../types').AgentRun>(`/fleet/runs/${id}/discard`, {})
 export const saveFleetSettings = (worktreesDefault: boolean) =>
   put<import('../types').SettingsData>('/settings/fleet', { worktreesDefault })
