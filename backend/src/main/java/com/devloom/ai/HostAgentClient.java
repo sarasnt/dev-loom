@@ -189,6 +189,16 @@ public class HostAgentClient {
         return post("/repos/source", Map.of("path", path, "source", source == null ? "" : source));
     }
 
+    /** Fetch remote-tracking refs (updates refs/remotes only — no worktree changes). */
+    public Map<String, Object> fetch(String path) {
+        return post("/repos/fetch", Map.of("path", path));
+    }
+
+    /** Predict conflicts from integrating the source branch into HEAD (read-only merge-tree). */
+    public Map<String, Object> conflict(String path, String source) {
+        return post("/repos/conflict", Map.of("path", path, "source", source == null ? "" : source));
+    }
+
     public Map<String, Object> setIdentity(String path, String name, String email) {
         Map<String, Object> body = new java.util.HashMap<>();
         body.put("path", path);

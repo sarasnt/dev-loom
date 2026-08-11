@@ -194,6 +194,16 @@ export interface SourceStatus {
   sourceBehind: number // commits on source not in HEAD (HEAD is outdated by N)
 }
 
+// Read-only conflict prediction for merging the source branch into HEAD (repos spec §7.4).
+export interface ConflictStatus {
+  state: 'clean' | 'conflict' | 'unknown' | 'unable' | 'stale'
+  files: string[] // conflicting paths (when state === 'conflict')
+  ref: string | null // the source ref compared against
+  reason: string | null // explanation for unknown/unable
+  lastFetch: string | null // ISO instant of the last successful fetch (null = never)
+  stale: boolean // refs older than the freshness window → prompt a refresh
+}
+
 export interface BrowseDir { name: string; path: string; repo: boolean }
 export interface BrowseResult {
   path: string

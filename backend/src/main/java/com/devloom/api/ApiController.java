@@ -316,6 +316,17 @@ public class ApiController {
         return repoService.setSource(id, body == null ? null : body.branch(), body == null ? null : body.source());
     }
 
+    @PostMapping("/repos/{id}/fetch")
+    public Dto.RepoFetch repoFetch(@PathVariable String id) {
+        return repoService.fetch(id);
+    }
+
+    @GetMapping("/repos/{id}/conflict")
+    public Dto.ConflictStatus repoConflict(@PathVariable String id,
+                                           @org.springframework.web.bind.annotation.RequestParam(required = false) String branch) {
+        return repoService.conflict(id, branch);
+    }
+
     @GetMapping("/providers")
     public Dto.Providers providers() {
         return providersService.providers();

@@ -161,3 +161,7 @@ export const repoSource = (id: string, branch: string) =>
   get<import('../types').SourceStatus>(`/repos/${id}/source?branch=${encodeURIComponent(branch)}`)
 export const setRepoSource = (id: string, branch: string, source: string | null) =>
   put<import('../types').SourceStatus>(`/repos/${id}/source`, { branch, source })
+export const repoFetch = (id: string) =>
+  post<{ ok: boolean; error?: string | null; at?: string | null }>(`/repos/${id}/fetch`, {})
+export const repoConflict = (id: string, branch: string) =>
+  get<import('../types').ConflictStatus>(`/repos/${id}/conflict?branch=${encodeURIComponent(branch)}`)

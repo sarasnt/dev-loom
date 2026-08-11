@@ -322,3 +322,12 @@ export function setRepoSource(_id: string, _branch: string, source: string | nul
     hasSource: !!source, missing: false, sourceAhead: 3, sourceBehind: 0,
   })
 }
+export function repoFetch() {
+  return delay({ ok: false, error: 'offline', at: null as string | null })
+}
+export function repoConflict() {
+  return delay({
+    state: 'clean' as const, files: [] as string[], ref: 'origin/main',
+    reason: null as string | null, lastFetch: null as string | null, stale: true,
+  })
+}

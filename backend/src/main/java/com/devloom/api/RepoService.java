@@ -153,6 +153,52 @@ public class RepoService {
         return "repo.src." + repoId + "." + b;
     }
 
+    /** Refs older than this are shown as "stale" and conflict results flagged for re-check (§7.4). */
+    private static final java.time.Duration FRESH_WINDOW = java.time.Duration.ofMinutes(15);
+
+    /** Fetch remote-tracking refs once, then stamp the last-refresh time (repo-spec §7/FR-06). */
+    public Dto.RepoFetch fetch(String id) {
+        GitRepoEntity r = repos.findById(parse(id)).orElseThrow();
+        Map<String, Object> res = agent.fetch(r.getPath());
+        boolean ok = Boolean.TRUE.equals(res.get("ok"));
+        String at = null;
+        if (ok) {
+            at = java.time.Instant.now().toString();
+            config.set(fetchKey(r.getId()), at);
+            audit.record("repo_fetch", r.getPath(), null);
+        }
+        return new Dto.RepoFetch(ok, res.get("error") == null ? null : String.valueOf(res.get("error")), at);
+    }
+
+    /**
+     * Predict conflicts from merging the resolved source branch into HEAD (read-only). Carries the
+     * last-refresh time and a staleness flag so the UI can prompt a fetch (repo-spec §7.4/FR-05/06).
+     */
+    public Dto.ConflictStatus conflict(String id, String branch) {
+        GitRepoEntity r = repos.findById(parse(id)).orElseThrow();
+        String cur = (branch == null || branch.isBlank()) ? str(agent.status(r.getPath()), "branch") : branch.trim();
+        String override = config.get(srcKey(r.getId(), cur)).orElse(null);
+        Map<String, Object> c = agent.conflict(r.getPath(), override);
+        String last = config.get(fetchKey(r.getId())).orElse(null);
+        boolean stale = isStale(last);
+        @SuppressWarnings("unchecked")
+        List<String> files = c.get("files") instanceof List<?> l ? (List<String>) l : List.of();
+        return new Dto.ConflictStatus(
+                c.get("state") == null ? "unknown" : String.valueOf(c.get("state")),
+                files, c.get("ref") == null ? null : String.valueOf(c.get("ref")),
+                c.get("reason") == null ? null : String.valueOf(c.get("reason")), last, stale);
+    }
+
+    private static boolean isStale(String iso) {
+        if (iso == null) return true;
+        try { return java.time.Instant.parse(iso).plus(FRESH_WINDOW).isBefore(java.time.Instant.now()); }
+        catch (Exception e) { return true; }
+    }
+
+    private static String fetchKey(Long repoId) {
+        return "repo.fetch." + repoId;
+    }
+
     public Map<String, Object> checkout(String id, String branch, boolean create) {
         return agent.checkout(pathOf(id), branch, create);
     }

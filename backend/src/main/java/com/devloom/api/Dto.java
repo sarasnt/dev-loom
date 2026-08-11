@@ -118,6 +118,13 @@ public final class Dto {
             String source, String defaultBranch, String origin, boolean hasSource,
             boolean missing, int sourceAhead, int sourceBehind) {}
     public record RepoSourceSet(String branch, String source) {}
+    // Read-only conflict prediction for merging the source branch into HEAD (spec repos §7.4).
+    // state = "clean" | "conflict" | "unknown" | "unable" | "stale". lastFetch is an ISO instant
+    // (null = never); stale flags that refs are older than the freshness window.
+    public record ConflictStatus(
+            String state, List<String> files, String ref, String reason,
+            String lastFetch, boolean stale) {}
+    public record RepoFetch(boolean ok, String error, String at) {}
 
     // ---- Audit ----
     public record AuditEntry(String action, String target, String metadata, String at) {}

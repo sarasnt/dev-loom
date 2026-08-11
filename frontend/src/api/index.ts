@@ -61,3 +61,5 @@ export const repoBranches = api.repoBranches
 export const repoCheckout = api.repoCheckout
 export const repoSource = api.repoSource
 export const setRepoSource = api.setRepoSource
+export const repoFetch = api.repoFetch
+export const repoConflict = api.repoConflict

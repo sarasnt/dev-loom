@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import type { RepoView, BrowseResult, RepoChanges, SourceStatus } from '../types'
+import type { RepoView, BrowseResult, RepoChanges, SourceStatus, ConflictStatus } from '../types'
 import {
   fetchRepos,
   scanRepoFolder,
@@ -20,6 +20,8 @@ import {
   repoCheckout,
   repoSource,
   setRepoSource,
+  repoFetch,
+  repoConflict,
   createBrainstormSession,
   fetchRepoSessions,
   setRepoLocalOnly,
@@ -69,9 +71,57 @@ const sourceStatus = ref<Record<string, SourceStatus | null>>({})
 const sourceLoading = ref<Record<string, boolean>>({})
 const editSource = ref<string | null>(null) // repo whose source-branch edit is open
 const sourceInput = ref<Record<string, string>>({})
+// Conflict prediction + last-refresh (repo-spec §7.4). Also lazily loaded on health expand.
+const conflict = ref<Record<string, ConflictStatus | null>>({})
+const conflictLoading = ref<Record<string, boolean>>({})
+const refreshing = ref<Record<string, boolean>>({})
 function toggleHealth(r: RepoView) {
   openHealth.value = openHealth.value === r.id ? '' : r.id
-  if (openHealth.value === r.id && sourceStatus.value[r.id] === undefined) loadSource(r)
+  if (openHealth.value === r.id) {
+    if (sourceStatus.value[r.id] === undefined) loadSource(r)
+    if (conflict.value[r.id] === undefined) loadConflict(r)
+  }
+}
+async function loadConflict(r: RepoView) {
+  conflictLoading.value[r.id] = true
+  try { conflict.value[r.id] = await repoConflict(r.id, r.branch) }
+  catch { conflict.value[r.id] = null }
+  finally { conflictLoading.value[r.id] = false }
+}
+// Manual refresh: fetch remote refs once, then recompute source drift + conflict (FR-06).
+async function refreshRepo(r: RepoView) {
+  if (refreshing.value[r.id]) return
+  refreshing.value[r.id] = true
+  flash.value = ''
+  try {
+    const res = await repoFetch(r.id)
+    if (!res.ok) flash.value = `Fetch failed for ${r.name}: ${res.error ?? 'unknown error'}`
+    await Promise.all([loadSource(r), loadConflict(r)])
+  } finally {
+    refreshing.value[r.id] = false
+  }
+}
+// Conflict-risk chip: label + tone from the predicted state.
+function conflictHealth(c: ConflictStatus | null | undefined): Health {
+  if (!c) return { label: 'Not checked', tone: 'info' }
+  if (c.state === 'conflict') {
+    const n = c.files.length
+    return { label: n ? `Conflicts likely (${n} file${n > 1 ? 's' : ''})` : 'Conflicts likely', tone: 'warn' }
+  }
+  if (c.state === 'clean') return { label: 'No conflicts', tone: 'ok' }
+  if (c.state === 'unable') return { label: 'Unable to check', tone: 'warn' }
+  return { label: 'Unknown', tone: 'info' } // unknown / stale
+}
+// "3m ago" / "2h ago" / "just now" / "never" from an ISO instant.
+function refreshLabel(iso: string | null | undefined): string {
+  if (!iso) return 'never fetched'
+  const ms = Date.now() - new Date(iso).getTime()
+  if (ms < 60_000) return 'just now'
+  const m = Math.floor(ms / 60_000)
+  if (m < 60) return `${m}m ago`
+  const h = Math.floor(m / 60)
+  if (h < 24) return `${h}h ago`
+  return `${Math.floor(h / 24)}d ago`
 }
 async function loadSource(r: RepoView) {
   sourceLoading.value[r.id] = true
@@ -368,6 +418,26 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
             </datalist>
             <button class="hedit mono" :disabled="sourceLoading[r.id]" @click="saveSource(r)">save</button>
             <button class="hedit mono ghost" @click="editSource = null">cancel</button>
+          </div>
+          <div class="hrow">
+            <span class="hk mono">Conflict check</span>
+            <template v-if="conflictLoading[r.id] && conflict[r.id] === undefined"><span class="hv info">checking…</span></template>
+            <template v-else>
+              <span class="hv" :class="conflictHealth(conflict[r.id]).tone">{{ conflictHealth(conflict[r.id]).label }}</span>
+              <span class="mono hdet" :title="(conflict[r.id]?.files ?? []).join('\n')">
+                {{ conflict[r.id]?.reason
+                   || (conflict[r.id]?.files?.length ? conflict[r.id]?.files.slice(0, 3).join(', ') + ((conflict[r.id]?.files.length ?? 0) > 3 ? '…' : '')
+                   : (conflict[r.id]?.ref ? 'vs ' + conflict[r.id]?.ref + ' · predictive' : '')) }}
+              </span>
+            </template>
+          </div>
+          <div class="hrow">
+            <span class="hk mono">Last refresh</span>
+            <span class="hv" :class="{ warn: conflict[r.id]?.stale }">{{ refreshLabel(conflict[r.id]?.lastFetch) }}</span>
+            <span v-if="conflict[r.id]?.stale" class="mono hdet">refs may be out of date</span>
+            <button class="hedit mono" :disabled="!agentUp || refreshing[r.id]" @click="refreshRepo(r)">
+              {{ refreshing[r.id] ? 'fetching…' : 'refresh' }}
+            </button>
           </div>
         </div>
 

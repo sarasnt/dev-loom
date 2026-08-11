@@ -193,6 +193,44 @@ async function sourceStatus(dir, override) {
   }
 }
 
+/**
+ * Fetch remote-tracking refs (repo-spec §7/§14: "fetch once per remote"). Only updates
+ * refs/remotes — never touches HEAD, index, or the working tree, so it is safe read-only.
+ */
+async function fetchRemote(dir) {
+  const has = await git(dir, ['remote'])
+  if (has.code !== 0 || !has.out.trim()) return { ok: false, error: 'no remote configured' }
+  const r = await git(dir, ['fetch', '--all', '--prune', '--quiet'])
+  return r.code === 0 ? { ok: true } : { ok: false, error: (r.err || 'fetch failed').trim().slice(0, 300) }
+}
+
+/**
+ * Predict content conflicts from integrating the resolved source branch into HEAD, without
+ * mutating anything (repo-spec §7.4). Uses `git merge-tree --write-tree` (git 2.38+); exit 1
+ * means conflicts, and with --name-only the body lists the conflicting paths. States:
+ * clean | conflict | unknown (source unresolved) | unable (git too old / other failure).
+ */
+async function conflictCheck(dir, override) {
+  const s = await sourceStatus(dir, override)
+  if (!s.hasSource || !s.ref) {
+    return { state: 'unknown', ref: s.ref || null, files: [],
+      reason: s.missing ? 'source ref not found — fetch or reconfigure' : 'source branch cannot be resolved' }
+  }
+  const r = await git(dir, ['merge-tree', '--write-tree', '--name-only', 'HEAD', s.ref])
+  if (r.code === 0) return { state: 'clean', ref: s.ref, files: [] }
+  if (r.code === 1) {
+    // First line is the (unused) tree OID; conflicting paths follow until a blank line.
+    const lines = r.out.split('\n').slice(1)
+    const files = []
+    for (const l of lines) { if (!l.trim()) break; files.push(l.trim()) }
+    return { state: 'conflict', ref: s.ref, files }
+  }
+  const why = (r.err || '').toLowerCase()
+  const tooOld = why.includes('usage') || why.includes('unknown option') || why.includes('--write-tree')
+  return { state: 'unable', ref: s.ref, files: [],
+    reason: tooOld ? 'git version does not support conflict prediction' : (r.err || 'merge-tree failed').trim().slice(0, 200) }
+}
+
 /** Detect an in-progress git operation (merge/rebase/cherry-pick/revert) from the git dir. */
 function detectGitOperation(dir, gitDir) {
   try {
@@ -366,6 +404,14 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/repos/source') {
       const { path: p, source } = await readBody(req)
       return json(res, 200, await sourceStatus(p, source))
+    }
+    if (req.method === 'POST' && url.pathname === '/repos/fetch') {
+      const { path: p } = await readBody(req)
+      return json(res, 200, await fetchRemote(p))
+    }
+    if (req.method === 'POST' && url.pathname === '/repos/conflict') {
+      const { path: p, source } = await readBody(req)
+      return json(res, 200, await conflictCheck(p, source))
     }
     if (req.method === 'POST' && url.pathname === '/repos/config') {
       const { path: p, name, email } = await readBody(req)
