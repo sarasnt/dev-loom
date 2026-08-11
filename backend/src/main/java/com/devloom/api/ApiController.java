@@ -305,6 +305,17 @@ public class ApiController {
         return repoService.checkout(id, body.branch(), body.create());
     }
 
+    @GetMapping("/repos/{id}/source")
+    public Dto.SourceStatus repoSource(@PathVariable String id,
+                                       @org.springframework.web.bind.annotation.RequestParam(required = false) String branch) {
+        return repoService.sourceStatus(id, branch);
+    }
+
+    @org.springframework.web.bind.annotation.PutMapping("/repos/{id}/source")
+    public Dto.SourceStatus repoSetSource(@PathVariable String id, @RequestBody Dto.RepoSourceSet body) {
+        return repoService.setSource(id, body == null ? null : body.branch(), body == null ? null : body.source());
+    }
+
     @GetMapping("/providers")
     public Dto.Providers providers() {
         return providersService.providers();

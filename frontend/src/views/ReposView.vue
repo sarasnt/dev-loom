@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import type { RepoView, BrowseResult, RepoChanges } from '../types'
+import type { RepoView, BrowseResult, RepoChanges, SourceStatus } from '../types'
 import {
   fetchRepos,
   scanRepoFolder,
@@ -18,6 +18,8 @@ import {
   repoCommit,
   repoBranches,
   repoCheckout,
+  repoSource,
+  setRepoSource,
   createBrainstormSession,
   fetchRepoSessions,
   setRepoLocalOnly,
@@ -61,6 +63,51 @@ function upstreamState(r: RepoView): Health {
   if (r.ahead) return { label: `Needs push ↑${r.ahead}`, tone: 'info' }
   return { label: 'Up to date', tone: 'ok' }
 }
+// Source-branch model (repo-spec §6/§7.3): where this branch forks from + drift. Fetched
+// lazily the first time a repo's health rows expand (needs a git call the list doesn't carry).
+const sourceStatus = ref<Record<string, SourceStatus | null>>({})
+const sourceLoading = ref<Record<string, boolean>>({})
+const editSource = ref<string | null>(null) // repo whose source-branch edit is open
+const sourceInput = ref<Record<string, string>>({})
+function toggleHealth(r: RepoView) {
+  openHealth.value = openHealth.value === r.id ? '' : r.id
+  if (openHealth.value === r.id && sourceStatus.value[r.id] === undefined) loadSource(r)
+}
+async function loadSource(r: RepoView) {
+  sourceLoading.value[r.id] = true
+  try { sourceStatus.value[r.id] = await repoSource(r.id, r.branch) }
+  catch { sourceStatus.value[r.id] = null }
+  finally { sourceLoading.value[r.id] = false }
+}
+// Drift of HEAD vs its source branch → chip label + tone.
+function sourceHealth(s: SourceStatus | null | undefined): Health {
+  if (!s || s.origin === 'unknown') return { label: 'Unknown', tone: 'warn' }
+  if (s.missing) return { label: `${s.source} missing`, tone: 'warn' }
+  if (s.sourceBehind) return { label: `Behind ${s.source} by ${s.sourceBehind}`, tone: 'warn' }
+  return { label: `Current with ${s.source}`, tone: 'ok' }
+}
+// How the source branch was resolved — shown as the row detail.
+function sourceOrigin(s: SourceStatus | null | undefined): string {
+  if (!s) return 'not resolved'
+  if (s.origin === 'override') return 'saved for this branch'
+  if (s.origin === 'pr') return 'from open PR'
+  if (s.origin === 'default') return 'repo default'
+  return `no source (default ${s.defaultBranch ?? '—'})`
+}
+async function openSourceEdit(r: RepoView) {
+  editSource.value = r.id
+  sourceInput.value[r.id] = sourceStatus.value[r.id]?.source ?? ''
+  if (!branchList.value[r.id]) {
+    try { branchList.value[r.id] = (await repoBranches(r.id)).local } catch { branchList.value[r.id] = [] }
+  }
+}
+async function saveSource(r: RepoView) {
+  const src = (sourceInput.value[r.id] ?? '').trim()
+  sourceLoading.value[r.id] = true
+  try { sourceStatus.value[r.id] = await setRepoSource(r.id, r.branch, src || null) }
+  finally { sourceLoading.value[r.id] = false; editSource.value = null }
+}
+
 const repoSessions = ref<{ id: string; title: string; repoPath: string }[]>([])
 function sessionsFor(path: string) {
   return repoSessions.value.filter((s) => s.repoPath === path)
@@ -270,7 +317,7 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
           </button>
           <span class="hchip mono" :class="workTree(r).tone" :title="'Working tree'">{{ workTree(r).label }}</span>
           <span class="hchip mono" :class="upstreamState(r).tone" :title="r.upstream ? 'vs ' + r.upstream : 'Upstream'">{{ upstreamState(r).label }}</span>
-          <button class="hmore mono" :aria-expanded="openHealth === r.id" @click="openHealth = openHealth === r.id ? '' : r.id">
+          <button class="hmore mono" :aria-expanded="openHealth === r.id" @click="toggleHealth(r)">
             health {{ openHealth === r.id ? '▴' : '▾' }}
           </button>
           <span class="path mono">{{ r.path }}</span>
@@ -295,6 +342,33 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
             <span v-if="r.staged || r.unstaged || r.untracked" class="mono hdet">{{ r.staged }} staged · {{ r.unstaged }} unstaged · {{ r.untracked }} untracked</span></div>
           <div class="hrow"><span class="hk mono">Upstream</span><span class="hv" :class="upstreamState(r).tone">{{ upstreamState(r).label }}</span>
             <span class="mono hdet">{{ r.upstream ? 'tracks ' + r.upstream : 'no tracking branch configured' }}</span></div>
+          <div class="hrow">
+            <span class="hk mono">Source branch</span>
+            <template v-if="sourceLoading[r.id] && sourceStatus[r.id] === undefined"><span class="hv info">checking…</span></template>
+            <template v-else>
+              <span class="hv" :class="sourceHealth(sourceStatus[r.id]).tone">{{ sourceHealth(sourceStatus[r.id]).label }}</span>
+              <span class="mono hdet">
+                {{ sourceOrigin(sourceStatus[r.id]) }}
+                <template v-if="sourceStatus[r.id]?.sourceAhead">· ↑{{ sourceStatus[r.id]?.sourceAhead }} ahead</template>
+              </span>
+              <button v-if="editSource !== r.id" class="hedit mono" :disabled="!agentUp" @click="openSourceEdit(r)">change</button>
+            </template>
+          </div>
+          <div v-if="editSource === r.id" class="hrow srcedit">
+            <span class="hk mono"></span>
+            <input
+              class="srcin mono"
+              list="src-branches"
+              v-model="sourceInput[r.id]"
+              placeholder="branch name (blank = default)"
+              @keyup.enter="saveSource(r)"
+            />
+            <datalist id="src-branches">
+              <option v-for="b in branchList[r.id] ?? []" :key="b" :value="b" />
+            </datalist>
+            <button class="hedit mono" :disabled="sourceLoading[r.id]" @click="saveSource(r)">save</button>
+            <button class="hedit mono ghost" @click="editSource = null">cancel</button>
+          </div>
         </div>
 
         <div v-if="openBranch === r.id" class="branchpanel">
@@ -496,6 +570,12 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
 .hrow .hv { font-size: 12px; }
 .hrow .hv.ok { color: var(--healthy); } .hrow .hv.info { color: var(--warp-hi); } .hrow .hv.warn { color: var(--chip-fail, #d88); }
 .hrow .hdet { margin-left: auto; color: var(--faint-text); font-size: 11px; }
+.hrow .hedit { border: 1px solid var(--line); background: var(--panel, var(--bg)); color: var(--text); border-radius: 6px; padding: 2px 8px; font-size: 11px; cursor: pointer; }
+.hrow .hedit:hover:not(:disabled) { border-color: var(--warp-hi); }
+.hrow .hedit:disabled { opacity: 0.5; cursor: default; }
+.hrow .hedit.ghost { color: var(--faint-text); }
+.hrow.srcedit .srcin { flex: 1; min-width: 0; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; color: var(--text); padding: 3px 8px; font-size: 12px; }
+.hrow.srcedit .srcin:focus { outline: none; border-color: var(--warp-hi); }
 .acts { display: flex; gap: 8px; flex-wrap: wrap; }
 .rsessions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
 .rslab { font-size: 11px; color: var(--faint-text); }

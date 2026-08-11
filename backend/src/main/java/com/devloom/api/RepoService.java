@@ -24,11 +24,14 @@ public class RepoService {
     private final GitRepoRepository repos;
     private final HostAgentClient agent;
     private final AuditService audit;
+    private final com.devloom.common.AppConfigService config;
 
-    public RepoService(GitRepoRepository repos, HostAgentClient agent, AuditService audit) {
+    public RepoService(GitRepoRepository repos, HostAgentClient agent, AuditService audit,
+                       com.devloom.common.AppConfigService config) {
         this.repos = repos;
         this.agent = agent;
         this.audit = audit;
+        this.config = config;
     }
 
     public boolean agentUp() {
@@ -113,6 +116,41 @@ public class RepoService {
 
     public Map<String, Object> branches(String id) {
         return agent.branches(pathOf(id));
+    }
+
+    /**
+     * Where the current branch forks from, and how far HEAD has drifted from it. Resolution
+     * order (spec repos §6): saved override for this branch → repository default → unknown.
+     * (PR-base resolution is a later slice; {@code origin="pr"} is reserved for it.)
+     */
+    public Dto.SourceStatus sourceStatus(String id, String branch) {
+        GitRepoEntity r = repos.findById(parse(id)).orElseThrow();
+        String cur = (branch == null || branch.isBlank()) ? str(agent.status(r.getPath()), "branch") : branch.trim();
+        String override = config.get(srcKey(r.getId(), cur)).orElse(null);
+        Map<String, Object> s = agent.sourceStatus(r.getPath(), override);
+        String source = s.get("source") == null ? null : String.valueOf(s.get("source"));
+        String origin = override != null && !override.isBlank() ? "override"
+                : (source != null ? "default" : "unknown");
+        return new Dto.SourceStatus(
+                source, s.get("defaultBranch") == null ? null : String.valueOf(s.get("defaultBranch")),
+                origin, Boolean.TRUE.equals(s.get("hasSource")), Boolean.TRUE.equals(s.get("missing")),
+                intOf(s.get("sourceAhead")), intOf(s.get("sourceBehind")));
+    }
+
+    /** Save (or clear, when source is blank) the source-branch override for the current branch. */
+    public Dto.SourceStatus setSource(String id, String branch, String source) {
+        GitRepoEntity r = repos.findById(parse(id)).orElseThrow();
+        String cur = (branch == null || branch.isBlank()) ? str(agent.status(r.getPath()), "branch") : branch.trim();
+        config.set(srcKey(r.getId(), cur), source == null ? null : source.trim());
+        audit.record("repo_source", r.getPath(), cur + " -> " + (source == null ? "(default)" : source));
+        return sourceStatus(id, cur);
+    }
+
+    /** Per-(repo, current-branch) config key for the source override. Bounded to the 120-char PK. */
+    private static String srcKey(Long repoId, String branch) {
+        String b = branch == null ? "" : branch;
+        if (b.length() > 90) b = Integer.toHexString(b.hashCode());
+        return "repo.src." + repoId + "." + b;
     }
 
     public Map<String, Object> checkout(String id, String branch, boolean create) {

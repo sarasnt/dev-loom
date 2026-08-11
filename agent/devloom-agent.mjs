@@ -162,6 +162,37 @@ async function repoInfo(dir) {
   }
 }
 
+/** The repo's default branch (origin/HEAD), stripped of the "origin/" prefix. */
+async function defaultBranch(dir) {
+  const s = await git(dir, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'])
+  return s.code === 0 ? s.out.trim().replace(/^origin\//, '') : null
+}
+
+/**
+ * Source-branch freshness (repo-spec §7.3): resolve the source (override → default → none) and
+ * compute ahead/behind of HEAD vs the latest fetched source ref, using merge-base semantics.
+ * Read-only. `behind` = commits on source the branch lacks; `ahead` = commits unique to the branch.
+ */
+async function sourceStatus(dir, override) {
+  const def = await defaultBranch(dir)
+  const source = override && override.trim() ? override.trim() : def
+  const base = { source: source || null, defaultBranch: def, hasSource: false, sourceAhead: 0, sourceBehind: 0 }
+  if (!source) return base
+  let ref = null
+  if ((await git(dir, ['rev-parse', '--verify', '--quiet', 'refs/remotes/origin/' + source])).code === 0) ref = 'origin/' + source
+  else if ((await git(dir, ['rev-parse', '--verify', '--quiet', source])).code === 0) ref = source
+  if (!ref) return { ...base, missing: true }
+  const [behind, ahead] = await Promise.all([
+    git(dir, ['rev-list', '--count', `HEAD..${ref}`]),
+    git(dir, ['rev-list', '--count', `${ref}..HEAD`]),
+  ])
+  return {
+    source, defaultBranch: def, hasSource: true, ref,
+    sourceBehind: behind.code === 0 ? Number(behind.out.trim() || 0) : 0,
+    sourceAhead: ahead.code === 0 ? Number(ahead.out.trim() || 0) : 0,
+  }
+}
+
 /** Detect an in-progress git operation (merge/rebase/cherry-pick/revert) from the git dir. */
 function detectGitOperation(dir, gitDir) {
   try {
@@ -331,6 +362,10 @@ const server = http.createServer(async (req, res) => {
       const { path: p } = await readBody(req)
       const info = await repoInfo(p)
       return info ? json(res, 200, info) : json(res, 400, { error: 'not a git repo' })
+    }
+    if (req.method === 'POST' && url.pathname === '/repos/source') {
+      const { path: p, source } = await readBody(req)
+      return json(res, 200, await sourceStatus(p, source))
     }
     if (req.method === 'POST' && url.pathname === '/repos/config') {
       const { path: p, name, email } = await readBody(req)

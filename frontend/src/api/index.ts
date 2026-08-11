@@ -59,3 +59,5 @@ export const repoUnstage = api.repoUnstage
 export const repoCommit = api.repoCommit
 export const repoBranches = api.repoBranches
 export const repoCheckout = api.repoCheckout
+export const repoSource = api.repoSource
+export const setRepoSource = api.setRepoSource

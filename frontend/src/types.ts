@@ -183,6 +183,17 @@ export interface RepoView {
   operation: string | null // 'merge' | 'rebase' | 'cherry-pick' | 'revert' | null
 }
 
+// Where the current branch forks from + how far HEAD has drifted (repos spec §6/§7.3).
+export interface SourceStatus {
+  source: string | null // resolved source branch, or null when unknown
+  defaultBranch: string | null // repo default (origin/HEAD)
+  origin: 'override' | 'pr' | 'default' | 'unknown' // how `source` was resolved
+  hasSource: boolean // the source ref actually exists
+  missing: boolean // an override/source was named but the ref is gone
+  sourceAhead: number // commits on HEAD not in source
+  sourceBehind: number // commits on source not in HEAD (HEAD is outdated by N)
+}
+
 export interface BrowseDir { name: string; path: string; repo: boolean }
 export interface BrowseResult {
   path: string

@@ -157,3 +157,7 @@ export const repoBranches = (id: string) =>
   post<{ current: string; local: string[] }>(`/repos/${id}/branches`, {})
 export const repoCheckout = (id: string, branch: string, create: boolean) =>
   post<{ ok: boolean; branch: string; output: string }>(`/repos/${id}/checkout`, { branch, create })
+export const repoSource = (id: string, branch: string) =>
+  get<import('../types').SourceStatus>(`/repos/${id}/source?branch=${encodeURIComponent(branch)}`)
+export const setRepoSource = (id: string, branch: string, source: string | null) =>
+  put<import('../types').SourceStatus>(`/repos/${id}/source`, { branch, source })

@@ -310,3 +310,15 @@ export function repoBranches() {
 export function repoCheckout(_id: string, branch: string) {
   return delay({ ok: false, branch, output: 'offline' })
 }
+export function repoSource() {
+  return delay({
+    source: 'main', defaultBranch: 'main', origin: 'default' as const,
+    hasSource: true, missing: false, sourceAhead: 3, sourceBehind: 0,
+  })
+}
+export function setRepoSource(_id: string, _branch: string, source: string | null) {
+  return delay({
+    source, defaultBranch: 'main', origin: (source ? 'override' : 'default') as 'override' | 'default',
+    hasSource: !!source, missing: false, sourceAhead: 3, sourceBehind: 0,
+  })
+}

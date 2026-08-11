@@ -111,6 +111,13 @@ public final class Dto {
     public record RepoFiles(List<String> files) {}
     public record RepoCommit(String message) {}
     public record RepoCheckout(String branch, boolean create) {}
+    // Source-branch comparison for the current branch (spec repos §6/§7.3): which branch this
+    // work forks from, and how far HEAD has drifted from it. `origin` = "default" | "pr" |
+    // "override" | "unknown" tells the UI how `source` was resolved.
+    public record SourceStatus(
+            String source, String defaultBranch, String origin, boolean hasSource,
+            boolean missing, int sourceAhead, int sourceBehind) {}
+    public record RepoSourceSet(String branch, String source) {}
 
     // ---- Audit ----
     public record AuditEntry(String action, String target, String metadata, String at) {}

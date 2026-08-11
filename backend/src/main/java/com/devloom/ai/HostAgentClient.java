@@ -184,6 +184,11 @@ public class HostAgentClient {
         return post("/repos/status", Map.of("path", path));
     }
 
+    /** Compare the current branch against a source branch (override or default). */
+    public Map<String, Object> sourceStatus(String path, String source) {
+        return post("/repos/source", Map.of("path", path, "source", source == null ? "" : source));
+    }
+
     public Map<String, Object> setIdentity(String path, String name, String email) {
         Map<String, Object> body = new java.util.HashMap<>();
         body.put("path", path);
