@@ -12,10 +12,11 @@ const routes = [
   { path: '/fleet', name: 'fleet', component: () => import('../views/FleetView.vue') },
   { path: '/onboarding', name: 'onboarding', component: () => import('../views/OnboardingView.vue') },
   { path: '/settings/integrations', name: 'integrations', component: () => import('../views/IntegrationsView.vue') },
-  { path: '/settings/providers', name: 'providers', component: () => import('../views/ProvidersView.vue') },
+  { path: '/settings/models', name: 'models', component: () => import('../views/ProvidersView.vue') },
+  { path: '/settings/providers', redirect: '/settings/models' }, // old bookmark-friendly path
   { path: '/settings/general', name: 'general', component: () => import('../views/GeneralView.vue') },
   { path: '/settings/monitoring', name: 'monitoring', component: () => import('../views/MonitoringView.vue') },
-  { path: '/settings/privacy', name: 'privacy', component: () => import('../views/PrivacyView.vue') },
+  { path: '/settings/privacy', redirect: '/settings/monitoring' }, // privacy folded into Monitoring
 ]
 
 export const router = createRouter({

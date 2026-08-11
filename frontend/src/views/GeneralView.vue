@@ -1,75 +1,10 @@
 <script setup lang="ts">
-import { onMounted, onBeforeUnmount, ref } from 'vue'
-import { storeToRefs } from 'pinia'
-import type { BrowseResult } from '../types'
-import type { InstalledModel } from '../types'
-import { fetchSettings, saveTerminalWorkdir, browseFs, fetchInstalledModels, removeModel, addRepoDir, removeRepoDir, saveNotificationSettings, testNotification, saveGitSettings } from '../api'
-import type { NotifySettings } from '../types'
-import { useDashboardStore } from '../stores/dashboard'
+// Settings › General — machine/workflow preferences: terminal workdir, repo directories,
+// notifications, push protection, Fleet defaults. (Model things live in Settings › Models.)
+import { onMounted, ref } from 'vue'
+import type { BrowseResult, NotifySettings } from '../types'
+import { fetchSettings, saveTerminalWorkdir, browseFs, addRepoDir, removeRepoDir, saveNotificationSettings, testNotification, saveGitSettings, saveFleetSettings } from '../api'
 import SettingsTabs from '../components/SettingsTabs.vue'
-import ModelSelect from '../components/ModelSelect.vue'
-
-const store = useDashboardStore()
-const { brainstormSwitch } = storeToRefs(store)
-const switchOpts = [
-  { v: 'ask', label: 'Ask each time' },
-  { v: 'new', label: 'Open a new session' },
-  { v: 'cancel', label: "Don't switch" },
-]
-
-// ---- local models (Ollama) ----
-const API = (import.meta.env.VITE_API_BASE as string) ?? '/api/v1'
-const installed = ref<InstalledModel[]>([])
-const pullName = ref('')
-const pulling = ref('')
-const pullPct = ref(0)
-const pullStatus = ref('')
-const pullErr = ref('')
-// Curated suggestions (users can also type any Ollama tag).
-const suggested = [
-  'qwen2.5-coder:7b', 'qwen2.5-coder:32b', 'qwen3-coder:30b',
-  'gpt-oss:20b', 'llama3.1:8b', 'deepseek-r1:8b',
-]
-let pullEs: EventSource | null = null
-
-function gb(bytes: number) {
-  return bytes ? (bytes / 1e9).toFixed(1) + ' GB' : ''
-}
-async function loadInstalled() {
-  try { installed.value = await fetchInstalledModels() } catch { installed.value = [] }
-}
-async function removeInstalled(name: string) {
-  if (!confirm(`Remove ${name} from Ollama?`)) return
-  await removeModel(name)
-  await loadInstalled()
-  await store.ensureLoaded() // update model dropdowns
-}
-function installModel() {
-  const name = pullName.value.trim()
-  if (!name || pulling.value) return
-  pulling.value = name
-  pullPct.value = 0
-  pullStatus.value = 'starting…'
-  pullErr.value = ''
-  pullEs?.close()
-  pullEs = new EventSource(`${API}/models/pull/stream?name=${encodeURIComponent(name)}`)
-  pullEs.addEventListener('progress', (e) => {
-    try {
-      const p = JSON.parse((e as MessageEvent).data)
-      pullStatus.value = p.status || 'pulling…'
-      if (p.total && p.completed) pullPct.value = Math.round((p.completed / p.total) * 100)
-    } catch { /* ignore */ }
-  })
-  pullEs.addEventListener('done', async () => {
-    pullEs?.close(); pullEs = null
-    pulling.value = ''; pullName.value = ''; pullPct.value = 100
-    await loadInstalled(); await store.ensureLoaded()
-  })
-  pullEs.addEventListener('error', (e) => {
-    try { pullErr.value = JSON.parse((e as MessageEvent).data).error } catch { pullErr.value = 'pull failed (is the host reachable?)' }
-    pullEs?.close(); pullEs = null; pulling.value = ''
-  })
-}
 
 const workdir = ref('')
 const repoDirs = ref<string[]>([])
@@ -99,6 +34,10 @@ const pushMode = ref<'off' | 'all' | 'protected'>('protected')
 const protectedPatterns = ref('main, master, develop, dev')
 const gitFlash = ref('')
 
+// Fleet: default isolation for background edit runs.
+const worktreesDefault = ref(true)
+const fleetFlash = ref('')
+
 onMounted(async () => {
   try {
     const s = await fetchSettings()
@@ -107,8 +46,8 @@ onMounted(async () => {
     if (s.notify) notify.value = s.notify
     pushMode.value = s.gitPushProtection ?? 'protected'
     protectedPatterns.value = s.gitProtectedPatterns ?? 'main, master, develop, dev'
+    worktreesDefault.value = s.fleetWorktreesDefault ?? true
   } catch { /* ignore */ }
-  loadInstalled()
   loading.value = false
 })
 
@@ -119,6 +58,14 @@ async function saveGit() {
     pushMode.value = s.gitPushProtection; protectedPatterns.value = s.gitProtectedPatterns
     gitFlash.value = 'Saved.'
   } catch { gitFlash.value = 'Could not save.' }
+}
+
+async function saveFleet() {
+  fleetFlash.value = ''
+  try {
+    worktreesDefault.value = (await saveFleetSettings(worktreesDefault.value)).fleetWorktreesDefault
+    fleetFlash.value = 'Saved.'
+  } catch { fleetFlash.value = 'Could not save.' }
 }
 
 async function saveNotify() {
@@ -151,7 +98,6 @@ async function removeDir(path: string) {
   catch { flash.value = 'Could not remove directory.' }
   finally { saving.value = false }
 }
-onBeforeUnmount(() => pullEs?.close())
 
 async function save() {
   if (saving.value) return
@@ -296,73 +242,17 @@ function useFolder() {
       </section>
 
       <section class="block">
-        <div class="lab mono">Local models (Ollama)</div>
+        <div class="lab mono">Fleet</div>
         <p class="prose">
-          Install or remove local models. Your set is remembered and re-pulled on startup, so it
-          survives a fresh volume. Lean pick: <code>qwen2.5-coder:7b</code>.
+          Background <b>edit</b> runs can execute in their own git worktree (branch
+          <code>devloom/run-N</code>) so several agents can work one repo at once without touching
+          your checkout. This sets the launch dialog's default; each run can still override it.
         </p>
-        <div class="mlist">
-          <div v-for="m in installed" :key="m.name" class="mrow mono">
-            <span class="mn">{{ m.name }}</span>
-            <span class="msz">{{ gb(m.size) }}</span>
-            <button class="btn ghost mrm" :disabled="pulling !== ''" @click="removeInstalled(m.name)">Remove</button>
-          </div>
-          <div v-if="!installed.length" class="empty mono">no local models installed</div>
-        </div>
-        <div class="row pullrow">
-          <input
-            v-model="pullName"
-            class="in mono"
-            list="ollama-suggested"
-            placeholder="e.g. qwen3-coder:30b"
-            :disabled="pulling !== ''"
-            @keydown.enter="installModel"
-          />
-          <datalist id="ollama-suggested">
-            <option v-for="s in suggested" :key="s" :value="s" />
-          </datalist>
-          <button class="btn pri" :disabled="pulling !== '' || !pullName.trim()" @click="installModel">
-            {{ pulling ? 'Installing…' : 'Install' }}
-          </button>
-        </div>
-        <div v-if="pulling" class="pullprog">
-          <div class="pbar"><i :style="{ width: pullPct + '%' }"></i></div>
-          <span class="mono pstat">{{ pullStatus }} · {{ pullPct }}%</span>
-        </div>
-        <div v-if="pullErr" class="mono pullerr">{{ pullErr }}</div>
-      </section>
-
-      <section class="block">
-        <div class="lab mono">Builds — default analysis model</div>
-        <p class="prose">
-          The model the Build-failure screen opens with. You can still pick a different one there
-          for a single re-run without changing this default. (Local + your keyed remote models;
-          Claude Code CLI is Brainstorm-only.)
-        </p>
-        <div class="row">
-          <span class="mono fld">Default model</span>
-          <ModelSelect screen="builds" />
-        </div>
-      </section>
-
-      <section class="block">
-        <div class="lab mono">Brainstorm — switching to/from Claude CLI</div>
-        <p class="prose">
-          Claude Interactive CLI runs outside DevLoom's boundaries, so switching a session
-          to or from it can't carry the conversation across. Choose what happens when you switch:
-        </p>
-        <div class="row">
-          <span class="mono fld">Switching <b>to</b> Claude CLI</span>
-          <select class="in narrow mono" :value="brainstormSwitch.toCli" @change="store.setBrainstormSwitch('toCli', ($event.target as HTMLSelectElement).value as any)">
-            <option v-for="o in switchOpts" :key="o.v" :value="o.v">{{ o.label }}</option>
-          </select>
-        </div>
-        <div class="row">
-          <span class="mono fld">Switching <b>from</b> Claude CLI</span>
-          <select class="in narrow mono" :value="brainstormSwitch.fromCli" @change="store.setBrainstormSwitch('fromCli', ($event.target as HTMLSelectElement).value as any)">
-            <option v-for="o in switchOpts" :key="o.v" :value="o.v">{{ o.label }}</option>
-          </select>
-        </div>
+        <div v-if="fleetFlash" class="flash mono">{{ fleetFlash }}</div>
+        <label class="nrow">
+          <input type="checkbox" v-model="worktreesDefault" @change="saveFleet" />
+          <span>Isolate edit runs in a worktree by default</span>
+        </label>
       </section>
     </template>
 
@@ -380,7 +270,7 @@ function useFolder() {
           <div v-if="browse.loading" class="mono clean">…</div>
         </div>
         <div class="pkfoot">
-          <span class="mono hint">Open a folder, then use it as the terminal's start directory.</span>
+          <span class="mono hint">Open a folder, then use it.</span>
           <button class="btn pri" :disabled="!browse.data?.path" @click="useFolder">Use this folder</button>
         </div>
       </div>
@@ -399,7 +289,6 @@ function useFolder() {
 .row { display: flex; align-items: center; gap: 10px; }
 .in { flex: 1; max-width: 460px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 7px 10px; color: var(--ink); font-size: 12px; }
 .in:focus { outline: none; border-color: var(--warp); }
-.in.narrow { flex: 0 0 auto; max-width: 220px; cursor: pointer; }
 .fld { font-size: 12px; color: var(--dim); min-width: 190px; }
 .nrow { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink); margin: 6px 0; cursor: pointer; }
 .ngrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px 20px; margin: 10px 0; }
@@ -407,18 +296,13 @@ function useFolder() {
 .nfield .fld { min-width: 130px; }
 .nin { max-width: 140px; }
 .nchecks { margin: 8px 0 12px; }
+.hint { color: var(--faint-text); }
+.idnote { font-size: 11px; color: var(--faint-text); }
 .prose code { font-family: var(--mono); font-size: 11.5px; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; color: var(--warp-hi); }
 .mlist { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
 .mrow { display: flex; align-items: center; gap: 12px; font-size: 12.5px; border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; background: var(--bg); }
 .mrow .mn { color: var(--ink); }
-.mrow .msz { color: var(--faint-text); margin-left: auto; }
-.mrow .mrm { padding: 3px 9px; }
-.pullrow { margin-top: 4px; }
-.pullprog { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
-.pbar { flex: 1; height: 8px; border-radius: 5px; background: var(--raised); overflow: hidden; }
-.pbar i { display: block; height: 100%; background: var(--warp); transition: width 0.3s ease; }
-.pstat { font-size: 11px; color: var(--dim); white-space: nowrap; }
-.pullerr { margin-top: 8px; color: var(--failed, #d66); font-size: 12px; }
+.mrow .mrm { padding: 3px 9px; margin-left: auto; }
 .btn { font-size: 13px; border-radius: var(--r-ctl); padding: 6px 12px; border: 1px solid var(--line); background: var(--btn-bg); color: var(--ink); cursor: pointer; white-space: nowrap; }
 .btn:hover { border-color: var(--warp); }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }

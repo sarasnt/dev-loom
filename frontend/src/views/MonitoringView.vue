@@ -1,15 +1,17 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue'
-import type { MonitoringData } from '../types'
-import { fetchMonitoring } from '../api'
+import type { MonitoringData, PrivacyData } from '../types'
+import { fetchMonitoring, fetchPrivacy } from '../api'
 import SettingsTabs from '../components/SettingsTabs.vue'
 
 const data = ref<MonitoringData | null>(null)
+const privacy = ref<PrivacyData | null>(null)
 const loading = ref(true)
 let timer: number | undefined
 
 async function load() {
   data.value = await fetchMonitoring()
+  try { privacy.value = await fetchPrivacy() } catch { /* egress stays hidden */ }
   loading.value = false
 }
 onMounted(() => {
@@ -85,6 +87,18 @@ function ago(ts: number): string {
         </div>
       </section>
 
+      <section v-if="privacy" class="block">
+        <div class="lab mono">Egress log <span class="hintl">(what left your machine, when, to whom)</span></div>
+        <div v-for="(e, i) in privacy.egress" :key="i" class="call mono">
+          <span class="t">{{ e.time }}</span>
+          <span class="mdl">{{ e.action }}<template v-if="e.to"> → {{ e.to }}</template></span>
+          <span class="tok">{{ e.tokens }}</span>
+        </div>
+        <p class="foot" style="margin-top: 8px">
+          {{ privacy.defaultBoundary }} Local-only repos are managed per repo on the Repositories page.
+        </p>
+      </section>
+
       <p class="foot">
         Same data is exported as Micrometer meters at
         <code>{{ data.metricsPath }}</code>.
@@ -114,6 +128,7 @@ function ago(ts: number): string {
 .stat .l { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--faint-text); margin-top: 4px; }
 .block { border: 1px solid var(--line); border-radius: var(--r-card); background: var(--surface); padding: 16px; margin-bottom: 14px; }
 .lab { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--faint-text); margin-bottom: 10px; }
+.hintl { text-transform: none; letter-spacing: 0; }
 .tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .tbl th { text-align: left; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint-text); padding: 6px 10px; border-bottom: 1px solid var(--line); }
 .tbl td { padding: 8px 10px; border-bottom: 1px solid var(--line); color: var(--ink); }

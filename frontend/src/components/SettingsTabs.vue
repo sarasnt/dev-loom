@@ -2,10 +2,9 @@
 // Shared sub-navigation for the Settings screens.
 const tabs = [
   { to: '/settings/integrations', label: 'Sources' },
-  { to: '/settings/providers', label: 'Model providers' },
+  { to: '/settings/models', label: 'Models' },
   { to: '/settings/general', label: 'General' },
   { to: '/settings/monitoring', label: 'Monitoring' },
-  { to: '/settings/privacy', label: 'Privacy' },
 ]
 </script>
 
