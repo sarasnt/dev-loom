@@ -16,10 +16,13 @@ import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
+import { fileURLToPath } from 'node:url'
 
 const PORT = Number(process.env.DEVLOOM_AGENT_PORT || 8765)
 const HOST = process.env.DEVLOOM_AGENT_HOST || '127.0.0.1'
 const IS_WIN = process.platform === 'win32'
+const AGENT_DIR = path.dirname(fileURLToPath(import.meta.url))
+const LOGO_PATH = path.join(AGENT_DIR, 'assets', 'devloom-logo.png')
 
 // Run a command, capturing stdout/stderr. `input` (if given) is written to stdin.
 function run(cmd, args, { input, cwd, timeoutMs = 180000 } = {}) {
@@ -106,21 +109,36 @@ function git(cwd, args) {
  * toast (built into Win10/11), macOS uses osascript, Linux uses notify-send. Best-effort: returns
  * { ok:false, error } rather than throwing so the backend can log-and-continue.
  */
-async function osNotify(title, body) {
+async function osNotify(title, body, urgency = 'normal') {
   const t = String(title || 'DevLoom')
   const b = String(body || '')
+  const urgent = urgency === 'urgent'
   try {
     if (IS_WIN) {
-      // Single-quoted PS literals (escape ' as '') so title/body can't inject code. The whole
-      // script is passed as base64 -EncodedCommand so the Windows shell can't mangle the quotes.
+      // Branded ToastGeneric with the DevLoom app-logo. Native toasts can't animate, so we make
+      // it recognizable (logo) and, when urgent, harder to ignore: a 'reminder' toast stays on
+      // screen until dismissed and uses a distinct looping alarm sound.
+      const xmlEsc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+      const logo = fs.existsSync(LOGO_PATH)
+        ? `<image placement="appLogoOverride" hint-crop="none" src="${xmlEsc('file:///' + LOGO_PATH.replace(/\\/g, '/'))}"/>`
+        : ''
+      const audio = urgent
+        ? '<audio src="ms-winsoundevent:Notification.Looping.Alarm2" loop="false"/>'
+        : '<audio src="ms-winsoundevent:Notification.Reminder"/>'
+      const scenario = urgent ? ' scenario="reminder"' : ''
+      const toastXml =
+        `<toast${scenario}><visual><binding template="ToastGeneric">` +
+        logo +
+        `<text>${xmlEsc(t)}</text><text>${xmlEsc(b)}</text>` +
+        `</binding></visual>${audio}</toast>`
+      // Single-quoted PS literal (escape ' as ''); whole script base64'd via -EncodedCommand so
+      // the Windows shell can't mangle quotes.
       const q = (s) => "'" + String(s).replace(/'/g, "''") + "'"
       const script = [
         '[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null;',
         '[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] > $null;',
-        '$xml = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02);',
-        '$t = $xml.GetElementsByTagName("text");',
-        `$t.Item(0).AppendChild($xml.CreateTextNode(${q(t)})) > $null;`,
-        `$t.Item(1).AppendChild($xml.CreateTextNode(${q(b)})) > $null;`,
+        '$xml = [Windows.Data.Xml.Dom.XmlDocument]::new();',
+        `$xml.LoadXml(${q(toastXml)});`,
         '$toast = [Windows.UI.Notifications.ToastNotification]::new($xml);',
         '[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("DevLoom").Show($toast);',
       ].join(' ')
@@ -130,10 +148,14 @@ async function osNotify(title, body) {
     }
     if (process.platform === 'darwin') {
       const esc = (s) => s.replace(/"/g, '\\"')
-      const r = await run('osascript', ['-e', `display notification "${esc(b)}" with title "${esc(t)}"`], { timeoutMs: 8000 })
+      const sound = urgent ? ' sound name "Basso"' : ''
+      const r = await run('osascript', ['-e', `display notification "${esc(b)}" with title "${esc(t)}"${sound}`], { timeoutMs: 8000 })
       return r.code === 0 ? { ok: true } : { ok: false, error: (r.err || 'osascript failed').trim().slice(0, 300) }
     }
-    const r = await run('notify-send', [t, b], { timeoutMs: 8000 })
+    const args = ['-a', 'DevLoom', '-u', urgent ? 'critical' : 'normal']
+    if (fs.existsSync(LOGO_PATH)) args.push('-i', LOGO_PATH)
+    args.push(t, b)
+    const r = await run('notify-send', args, { timeoutMs: 8000 })
     return r.code === 0 ? { ok: true } : { ok: false, error: (r.err || 'notify-send failed (is libnotify installed?)').trim().slice(0, 300) }
   } catch (e) {
     return { ok: false, error: String(e).slice(0, 300) }
@@ -435,8 +457,8 @@ const server = http.createServer(async (req, res) => {
       })
     }
     if (req.method === 'POST' && url.pathname === '/notify') {
-      const { title, body } = await readBody(req)
-      return json(res, 200, await osNotify(title, body))
+      const { title, body, urgency } = await readBody(req)
+      return json(res, 200, await osNotify(title, body, urgency))
     }
     if (req.method === 'POST' && url.pathname === '/claude') {
       const body = await readBody(req)
