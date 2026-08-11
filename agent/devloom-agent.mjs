@@ -181,14 +181,19 @@ function repoSlug(remoteUrl) {
 async function repoInfo(dir) {
   const isRepo = fs.existsSync(path.join(dir, '.git'))
   if (!isRepo) return null
-  const [branch, remote, dirty, upstream, upstreamRef, gitDirRes] = await Promise.all([
+  const [branch, remote, dirty, upstream, upstreamRef, gitDirRes, commonRes] = await Promise.all([
     git(dir, ['rev-parse', '--abbrev-ref', 'HEAD']),
     git(dir, ['remote', 'get-url', 'origin']),
     git(dir, ['status', '--porcelain']),
     git(dir, ['rev-list', '--left-right', '--count', '@{u}...HEAD']),
     git(dir, ['rev-parse', '--abbrev-ref', '@{u}']),
     git(dir, ['rev-parse', '--git-dir']),
+    git(dir, ['rev-parse', '--git-common-dir']),
   ])
+  // Worktrees of one repo share a common git dir; a linked worktree has `.git` as a FILE.
+  const commonDir = path.resolve(dir, commonRes.code === 0 ? commonRes.out.trim() : '.git')
+  let isLinkedWorktree = false
+  try { isLinkedWorktree = fs.statSync(path.join(dir, '.git')).isFile() } catch { /* dir → main */ }
   const remoteUrl = remote.code === 0 ? remote.out.trim() : ''
   const hasUpstream = upstream.code === 0
   let behind = 0, ahead = 0
@@ -219,8 +224,30 @@ async function repoInfo(dir) {
     ahead, behind, hasUpstream,
     upstream: hasUpstream && upstreamRef.code === 0 ? upstreamRef.out.trim() : null,
     operation: detectGitOperation(dir, gitDirRes.code === 0 ? gitDirRes.out.trim() : '.git'),
+    commonDir,
+    isLinkedWorktree,
     user: cfg,
   }
+}
+
+/** All worktrees of a repo (parsed from `git worktree list --porcelain`). */
+async function worktrees(dir) {
+  const r = await git(dir, ['worktree', 'list', '--porcelain'])
+  if (r.code !== 0) return { worktrees: [] }
+  const out = []
+  for (const block of r.out.split('\n\n')) {
+    const wt = { path: '', branch: null, head: null, bare: false, detached: false, locked: false }
+    for (const line of block.split('\n')) {
+      if (line.startsWith('worktree ')) wt.path = line.slice(9).trim()
+      else if (line.startsWith('branch ')) wt.branch = line.slice(7).trim().replace(/^refs\/heads\//, '')
+      else if (line.startsWith('HEAD ')) wt.head = line.slice(5).trim()
+      else if (line === 'bare') wt.bare = true
+      else if (line === 'detached') wt.detached = true
+      else if (line.startsWith('locked')) wt.locked = true
+    }
+    if (wt.path) out.push(wt)
+  }
+  return { worktrees: out }
 }
 
 /** The repo's default branch (origin/HEAD), stripped of the "origin/" prefix. */
@@ -486,6 +513,10 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/repos/source') {
       const { path: p, source } = await readBody(req)
       return json(res, 200, await sourceStatus(p, source))
+    }
+    if (req.method === 'POST' && url.pathname === '/repos/worktrees') {
+      const { path: p } = await readBody(req)
+      return json(res, 200, await worktrees(p))
     }
     if (req.method === 'POST' && url.pathname === '/repos/fetch') {
       const { path: p } = await readBody(req)
