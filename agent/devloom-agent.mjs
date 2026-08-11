@@ -24,12 +24,15 @@ const IS_WIN = process.platform === 'win32'
 const AGENT_DIR = path.dirname(fileURLToPath(import.meta.url))
 const LOGO_PATH = path.join(AGENT_DIR, 'assets', 'devloom-logo.png')
 
-// Run a command, capturing stdout/stderr. `input` (if given) is written to stdin.
-function run(cmd, args, { input, cwd, timeoutMs = 180000 } = {}) {
+// Run a command, capturing stdout/stderr. `input` (if given) is written to stdin. `shell`
+// defaults to true on Windows (to resolve .cmd/.ps1 shims like claude/gh) — but callers passing
+// real .exe args with spaces (e.g. git commit -m "multi word") MUST set shell:false, or cmd.exe
+// re-splits the arguments on spaces.
+function run(cmd, args, { input, cwd, timeoutMs = 180000, shell = IS_WIN } = {}) {
   return new Promise((resolve) => {
     let child
     try {
-      child = spawn(cmd, args, { cwd, shell: IS_WIN }) // shell:true on Windows resolves .cmd/.ps1
+      child = spawn(cmd, args, { cwd, shell })
     } catch (e) {
       resolve({ code: -1, out: '', err: String(e) })
       return
@@ -161,8 +164,10 @@ function cancelRun(id) {
 }
 
 // ---- git / repositories ----
+// shell:false — git is a real .exe, and running it through cmd.exe would re-split args that
+// contain spaces (e.g. commit messages, quoted paths).
 function git(cwd, args) {
-  return run('git', args, { cwd, timeoutMs: 120000 })
+  return run('git', args, { cwd, timeoutMs: 120000, shell: false })
 }
 
 // ---- worktree isolation (Fleet) ----
