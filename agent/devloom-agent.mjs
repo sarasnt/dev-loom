@@ -816,22 +816,58 @@ function ensureTrusted(dir) {
   }
 }
 
+// Persistent terminal sessions: a PTY keyed by sessionId survives its WebSocket disconnecting
+// (you switch pages) and is re-attached on reconnect with its scrollback replayed. This is what
+// lets a claude-cli terminal keep working in the background and reappear in the Fleet.
+const ptySessions = new Map() // sessionId -> { term, buffer:[], bufBytes, client, lastActivity, alive }
+const PTY_BUFFER_MAX = 256 * 1024      // scrollback cap replayed on re-attach
+const PTY_IDLE_MS = 30 * 60 * 1000     // kill a detached session after this much inactivity
+
+/** Whether a session's terminal is currently alive (for the Fleet to report running vs ended). */
+function ptyAlive(sessionId) {
+  const s = ptySessions.get(sessionId)
+  return !!(s && s.alive)
+}
+
+// Wire a WebSocket client to a session: replay scrollback, forward input, detach (not kill) on close.
+function attachPtyClient(sess, ws) {
+  sess.client = ws
+  try { if (sess.buffer.length) ws.send(sess.buffer.join('')) } catch { /* client gone */ }
+  ws.on('message', (raw) => {
+    let msg
+    try { msg = JSON.parse(raw.toString()) } catch { return }
+    if (msg.type === 'input' && typeof msg.data === 'string') { sess.lastActivity = Date.now(); try { sess.term.write(msg.data) } catch {} }
+    else if (msg.type === 'resize') { try { sess.term.resize(Math.max(1, msg.cols | 0), Math.max(1, msg.rows | 0)) } catch {} }
+  })
+  ws.on('close', () => { if (sess.client === ws) sess.client = null }) // detach — the PTY keeps running
+}
+
 async function startPty(ws, url) {
+  const q = url.searchParams
+  const wanted = q.get('cwd') || ''
+  const cwd = wanted && fs.existsSync(wanted) ? wanted : os.homedir()
+  const sessionId = q.get('sessionId') || ('anon-' + Date.now().toString(36))
+  const resume = q.get('resume') === 'true'
+  const cols = Math.max(1, Number(q.get('cols')) || 80)
+  const rows = Math.max(1, Number(q.get('rows')) || 24)
+
+  // Re-attach to a still-running session (the user came back to it) — replay its scrollback and
+  // nudge a redraw with a resize so claude's TUI repaints the current screen.
+  const existing = ptySessions.get(sessionId)
+  if (existing && existing.alive) {
+    try { existing.term.resize(cols, rows) } catch {}
+    attachPtyClient(existing, ws)
+    console.log(`pty: re-attached ${sessionId}`)
+    return
+  }
+
   let pty
   try { pty = await getPty() } catch (e) {
     try { ws.send(`\r\n[terminal unavailable — run \`npm install\` in agent/ (${e.message})]\r\n`); ws.close() } catch {}
     return
   }
-  const q = url.searchParams
-  const wanted = q.get('cwd') || ''
-  const cwd = wanted && fs.existsSync(wanted) ? wanted : os.homedir()
-  const sessionId = q.get('sessionId') || ''
-  const resume = q.get('resume') === 'true'
-  const cols = Math.max(1, Number(q.get('cols')) || 80)
-  const rows = Math.max(1, Number(q.get('rows')) || 24)
 
   ensureTrusted(cwd) // skip Claude's "trust this folder?" prompt so the session can start
-
   const [cmd, args] = launchArgv(sessionId, resume, cwd)
 
   // The agent may itself have been launched from inside Claude Code (e.g. started by a
@@ -848,26 +884,44 @@ async function startPty(ws, url) {
 
   let term
   try {
-    term = pty.spawn(cmd, args, {
-      name: 'xterm-256color', cols, rows, cwd, env,
-    })
+    term = pty.spawn(cmd, args, { name: 'xterm-256color', cols, rows, cwd, env })
   } catch (e) {
     try { ws.send(`\r\n[failed to start terminal: ${e.message}]\r\n`); ws.close() } catch {}
     return
   }
 
-  term.onData((d) => { try { ws.send(d) } catch {} })
-  term.onExit(({ exitCode }) => { try { ws.send(`\r\n[terminal exited (${exitCode})]\r\n`); ws.close() } catch {} })
+  const sess = { term, buffer: [], bufBytes: 0, client: null, lastActivity: Date.now(), alive: true }
+  ptySessions.set(sessionId, sess)
 
-  ws.on('message', (raw) => {
-    let msg
-    try { msg = JSON.parse(raw.toString()) } catch { return }
-    if (msg.type === 'input' && typeof msg.data === 'string') term.write(msg.data)
-    else if (msg.type === 'resize') { try { term.resize(Math.max(1, msg.cols | 0), Math.max(1, msg.rows | 0)) } catch {} }
+  term.onData((d) => {
+    const s = String(d)
+    sess.buffer.push(s); sess.bufBytes += s.length; sess.lastActivity = Date.now()
+    while (sess.bufBytes > PTY_BUFFER_MAX && sess.buffer.length > 1) sess.bufBytes -= sess.buffer.shift().length
+    if (sess.client) { try { sess.client.send(s) } catch {} }
   })
-  ws.on('close', () => { try { term.kill() } catch {} })
-  console.log(`pty: ${cmd} (${resume ? 'resume' : 'session'} ${sessionId || 'none'}) in ${cwd}`)
+  term.onExit(({ exitCode }) => {
+    sess.alive = false
+    if (sess.client) { try { sess.client.send(`\r\n[terminal exited (${exitCode})]\r\n`); sess.client.close() } catch {} }
+    ptySessions.delete(sessionId)
+  })
+
+  attachPtyClient(sess, ws)
+  console.log(`pty: ${cmd} (${resume ? 'resume' : 'session'} ${sessionId}) in ${cwd}`)
 }
+
+// GC: reap terminals that have had no client and no activity for a while, so detached sessions
+// don't leak forever.
+setInterval(() => {
+  const now = Date.now()
+  for (const [id, s] of ptySessions) {
+    if (s.alive && !s.client && now - s.lastActivity > PTY_IDLE_MS) {
+      try { s.term.kill() } catch {}
+      s.alive = false
+      ptySessions.delete(id)
+      console.log('pty: GC idle session', id)
+    }
+  }
+}, 60 * 1000)
 
 server.on('upgrade', async (req, socket, head) => {
   const url = new URL(req.url, `http://${req.headers.host}`)
