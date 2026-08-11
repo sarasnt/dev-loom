@@ -1,0 +1,491 @@
+# Repository Git Essentials — Feature Specification
+
+**Status:** Draft 1  
+**Surface:** Repositories page  
+**Audience:** Product, design, engineering, QA  
+
+## 1. Summary
+
+Enhance the existing Repositories page with the minimum Git capabilities needed to understand repository and branch health, inspect commit history, and clean up local history before sharing it.
+
+The page should help users answer:
+
+- Is this repository synchronized with its remote?
+- Is the current branch behind or ahead of its tracked upstream?
+- Is the branch outdated relative to the branch it was created from?
+- Would updating or merging from the source branch produce conflicts?
+- What commits are on this branch?
+- Can I safely squash selected commits before pushing?
+- Which Git identity will author new commits in this repository?
+
+This is not intended to become a full Git management workspace. Advanced history editing, arbitrary rebases, cherry-picking, reflog management, remote administration, and complex conflict resolution remain outside this page.
+
+## 2. Goals
+
+1. Make repository and branch health understandable at a glance.
+2. Distinguish remote synchronization from source-branch freshness.
+3. Detect likely conflicts without changing the worktree or branch state.
+4. Provide a readable Git log focused on the current branch.
+5. Support one guarded history-editing action: squashing contiguous commits.
+6. Place Git identity where users understand its scope: repository configuration and commit authorship.
+
+## 3. Non-goals
+
+- Full visual Git client functionality.
+- Interactive rebase with arbitrary reorder, edit, drop, fixup, or split operations.
+- Conflict resolution UI.
+- Commit graph manipulation across multiple branches.
+- Remote, credential, tag, stash, submodule, or worktree management.
+- Automatic force-push after rewriting history.
+- Automatic merge, rebase, or pull from the source branch.
+
+## 4. Product principles
+
+### 4.1 Read-only by default
+
+Opening the page, fetching status, viewing history, and checking conflict risk must not modify the current branch, index, or working tree.
+
+### 4.2 Separate facts from actions
+
+The page should first explain repository state, then offer the smallest relevant action. Status labels must not imply that a merge, pull, rebase, or push has already occurred.
+
+### 4.3 Use precise Git language
+
+“Needs pull” and “outdated” describe different relationships:
+
+- **Needs pull:** the local branch is behind its configured upstream tracking branch.
+- **Outdated:** the branch is behind its configured source branch, such as `main`, even if its own upstream is synchronized.
+
+### 4.4 Make destructive operations explicit
+
+Squashing rewrites commit history. The UI must explain this before confirmation, create a recoverable backup reference, and never force-push automatically.
+
+## 5. Information architecture
+
+Each repository card or detail header has three conceptual regions.
+
+### A. Repository metadata
+
+This cluster identifies and configures the repository:
+
+- Provider badge: GitHub, Bitbucket, GitLab, Azure DevOps, local/other, etc.
+- Repository identifier: owner/name or remote host/path.
+- Local path, when useful.
+- Active Git identity: commit author name and email.
+- Entry point to change repository Git identity.
+
+### B. Repository and branch health
+
+This region communicates current state:
+
+- Current branch.
+- Working tree state.
+- Upstream synchronization.
+- Source-branch freshness.
+- Conflict risk.
+- Last successful fetch time and refresh state.
+
+### C. Workflow actions
+
+This row contains operational actions such as:
+
+- Changes
+- Pull
+- Push
+- Open/create pull request
+- History
+- More actions
+
+**Git identity must not appear at the same visual level as these workflow buttons.** It belongs in the repository metadata cluster, adjacent to the provider badge and repository identifier, because it controls the author identity used for commits rather than performing a Git workflow operation.
+
+## 6. Source branch model
+
+Each non-default branch may have a **source branch** representing the branch it is expected to stay current with, for example `main` or `develop`.
+
+Source branch resolution follows this order:
+
+1. Explicit source branch saved for the current branch.
+2. Base branch from an associated open pull request, when available.
+3. Repository default branch.
+4. Unknown, if none can be resolved.
+
+The resolved source should be visible and editable. The UI must not silently treat the tracked upstream as the source branch; they often represent different relationships.
+
+Examples:
+
+| Relationship | Example | Meaning |
+| --- | --- | --- |
+| Tracked upstream | `feature/login` → `origin/feature/login` | Where this branch is pushed and pulled |
+| Source branch | `feature/login` → `origin/main` | Branch this work is based on and should remain current with |
+
+## 7. Status model
+
+Status calculations use the latest known remote refs. A manual refresh performs a fetch before recalculating. The UI always shows when status was last refreshed.
+
+### 7.1 Working tree
+
+| Status | Definition | Presentation |
+| --- | --- | --- |
+| Clean | No staged, unstaged, or untracked changes | Neutral/success indicator |
+| Changes | One or more staged, unstaged, or untracked files | Count and “View changes” action |
+| Operation in progress | Merge, rebase, cherry-pick, or revert state detected | Warning; disable squash |
+
+### 7.2 Upstream synchronization
+
+Compare the local branch with its tracked upstream.
+
+| Status | Condition | Suggested action |
+| --- | --- | --- |
+| Up to date | Ahead `0`, behind `0` | None |
+| Needs push | Ahead `>0`, behind `0` | Push |
+| Needs pull | Ahead `0`, behind `>0` | Pull |
+| Diverged | Ahead `>0`, behind `>0` | Open guidance; do not imply a simple pull is always safe |
+| Unpublished | No upstream; local commits exist | Publish branch |
+| No upstream | No tracking configuration | Configure/publish |
+
+Display exact counts where available, such as “2 ahead · 3 behind upstream.”
+
+### 7.3 Source-branch freshness
+
+Compare the current branch with the latest fetched source ref using merge-base calculations.
+
+| Status | Condition | Presentation |
+| --- | --- | --- |
+| Current | Behind source `0` | “Current with `main`” |
+| Outdated | Behind source `>0` | “Behind `main` by 6 commits” |
+| Source ahead and branch has unique work | Both sides have unique commits | Show ahead/behind counts and conflict result |
+| Unknown | Source cannot be resolved or fetched | Explain what configuration is missing |
+
+“Outdated” must not be labeled “Needs pull,” because pulling the branch’s upstream may not update it from its source branch.
+
+### 7.4 Conflict risk
+
+The page checks whether integrating the latest fetched source branch into the current branch is expected to produce content conflicts.
+
+Possible states:
+
+- **No conflicts detected**
+- **Conflicts likely**, with the number and paths of affected files when available
+- **Unable to check**, with a useful reason
+- **Check is stale**, when refs have not been refreshed within the product-defined freshness window
+
+The check must:
+
+- Use merge-tree or an equivalent in-memory/dry-run calculation.
+- Use the merge base, current branch tip, and latest fetched source ref.
+- Avoid checkout, merge, rebase, index changes, and worktree changes.
+- Clearly state that the result is predictive and may change if remote refs change.
+
+For repositories with multiple local branches, the repository detail may show a branch-health list with currentness and conflict risk for each branch against its resolved source branch.
+
+## 8. Git history
+
+### 8.1 Entry and default view
+
+“History” opens a panel or detail view for the selected repository and current branch. The default view shows newest commits first and does not attempt to replace a full commit-graph client.
+
+Each commit row includes:
+
+- Short SHA
+- Subject
+- Author name and avatar when available
+- Authored or committed timestamp
+- Local/remote badges when relevant
+- Parent count or merge indicator
+- Selection control when the commit is eligible for squash
+
+### 8.2 History scope and filters
+
+Minimum filters:
+
+- Current branch
+- Commits unique to current branch compared with its source branch
+- All refs, optional secondary view
+
+The “unique to branch” view should be the preferred context for squash because it excludes source-branch history.
+
+### 8.3 Commit details
+
+Selecting a commit shows:
+
+- Full SHA
+- Full message
+- Author and committer identities
+- Parent commit(s)
+- Changed-file summary
+- Diff or link to the existing Changes/diff experience
+
+## 9. Squash selected commits
+
+### 9.1 Scope
+
+Users can squash two or more **contiguous, eligible commits** from the current branch into one commit.
+
+The first release does not allow arbitrary non-contiguous selection, reordering, splitting, editing individual commits, or squashing merge commits.
+
+### 9.2 Eligibility
+
+Enable squash only when all conditions are true:
+
+- At least two commits are selected.
+- Selected commits are contiguous in first-parent order.
+- All selected commits are on the current local branch.
+- All selected commits are unique to the branch relative to the resolved source branch.
+- No selected commit is a merge commit.
+- The working tree and index are clean.
+- No merge, rebase, cherry-pick, or revert is in progress.
+- The repository is not in detached HEAD state.
+- The selected range does not cross a protected boundary defined by product policy.
+
+If the branch has been pushed, squashing remains possible only with an elevated warning that the branch history will diverge from its remote. The UI must not automatically force-push afterward.
+
+### 9.3 Interaction
+
+1. User opens History and selects a contiguous range.
+2. UI summarizes the selected range and its remote state.
+3. User chooses **Squash commits**.
+4. A confirmation dialog shows:
+   - Number and range of commits
+   - Resulting parent commit
+   - Whether selected commits appear to be published
+   - Active Git identity for the new commit
+   - Proposed combined commit message
+   - Explicit history-rewrite warning
+5. User edits the resulting commit message and confirms.
+6. The system creates a backup ref, performs the squash, and refreshes status/history.
+7. The result offers “Copy recovery command” or “Restore backup” where supported.
+
+### 9.4 Commit message
+
+Default proposal:
+
+- Subject from the oldest selected commit, editable.
+- Remaining selected commit subjects included in the body as a concise list.
+- User may replace the entire message before confirmation.
+
+The resulting commit uses the active repository Git identity unless existing application behavior explicitly preserves original authorship. The confirmation dialog must state which identity will be used.
+
+### 9.5 Safety and recovery
+
+Before rewriting history, create a namespaced backup ref pointing to the original branch tip, for example:
+
+`refs/app-backups/squash/<branch>/<timestamp>`
+
+Requirements:
+
+- Keep the backup for a documented retention period.
+- Do not overwrite an existing backup ref.
+- If the squash fails, leave the original branch unchanged whenever Git permits.
+- Surface a clear recovery path.
+- Do not push automatically.
+- After success, if the remote branch contains the old history, show “Push required; force-with-lease may be needed” rather than a standard Push action.
+- If a force update is later supported, allow only `--force-with-lease`, with a separate explicit confirmation.
+
+## 10. Git identity
+
+### 10.1 Placement and hierarchy
+
+Git identity is repository configuration, not a primary action. Display it near the provider and repository identifier, for example:
+
+> GitHub · `acme/payments-api`  
+> Commits as **Alex Morgan** `<alex@acme.com>` · Change
+
+Do not place “Git identity” beside Changes, Pull, Push, or PR buttons.
+
+### 10.2 Behavior
+
+The metadata cluster shows the effective identity used for new commits:
+
+- `user.name`
+- `user.email`
+- Scope/source: repository override or global default
+
+“Change” opens a small configuration surface that allows the user to:
+
+- Select the global default identity.
+- Set a repository-specific name and email.
+- Remove the repository override and fall back to global configuration.
+
+Changes affect future commits only. The UI must state that changing identity does not rewrite existing commits.
+
+### 10.3 Validation
+
+- Warn if name or email is missing before any operation that creates a commit.
+- Validate basic email shape without preventing valid Git-compatible identity strings unnecessarily.
+- Never infer or silently change identity solely from the remote provider account.
+- Clearly distinguish provider authentication from commit authorship.
+
+## 11. Recommended UI behavior
+
+### Repository card/header
+
+- Keep the current repository name, provider, and path hierarchy.
+- Add compact branch-health chips with accessible text, not color alone.
+- Show the highest-priority problem first; preserve exact details in an expanded view.
+- Put the identity summary beneath or beside the provider/repository identifier.
+- Keep workflow actions together in the existing action row.
+
+### Expanded health details
+
+Show separate rows for:
+
+1. Working tree
+2. Upstream
+3. Source branch
+4. Conflict check
+5. Last refresh
+
+Avoid collapsing these into a single ambiguous “Sync” state.
+
+### Priority order
+
+When space is limited, present states in this order:
+
+1. Git operation in progress or error
+2. Working tree changes that block an action
+3. Upstream divergence / needs pull
+4. Source-branch conflicts likely
+5. Source branch outdated
+6. Needs push / unpublished
+7. Healthy
+
+## 12. Functional requirements
+
+| ID | Requirement |
+| --- | --- |
+| FR-01 | Show current branch and working-tree state for each repository. |
+| FR-02 | Fetch and calculate exact ahead/behind counts against the tracked upstream. |
+| FR-03 | Resolve, display, and allow editing of the source branch. |
+| FR-04 | Calculate exact ahead/behind counts against the source branch independently of upstream status. |
+| FR-05 | Predict conflicts against the latest fetched source ref without modifying repository state. |
+| FR-06 | Show last refresh time and allow manual refresh. |
+| FR-07 | Provide a current-branch Git log with a unique-to-source filter. |
+| FR-08 | Show commit metadata and changed-file details. |
+| FR-09 | Allow selection only of squash-eligible contiguous commit ranges. |
+| FR-10 | Validate working tree, repository state, selected range, and remote publication before squash. |
+| FR-11 | Show and allow editing of the resulting squash commit message. |
+| FR-12 | Create a recovery ref before rewriting history. |
+| FR-13 | Never force-push automatically after squash. |
+| FR-14 | Show effective Git identity in the repository metadata cluster, not the workflow action row. |
+| FR-15 | Allow repository identity override and fallback to global identity. |
+| FR-16 | Show the effective identity during any commit-creating confirmation flow. |
+| FR-17 | Refresh all affected status and history data after a Git action. |
+
+## 13. Error and edge cases
+
+- **Fetch fails:** retain last known results, mark them stale, and show the fetch error without presenting stale data as current.
+- **No remote:** show local history and working-tree state; mark upstream/source checks unavailable where appropriate.
+- **Deleted remote branch:** show that the upstream or source ref is gone and offer reconfiguration.
+- **Shallow clone:** disclose that history, merge-base, or conflict analysis may be incomplete; offer to fetch required history.
+- **Detached HEAD:** allow read-only history/status, disable squash.
+- **Unborn branch:** show no-history state and disable comparisons requiring a commit.
+- **Large repository:** calculate asynchronously, cache by ref SHAs, and preserve usable partial states.
+- **Submodules:** report parent repository status; full submodule management is out of scope.
+- **Worktrees:** ensure operations target the correct worktree and do not mutate another checked-out branch.
+- **Case-sensitive branch ambiguity:** use canonical full ref names internally.
+
+## 14. Performance and freshness
+
+- Render cached local status immediately when safe.
+- Run fetch and conflict analysis asynchronously with visible progress.
+- Cache comparison results by `(repository, branch SHA, source SHA)`.
+- Invalidate relevant caches after fetch, pull, push, checkout, commit, reset, or squash.
+- Avoid fetching once per branch; fetch once per remote and calculate locally.
+- A repository card should remain interactive while non-critical health checks run.
+
+## 15. Accessibility
+
+- Status must not rely on color alone.
+- Every icon and chip has an accessible label.
+- Commit selection and contiguous-range feedback are keyboard accessible.
+- Confirmation dialogs announce history-rewrite risk and validation errors.
+- Long branch names, emails, and paths truncate visually but remain available via tooltip/copy.
+
+## 16. Analytics
+
+Track product behavior without collecting commit contents, diff contents, names, or email addresses.
+
+Suggested events:
+
+- Repository health expanded
+- Status refreshed / fetch failed
+- Source branch configured or changed
+- Conflict check completed by result category
+- History opened and filter selected
+- Squash initiated, blocked by reason, cancelled, succeeded, or failed
+- Repository identity editor opened and override changed
+
+## 17. Acceptance criteria
+
+### Status and conflict detection
+
+- A branch synchronized with `origin/feature-x` but behind `origin/main` is shown as upstream “Up to date” and source “Outdated”; it is not shown as “Needs pull.”
+- A branch behind its tracked upstream is shown as “Needs pull,” with an exact count.
+- A diverged branch shows both ahead and behind counts.
+- Conflict analysis does not change HEAD, the index, the working tree, or any branch ref.
+- Failed or stale fetches are visibly distinguished from current results.
+
+### History and squash
+
+- Users can view commits unique to the current branch compared with its source.
+- Non-contiguous selections cannot be submitted for squash.
+- Merge commits and commits outside the branch-unique range are ineligible.
+- Squash is blocked when the worktree is dirty or another Git operation is active.
+- Confirmation shows the selected range, resulting message, publication warning, and active Git identity.
+- A backup ref exists before the branch ref is rewritten.
+- Successful squash refreshes history and status.
+- No push or force-push occurs automatically.
+
+### Git identity
+
+- The effective commit name and email appear beside the repository provider/identifier metadata.
+- Git identity is not presented as a peer of Changes, Pull, Push, or PR actions.
+- The UI indicates whether identity comes from repository or global configuration.
+- A user can add or remove a repository-specific override.
+- Changing identity clearly applies only to future commits.
+- Commit-creating actions warn when identity is incomplete.
+
+## 18. Rollout
+
+### Phase 1 — Repository health
+
+- Metadata hierarchy and Git identity relocation
+- Working tree and upstream status
+- Source branch resolution/configuration
+- Ahead/behind source status
+- Read-only conflict prediction
+
+### Phase 2 — History
+
+- Current-branch log
+- Unique-to-source filter
+- Commit details and changed-file summary
+
+### Phase 3 — Guarded squash
+
+- Contiguous selection
+- Validation and confirmation flow
+- Backup ref and recovery guidance
+- Published-history warning
+
+## 19. Open product decisions
+
+1. What is the default freshness window before conflict results are labeled stale?
+2. How long are backup refs retained, and can users manage them?
+3. Should squash be disabled entirely for published commits in the first release, or allowed with the elevated warning described here?
+4. Can users configure source branches per branch, via naming rules, or both?
+5. Should branch-health scanning cover only local branches or also remote-only branches?
+6. Which existing Changes/diff surface should commit details reuse?
+
+## 20. Implementation notes
+
+These are directional and not a required command-level design:
+
+- Upstream counts: use revision-list left/right counts between HEAD and the tracked upstream.
+- Source counts: use the same comparison against the resolved, fetched source ref.
+- Unique commits: derive from the source/HEAD revision range.
+- Conflict prediction: use `git merge-tree` or a library equivalent that does not mutate the index or worktree.
+- Identity: resolve repository-local configuration first, then global configuration, matching Git precedence.
+- Squash: perform the rewrite through a controlled backend operation with preflight validation, atomic ref updates where possible, and a backup ref created first.
+- Force updates, if later implemented, must use lease-protected semantics.
+

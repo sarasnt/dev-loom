@@ -7,6 +7,7 @@ import { useDashboardStore } from '../stores/dashboard'
 import SourceChip from '../components/SourceChip.vue'
 import LoomLoader from '../components/LoomLoader.vue'
 import ModelSelect from '../components/ModelSelect.vue'
+import { renderMarkdown } from '../utils/markdown'
 
 const API = (import.meta.env.VITE_API_BASE as string) ?? '/api/v1'
 
@@ -143,12 +144,12 @@ onUnmounted(closeStream)
 
       <section class="step">
         <div class="n mono">① SUMMARY</div>
-        <p class="prose">
-          {{ data.summary }}
+        <div class="prose md" v-html="renderMarkdown(data.summary)"></div>
+        <div class="pillrow">
           <span class="pill hi mono">conf: {{ data.summaryConfidence }}</span>
           <span v-if="data.analyzedBy && data.analyzedBy !== 'deterministic'" class="pill mono">{{ data.analyzedBy }}</span>
           <span class="reason-mark" aria-label="model reasoning">reasoning°</span>
-        </p>
+        </div>
       </section>
 
       <section class="step">
@@ -168,7 +169,7 @@ onUnmounted(closeStream)
           <span class="rk mono">{{ c.rank }}</span>
           <div class="cbody">
             <div :class="{ dimmed: c.uncited }">
-              {{ c.text }}
+              <span class="md" v-html="renderMarkdown(c.text)"></span>
               <span v-if="!c.uncited" class="reason-mark" aria-label="model reasoning">reasoning°</span>
             </div>
             <div class="thread mono">
@@ -191,7 +192,7 @@ onUnmounted(closeStream)
         <ol class="diag">
           <li v-for="(d, i) in data.diagnostics" :key="i">{{ d }}</li>
         </ol>
-        <p class="prose">{{ data.fixes[0] }} <span class="reason-mark">reasoning°</span></p>
+        <p class="prose"><span class="md" v-html="renderMarkdown(data.fixes[0])"></span> <span class="reason-mark">reasoning°</span></p>
       </section>
 
       <div class="handoffbar">
@@ -226,6 +227,21 @@ onUnmounted(closeStream)
 .step { border: 1px solid var(--line); border-radius: var(--r-card); background: var(--surface); padding: 14px 16px; margin-bottom: 14px; }
 .n { font-size: 11px; color: var(--warp-hi); letter-spacing: 0.08em; }
 .prose { color: var(--dim); font-size: 14px; margin: 8px 0 0; line-height: 1.55; }
+.pillrow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
+/* rendered markdown in model output (summary, causes, fixes) */
+.md :deep(.md-p) { margin: 0 0 8px; } .md :deep(.md-p:last-child) { margin-bottom: 0; }
+.md :deep(.md-h) { font-weight: 600; color: var(--ink); margin: 10px 0 5px; }
+.md :deep(.md-ul), .md :deep(.md-ol) { margin: 4px 0 8px; padding-left: 20px; }
+.md :deep(li) { margin: 2px 0; }
+.md :deep(strong) { color: var(--ink); font-weight: 600; }
+.md :deep(.md-code) { font-family: var(--mono); font-size: 12px; background: var(--chip-bg); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; }
+.md :deep(.md-pre) { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; overflow: auto; margin: 6px 0; }
+.md :deep(.md-pre code) { font-family: var(--mono); font-size: 12px; white-space: pre; background: none; border: 0; padding: 0; }
+.md :deep(a) { color: var(--warp-hi); text-decoration: underline; }
+.md :deep(.md-tablewrap) { overflow-x: auto; margin: 8px 0; }
+.md :deep(.md-table) { border-collapse: collapse; font-size: 12.5px; }
+.md :deep(.md-table th), .md :deep(.md-table td) { border: 1px solid var(--line); padding: 5px 9px; text-align: left; vertical-align: top; }
+.md :deep(.md-table th) { background: var(--chip-bg); color: var(--ink); font-weight: 600; }
 .reason-mark {
   font-family: var(--mono); font-size: 10px; color: var(--warp);
   border: 1px solid var(--warp); border-radius: 4px; padding: 1px 5px; margin-left: 6px; white-space: nowrap;
