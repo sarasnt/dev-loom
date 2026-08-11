@@ -258,6 +258,53 @@ public class RepoService {
         return "repo.src." + repoId + "." + b;
     }
 
+    /**
+     * Current-branch history (repo-spec §8). {@code unique} filters to commits not on the resolved
+     * source branch (same override resolution as {@link #sourceStatus}); passthrough of the agent's
+     * shape: {commits:[{hash,short,author,email,date,merge,subject,published}], sourceRef, hasUpstream}.
+     */
+    public Map<String, Object> history(String id, boolean unique, int limit) {
+        GitRepoEntity r = repos.findById(parse(id)).orElseThrow();
+        String cur = str(agent.status(r.getPath()), "branch");
+        String override = config.get(srcKey(r.getId(), cur)).orElse(null);
+        return agent.log(r.getPath(), override, unique, limit);
+    }
+
+    /** Full details of one commit (guards the hash so nothing shell-ish reaches git). */
+    public Map<String, Object> commitDetail(String id, String hash) {
+        if (hash == null || !hash.matches("[0-9a-fA-F]{4,64}")) {
+            throw new IllegalArgumentException("not a commit hash");
+        }
+        return agent.commitInfo(pathOf(id), hash);
+    }
+
+    /**
+     * Guarded squash of the newest {@code count} commits (repo-spec §9). Published commits (already
+     * on the upstream) require the explicit {@code confirmPublished} acknowledgement — squashing
+     * them diverges the branch from its remote. The agent writes a backup ref before rewriting and
+     * never pushes.
+     */
+    public Map<String, Object> squash(String id, int count, String message, boolean confirmPublished) {
+        String path = pathOf(id);
+        if (!confirmPublished) {
+            Map<String, Object> hist = agent.log(path, null, false, Math.max(count, 2));
+            Object commits = hist.get("commits");
+            if (commits instanceof List<?> list) {
+                long published = list.stream().limit(count)
+                        .filter(c -> c instanceof Map<?, ?> m && Boolean.TRUE.equals(m.get("published")))
+                        .count();
+                if (published > 0) {
+                    return Map.of("ok", false, "needsConfirm", true,
+                            "error", published + " of the selected commits are already pushed — squashing "
+                                    + "rewrites published history and your branch will diverge from its remote.");
+                }
+            }
+        }
+        Map<String, Object> r = agent.squash(path, count, message);
+        audit.record("repo_squash", path, "count=" + count + " backup=" + r.get("backupRef"));
+        return r;
+    }
+
     /** Refs older than this are shown as "stale" and conflict results flagged for re-check (§7.4). */
     private static final java.time.Duration FRESH_WINDOW = java.time.Duration.ofMinutes(15);
 

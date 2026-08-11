@@ -204,3 +204,9 @@ export const repoPushProtection = (id: string) =>
   get<import('../types').PushProtection>(`/repos/${id}/push-protection`)
 export const setRepoPushProtection = (id: string, mode: string, patterns: string) =>
   put<import('../types').PushProtection>(`/repos/${id}/push-protection`, { mode, patterns })
+export const repoHistory = (id: string, unique: boolean, limit = 50) =>
+  get<import('../types').HistoryResult>(`/repos/${id}/history?unique=${unique}&limit=${limit}`)
+export const repoCommitDetail = (id: string, hash: string) =>
+  get<import('../types').CommitDetail>(`/repos/${id}/commits/${encodeURIComponent(hash)}`)
+export const repoSquash = (id: string, count: number, message: string, confirmPublished: boolean) =>
+  post<import('../types').SquashResult>(`/repos/${id}/squash`, { count, message, confirmPublished })

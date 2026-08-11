@@ -361,6 +361,108 @@ async function repoInfo(dir) {
   }
 }
 
+/**
+ * Commit history for the current branch (repo-spec §8). `uniqueOnly` limits it to commits not on
+ * the resolved source branch (the natural context for squash); each row carries whether it is
+ * already published to the upstream (drives the squash warning).
+ */
+async function repoLog(dir, { source, uniqueOnly, limit } = {}) {
+  const n = Math.min(Math.max(Number(limit) || 50, 1), 200)
+  let range = 'HEAD'
+  let sourceRef = null
+  if (uniqueOnly) {
+    const s = await sourceStatus(dir, source)
+    if (s.hasSource && s.ref) { range = s.ref + '..HEAD'; sourceRef = s.ref }
+  }
+  const fmt = '%H%x1f%h%x1f%an%x1f%ae%x1f%ad%x1f%P%x1f%s'
+  const r = await git(dir, ['log', '--date=iso-strict', `--pretty=format:${fmt}%x1e`, '-n', String(n), range])
+  if (r.code !== 0) return { commits: [], error: (r.err || 'log failed').trim().slice(0, 200) }
+  // Commits NOT yet on the upstream (unpublished) — everything else is published history.
+  const unpub = new Set()
+  const up = await git(dir, ['rev-list', '@{u}..HEAD'])
+  const hasUpstream = up.code === 0
+  if (hasUpstream) for (const h of up.out.split('\n')) { if (h.trim()) unpub.add(h.trim()) }
+  const commits = []
+  for (const block of r.out.split('\x1e')) {
+    const t = block.replace(/^\n/, '')
+    if (!t.trim()) continue
+    const [hash, short, author, email, date, parents, subject] = t.split('\x1f')
+    if (!hash) continue
+    const parentCount = (parents || '').trim().split(' ').filter(Boolean).length
+    commits.push({
+      hash, short, author, email, date,
+      merge: parentCount > 1,
+      subject: subject || '',
+      published: hasUpstream ? !unpub.has(hash) : false,
+    })
+  }
+  return { commits, sourceRef, hasUpstream }
+}
+
+/** Full details of one commit: identities, message, changed files. */
+async function commitInfo(dir, hash) {
+  const fmt = '%H%x1f%h%x1f%an%x1f%ae%x1f%ad%x1f%cn%x1f%cd%x1f%P%x1f%B'
+  const meta = await git(dir, ['show', '--no-patch', '--date=iso-strict', `--pretty=format:${fmt}`, hash])
+  if (meta.code !== 0) return { error: (meta.err || 'unknown commit').trim().slice(0, 200) }
+  const [H, short, author, email, date, committer, commitDate, parents, body] = meta.out.split('\x1f')
+  const filesRes = await git(dir, ['show', '--name-status', '--pretty=format:', hash])
+  const files = filesRes.code === 0
+    ? filesRes.out.split('\n').map((l) => l.trim()).filter(Boolean).map((l) => {
+        const [status, ...p] = l.split('\t')
+        return { status, file: p.join('\t') }
+      })
+    : []
+  return {
+    hash: H, short, author, email, date, committer, commitDate,
+    parents: (parents || '').split(' ').filter(Boolean),
+    message: (body || '').trim(), files,
+  }
+}
+
+/**
+ * Guarded squash (repo-spec §9): squash the newest `count` commits of the current branch into
+ * one. Preflight: clean tree, no operation in progress, not detached, no merge commits in range.
+ * A namespaced backup ref is written BEFORE any rewrite; on failure the branch is restored.
+ * Never pushes.
+ */
+async function squash(dir, { count, message }) {
+  const n = Number(count) | 0
+  if (n < 2) return { ok: false, error: 'select at least two commits' }
+  if (!message || !String(message).trim()) return { ok: false, error: 'commit message required' }
+  const st = await git(dir, ['status', '--porcelain'])
+  if (st.code !== 0) return { ok: false, error: 'not a git repo' }
+  if (st.out.trim()) return { ok: false, error: 'working tree has changes — commit or stash first' }
+  const br = await git(dir, ['rev-parse', '--abbrev-ref', 'HEAD'])
+  const branch = br.out.trim()
+  if (br.code !== 0 || branch === 'HEAD') return { ok: false, error: 'detached HEAD — check out a branch first' }
+  const gd = await git(dir, ['rev-parse', '--git-dir'])
+  const op = detectGitOperation(dir, gd.code === 0 ? gd.out.trim() : '.git')
+  if (op) return { ok: false, error: op + ' in progress — finish or abort it first' }
+  const lst = await git(dir, ['rev-list', '--parents', '-n', String(n), 'HEAD'])
+  const lines = lst.out.split('\n').filter(Boolean)
+  if (lines.length < n) return { ok: false, error: `branch has only ${lines.length} commit(s)` }
+  for (const l of lines) {
+    if (l.trim().split(' ').length > 2) return { ok: false, error: 'range contains a merge commit — merges cannot be squashed' }
+  }
+  const head = (await git(dir, ['rev-parse', 'HEAD'])).out.trim()
+  const ts = new Date().toISOString().replace(/[:.]/g, '-')
+  const backupRef = `refs/devloom-backups/squash/${branch.replace(/[^a-zA-Z0-9._/-]/g, '_')}/${ts}`
+  const bk = await git(dir, ['update-ref', backupRef, head])
+  if (bk.code !== 0) return { ok: false, error: 'could not create backup ref: ' + (bk.err || '').slice(0, 200) }
+  const rs = await git(dir, ['reset', '--soft', `HEAD~${n}`])
+  if (rs.code !== 0) {
+    await git(dir, ['update-ref', '-d', backupRef])
+    return { ok: false, error: (rs.err || 'reset failed').trim().slice(0, 200) }
+  }
+  const cm = await git(dir, ['commit', '-m', String(message)])
+  if (cm.code !== 0) {
+    await git(dir, ['reset', '--hard', head]) // restore the exact pre-squash state
+    return { ok: false, error: 'commit failed — branch restored: ' + (cm.err || '').trim().slice(0, 200) }
+  }
+  const newHead = (await git(dir, ['rev-parse', '--short', 'HEAD'])).out.trim()
+  return { ok: true, backupRef, newHead, recover: `git reset --hard ${backupRef}` }
+}
+
 /** All worktrees of a repo (parsed from `git worktree list --porcelain`). */
 async function worktrees(dir) {
   const r = await git(dir, ['worktree', 'list', '--porcelain'])
@@ -675,6 +777,18 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/repos/worktrees') {
       const { path: p } = await readBody(req)
       return json(res, 200, await worktrees(p))
+    }
+    if (req.method === 'POST' && url.pathname === '/repos/log') {
+      const { path: p, source, uniqueOnly, limit } = await readBody(req)
+      return json(res, 200, await repoLog(p, { source, uniqueOnly, limit }))
+    }
+    if (req.method === 'POST' && url.pathname === '/repos/commit-info') {
+      const { path: p, hash } = await readBody(req)
+      return json(res, 200, await commitInfo(p, hash))
+    }
+    if (req.method === 'POST' && url.pathname === '/repos/squash') {
+      const { path: p, count, message } = await readBody(req)
+      return json(res, 200, await squash(p, { count, message }))
     }
     if (req.method === 'POST' && url.pathname === '/repos/fetch') {
       const { path: p } = await readBody(req)

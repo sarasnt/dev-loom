@@ -388,3 +388,12 @@ export function repoPushProtection() {
 export function setRepoPushProtection() {
   return delay({ mode: 'protected' as const, patterns: 'main, master, develop, dev', overridden: true, globalMode: 'protected' as const })
 }
+export function repoHistory(): Promise<import('../types').HistoryResult> {
+  return delay({ commits: [], sourceRef: null, hasUpstream: false })
+}
+export function repoCommitDetail(): Promise<import('../types').CommitDetail> {
+  return delay(null as unknown as import('../types').CommitDetail)
+}
+export function repoSquash(): Promise<import('../types').SquashResult> {
+  return delay({ ok: false, error: 'offline' })
+}

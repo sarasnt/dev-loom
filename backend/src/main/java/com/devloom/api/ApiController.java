@@ -348,6 +348,23 @@ public class ApiController {
         return repoService.worktrees(id);
     }
 
+    @GetMapping("/repos/{id}/history")
+    public Map<String, Object> repoHistory(@PathVariable String id,
+            @org.springframework.web.bind.annotation.RequestParam(defaultValue = "false") boolean unique,
+            @org.springframework.web.bind.annotation.RequestParam(defaultValue = "50") int limit) {
+        return repoService.history(id, unique, limit);
+    }
+
+    @GetMapping("/repos/{id}/commits/{hash}")
+    public Map<String, Object> repoCommitDetail(@PathVariable String id, @PathVariable String hash) {
+        return repoService.commitDetail(id, hash);
+    }
+
+    @PostMapping("/repos/{id}/squash")
+    public Map<String, Object> repoSquash(@PathVariable String id, @RequestBody Dto.RepoSquash body) {
+        return repoService.squash(id, body.count(), body.message(), body.confirmPublished());
+    }
+
     @GetMapping("/repos/{id}/source")
     public Dto.SourceStatus repoSource(@PathVariable String id,
                                        @org.springframework.web.bind.annotation.RequestParam(required = false) String branch) {

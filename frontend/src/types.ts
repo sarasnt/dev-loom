@@ -232,6 +232,44 @@ export interface ConflictStatus {
   stale: boolean // refs older than the freshness window → prompt a refresh
 }
 
+// ---- Repo history + squash (repos spec §8–§9) ----
+export interface CommitRow {
+  hash: string
+  short: string
+  author: string
+  email: string
+  date: string // ISO
+  merge: boolean
+  subject: string
+  published: boolean // already on the upstream (squash needs elevated confirm)
+}
+export interface HistoryResult {
+  commits: CommitRow[]
+  sourceRef: string | null // set when the unique-to-source filter was applied
+  hasUpstream: boolean
+  error?: string
+}
+export interface CommitDetail {
+  hash: string
+  short: string
+  author: string
+  email: string
+  date: string
+  committer: string
+  commitDate: string
+  parents: string[]
+  message: string
+  files: { status: string; file: string }[]
+}
+export interface SquashResult {
+  ok: boolean
+  needsConfirm?: boolean
+  error?: string
+  backupRef?: string
+  newHead?: string
+  recover?: string
+}
+
 export interface BrowseDir { name: string; path: string; repo: boolean }
 export interface BrowseResult {
   path: string

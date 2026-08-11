@@ -85,3 +85,6 @@ export const saveFleetSettings = api.saveFleetSettings
 export const saveGitSettings = api.saveGitSettings
 export const repoPushProtection = api.repoPushProtection
 export const setRepoPushProtection = api.setRepoPushProtection
+export const repoHistory = api.repoHistory
+export const repoCommitDetail = api.repoCommitDetail
+export const repoSquash = api.repoSquash

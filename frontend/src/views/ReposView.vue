@@ -2,7 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { computed } from 'vue'
-import type { RepoView, BrowseResult, RepoChanges, SourceStatus, ConflictStatus, WorktreeInfo, PushProtection } from '../types'
+import type { RepoView, BrowseResult, RepoChanges, SourceStatus, ConflictStatus, WorktreeInfo, PushProtection, HistoryResult, CommitDetail } from '../types'
 import {
   fetchRepos,
   scanRepoFolder,
@@ -24,6 +24,9 @@ import {
   repoSource,
   setRepoSource,
   repoWorktrees,
+  repoHistory,
+  repoCommitDetail,
+  repoSquash,
   repoPushProtection,
   setRepoPushProtection,
   repoFetch,
@@ -489,6 +492,100 @@ async function abortOp(r: RepoView) {
   } finally { busy.value = '' }
 }
 
+// ---- history + guarded squash (repo-spec §8–§9) ----
+const openHistory = ref<string | null>(null)
+const histUnique = ref(true) // unique-to-source is the preferred (and squash-eligible) view
+const history = ref<Record<string, HistoryResult | null>>({})
+const histLoading = ref(false)
+const openCommit = ref('')
+const commitDetail = ref<CommitDetail | null>(null)
+// Squash selection is top-anchored: picking a row selects it and everything newer (contiguous
+// from HEAD) — the only shape a soft-reset squash supports.
+const squashThrough = ref(-1)
+const squashDlg = ref<RepoView | null>(null)
+const squashMsg = ref('')
+const squashAck = ref(false)
+const squashBusy = ref(false)
+
+async function toggleHistory(r: RepoView) {
+  if (openHistory.value === r.id) { openHistory.value = null; return }
+  openHistory.value = r.id
+  squashThrough.value = -1
+  openCommit.value = ''
+  await loadHistory(r)
+}
+async function loadHistory(r: RepoView) {
+  histLoading.value = true
+  try { history.value[r.id] = await repoHistory(r.id, histUnique.value) }
+  catch { history.value[r.id] = null }
+  finally { histLoading.value = false }
+}
+function setUnique(r: RepoView, v: boolean) {
+  histUnique.value = v
+  squashThrough.value = -1
+  loadHistory(r)
+}
+function commitsOf(r: RepoView) {
+  return history.value[r.id]?.commits ?? []
+}
+async function toggleCommit(r: RepoView, hash: string) {
+  if (openCommit.value === hash) { openCommit.value = ''; return }
+  openCommit.value = hash
+  commitDetail.value = null
+  try { commitDetail.value = await repoCommitDetail(r.id, hash) } catch { /* leave null */ }
+}
+function relTime(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime()
+  const m = Math.floor(ms / 60_000)
+  if (m < 1) return 'now'
+  if (m < 60) return `${m}m`
+  const h = Math.floor(m / 60)
+  if (h < 24) return `${h}h`
+  const d = Math.floor(h / 24)
+  return d < 30 ? `${d}d` : `${Math.floor(d / 30)}mo`
+}
+// A row is range-eligible when it and everything newer are non-merge commits.
+function rangeEligible(r: RepoView, idx: number) {
+  const cs = commitsOf(r)
+  for (let i = 0; i <= idx && i < cs.length; i++) if (cs[i].merge) return false
+  return true
+}
+function selectThrough(idx: number) {
+  squashThrough.value = squashThrough.value === idx ? -1 : idx
+}
+const selCount = computed(() => squashThrough.value + 1)
+function selectedPublished(r: RepoView) {
+  return commitsOf(r).slice(0, selCount.value).filter((c) => c.published).length
+}
+function openSquash(r: RepoView) {
+  const cs = commitsOf(r).slice(0, selCount.value)
+  const oldest = cs[cs.length - 1]
+  const others = cs.slice(0, -1).map((c) => '- ' + c.subject)
+  squashMsg.value = oldest.subject + (others.length ? '\n\n' + others.join('\n') : '')
+  squashAck.value = false
+  squashDlg.value = r
+}
+async function doSquash(r: RepoView) {
+  if (squashBusy.value || !squashMsg.value.trim()) return
+  squashBusy.value = true
+  flash.value = ''
+  try {
+    const res = await repoSquash(r.id, selCount.value, squashMsg.value, selectedPublished(r) > 0)
+    if (res.ok) {
+      flash.value = `Squashed ${selCount.value} commits → ${res.newHead}. Recover: ${res.recover}`
+      squashDlg.value = null
+      squashThrough.value = -1
+      await loadHistory(r)
+      await load()
+    } else {
+      flash.value = 'Squash blocked — ' + (res.error ?? 'unknown reason')
+      squashDlg.value = null
+    }
+  } catch {
+    flash.value = 'Squash failed — is the host agent running?'
+  } finally { squashBusy.value = false }
+}
+
 // ---- branches ----
 async function toggleBranches(r: RepoView) {
   if (openBranch.value === r.id) { openBranch.value = null; return }
@@ -712,6 +809,9 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
           <button class="btn" :disabled="busy === r.id || !agentUp" @click="toggleChanges(r)">
             {{ openChanges === r.id ? 'Hide changes' : 'Changes' }}
           </button>
+          <button class="btn" :disabled="busy === r.id || !agentUp" @click="toggleHistory(r)">
+            {{ openHistory === r.id ? 'Hide history' : 'History' }}
+          </button>
           <button class="btn" :disabled="busy === r.id || !agentUp" @click="act(r, () => repoPull(r.id), 'pull')">Pull</button>
           <!-- Commit/Push split button: adapts to repo state; dropdown exposes each sub-action -->
           <div class="splitwrap">
@@ -818,6 +918,60 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
           </button>
         </div>
 
+        <!-- history + guarded squash (repo-spec §8–§9) -->
+        <div v-if="openHistory === r.id" class="histpanel">
+          <div class="histhead">
+            <span class="clab mono">History · ⎇ {{ r.branch }}</span>
+            <div class="histseg">
+              <button class="seg mono" :class="{ on: histUnique }" @click="setUnique(r, true)">unique to {{ history[r.id]?.sourceRef || 'source' }}</button>
+              <button class="seg mono" :class="{ on: !histUnique }" @click="setUnique(r, false)">all</button>
+            </div>
+            <span class="grow"></span>
+            <button v-if="histUnique && selCount >= 2" class="btn pri tiny2" @click="openSquash(r)">
+              Squash {{ selCount }} commits…
+            </button>
+          </div>
+          <div v-if="histLoading" class="mono wtempty">loading…</div>
+          <div v-else-if="!commitsOf(r).length" class="mono wtempty">
+            {{ histUnique ? 'no commits unique to the source branch' : 'no commits' }}
+          </div>
+          <template v-else>
+            <div v-for="(c, i) in commitsOf(r)" :key="c.hash" class="crow" :class="{ sel: i <= squashThrough }">
+              <input
+                v-if="histUnique"
+                type="checkbox"
+                class="csel"
+                :checked="i <= squashThrough"
+                :disabled="!rangeEligible(r, i)"
+                :title="rangeEligible(r, i) ? 'Squash this commit and everything newer' : 'Range contains a merge commit'"
+                @click="selectThrough(i)"
+              />
+              <button class="cmain" @click="toggleCommit(r, c.hash)">
+                <span class="csha mono">{{ c.short }}</span>
+                <span class="csubj">{{ c.subject }}</span>
+                <span v-if="c.merge" class="ctag mono">merge</span>
+                <span class="ctag mono" :class="c.published ? 'pushed' : 'localc'">{{ c.published ? 'pushed' : 'local' }}</span>
+                <span class="cwho mono">{{ c.author }} · {{ relTime(c.date) }}</span>
+              </button>
+              <div v-if="openCommit === c.hash" class="cdetail mono">
+                <template v-if="commitDetail">
+                  <div class="cdl"><b>{{ commitDetail.hash }}</b></div>
+                  <div class="cdl">author {{ commitDetail.author }} &lt;{{ commitDetail.email }}&gt; · {{ commitDetail.date }}</div>
+                  <div v-if="commitDetail.committer !== commitDetail.author" class="cdl">committer {{ commitDetail.committer }} · {{ commitDetail.commitDate }}</div>
+                  <pre class="cmsg">{{ commitDetail.message }}</pre>
+                  <div v-for="f in commitDetail.files" :key="f.file" class="cfile">
+                    <span class="cfst">{{ f.status }}</span>{{ f.file }}
+                  </div>
+                </template>
+                <div v-else class="cdl">loading…</div>
+              </div>
+            </div>
+            <div v-if="histUnique && commitsOf(r).length" class="histhint mono">
+              tick a commit to squash it and everything newer into one (a backup ref is kept; nothing is pushed)
+            </div>
+          </template>
+        </div>
+
         <!-- changes / staging / commit -->
         <div v-if="openChanges === r.id" class="changes">
           <div class="cgroup">
@@ -883,6 +1037,43 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
           <span class="spacer"></span>
           <button v-if="browse.data?.isRepo" class="btn" @click="addCurrentRepo">Add this repo</button>
           <button class="btn pri" @click="useCurrentFolder">Scan this folder</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- guarded squash confirmation (repo-spec §9.3) -->
+    <div v-if="squashDlg" class="modal" @click.self="squashDlg = null">
+      <div class="picker sqbox">
+        <div class="pkhead mono">
+          Squash {{ selCount }} commits on ⎇ {{ squashDlg.branch }}
+          <span class="pksub">rewrites history — a backup ref is created first; nothing is pushed automatically</span>
+        </div>
+        <div class="sqbody">
+          <div class="sqmeta mono">
+            <span>commits as <b>{{ squashDlg.userName || '(unset)' }}</b> &lt;{{ squashDlg.userEmail || 'no email' }}&gt;</span>
+          </div>
+          <div v-if="selectedPublished(squashDlg) > 0" class="opwarn sqwarn">
+            <span class="owicon">⚠</span>
+            <span class="owtext">
+              <b>{{ selectedPublished(squashDlg) }}</b> of the selected commits are already pushed. Squashing them
+              makes your branch diverge from its remote — you'll need a (lease-protected) force push afterwards.
+            </span>
+          </div>
+          <label class="sqlab mono">Resulting commit message</label>
+          <textarea v-model="squashMsg" class="in mono sqmsg" rows="6"></textarea>
+          <label v-if="selectedPublished(squashDlg) > 0" class="sqack mono">
+            <input type="checkbox" v-model="squashAck" />
+            I understand this rewrites published history
+          </label>
+        </div>
+        <div class="pkfoot">
+          <button class="btn ghost" :disabled="squashBusy" @click="squashDlg = null">Cancel</button>
+          <span class="spacer"></span>
+          <button
+            class="btn pri"
+            :disabled="squashBusy || !squashMsg.trim() || (selectedPublished(squashDlg) > 0 && !squashAck)"
+            @click="doSquash(squashDlg)"
+          >{{ squashBusy ? 'Squashing…' : 'Squash commits' }}</button>
         </div>
       </div>
     </div>
@@ -1023,4 +1214,38 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
 .pkfoot { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-top: 1px solid var(--line); }
 .pkfoot .spacer { flex: 1; }
 .pkfoot .hint { font-size: 11px; color: var(--faint-text); }
+.pkhead .pksub { font-size: 11px; color: var(--faint-text); font-weight: normal; }
+
+/* history + squash */
+.histpanel { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 12px; }
+.histhead { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+.histhead .grow { flex: 1; }
+.histseg { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: 7px; }
+.histseg .seg { font-size: 10px; padding: 2px 9px; border: 0; border-radius: 5px; background: transparent; color: var(--faint-text); cursor: pointer; }
+.histseg .seg.on { background: var(--warp-weft); color: var(--warp-hi); }
+.btn.tiny2 { font-size: 12px; padding: 3px 11px; }
+.crow { border: 1px solid transparent; border-radius: 7px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 2px 6px; }
+.crow.sel { background: var(--warp-weft); border-color: var(--warp); }
+.csel { accent-color: var(--warp); }
+.cmain { flex: 1; display: flex; align-items: center; gap: 10px; background: transparent; border: 0; padding: 4px 2px; cursor: pointer; color: inherit; font: inherit; text-align: left; min-width: 0; }
+.cmain:hover .csubj { color: var(--warp-hi); }
+.csha { font-size: 11px; color: var(--warp-hi); flex: 0 0 auto; }
+.csubj { font-size: 13px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+.ctag { font-size: 9px; text-transform: uppercase; letter-spacing: 0.07em; border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; color: var(--dim); flex: 0 0 auto; }
+.ctag.pushed { color: var(--healthy); }
+.ctag.localc { color: var(--warp-hi); border-color: var(--warp); }
+.cwho { font-size: 11px; color: var(--faint-text); flex: 0 0 auto; }
+.cdetail { flex-basis: 100%; margin: 2px 0 6px 26px; border: 1px solid var(--line); border-radius: 7px; background: var(--bg); padding: 8px 12px; font-size: 11.5px; color: var(--dim); }
+.cdl { padding: 1px 0; }
+.cmsg { white-space: pre-wrap; color: var(--ink); margin: 6px 0; font-size: 12px; }
+.cfst { color: var(--warp-hi); display: inline-block; min-width: 20px; }
+.histhint { margin-top: 8px; font-size: 11px; color: var(--faint-text); }
+/* squash dialog */
+.sqbox { width: 620px; }
+.sqbody { padding: 12px 14px; overflow: auto; }
+.sqmeta { font-size: 12px; color: var(--dim); margin-bottom: 10px; }
+.sqwarn { margin: 0 0 10px; }
+.sqlab { display: block; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--faint-text); margin-bottom: 6px; }
+.sqmsg { width: 100%; box-sizing: border-box; resize: vertical; font-size: 12.5px; }
+.sqack { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 12px; color: var(--warp-hi); }
 </style>

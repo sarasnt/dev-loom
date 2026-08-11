@@ -123,6 +123,7 @@ public final class Dto {
     public record RepoPush(boolean force) {}
     public record PushProtectionSet(String mode, String patterns) {}
     public record RepoCheckout(String branch, boolean create) {}
+    public record RepoSquash(int count, String message, boolean confirmPublished) {}
     // Source-branch comparison for the current branch (spec repos §6/§7.3): which branch this
     // work forks from, and how far HEAD has drifted from it. `origin` = "default" | "pr" |
     // "override" | "unknown" tells the UI how `source` was resolved.

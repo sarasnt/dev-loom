@@ -194,6 +194,27 @@ public class HostAgentClient {
         return post("/repos/worktrees", Map.of("path", path));
     }
 
+    /** Current-branch commit log; uniqueOnly limits to commits not on the resolved source. */
+    public Map<String, Object> log(String path, String source, boolean uniqueOnly, int limit) {
+        Map<String, Object> body = new java.util.HashMap<>();
+        body.put("path", path);
+        body.put("source", source == null ? "" : source);
+        body.put("uniqueOnly", uniqueOnly);
+        body.put("limit", limit);
+        return post("/repos/log", body);
+    }
+
+    /** Full details of one commit (identities, message, changed files). */
+    public Map<String, Object> commitInfo(String path, String hash) {
+        return post("/repos/commit-info", Map.of("path", path, "hash", hash));
+    }
+
+    /** Guarded squash of the newest {@code count} commits (backup ref first; never pushes). */
+    public Map<String, Object> squash(String path, int count, String message) {
+        return post("/repos/squash", Map.of("path", path, "count", count,
+                "message", message == null ? "" : message));
+    }
+
     /** Fetch remote-tracking refs (updates refs/remotes only — no worktree changes). */
     public Map<String, Object> fetch(String path) {
         return post("/repos/fetch", Map.of("path", path));
