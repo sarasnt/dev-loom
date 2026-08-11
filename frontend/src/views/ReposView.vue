@@ -234,11 +234,6 @@ async function addWorktree(path: string) {
   catch { flash.value = 'Could not add worktree.' }
   finally { busy.value = '' }
 }
-function worktreeCount(r: RepoView): number {
-  const disk = wtList.value[r.id]
-  if (disk) return disk.filter((w) => norm(w.path) !== norm(r.path)).length
-  return trackedChildren(r).length
-}
 function isRunWorktree(branch: string | null): boolean {
   return !!branch && branch.startsWith('devloom/run-')
 }
@@ -539,12 +534,12 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
             health {{ openHealth === r.id ? '▴' : '▾' }}
           </button>
           <button
-            v-if="groupWorktrees && !r.isLinkedWorktree && agentUp"
+            v-if="groupWorktrees && !r.isLinkedWorktree && agentUp && trackedChildren(r).length"
             class="hmore mono wt"
             :aria-expanded="openWt === r.id"
             title="Worktrees of this repository"
             @click="toggleWorktrees(r)"
-          >⑂ worktrees<span v-if="worktreeCount(r)"> ({{ worktreeCount(r) }})</span> {{ openWt === r.id ? '▴' : '▾' }}</button>
+          >⑂ {{ trackedChildren(r).length }} worktree{{ trackedChildren(r).length > 1 ? 's' : '' }} {{ openWt === r.id ? '▴' : '▾' }}</button>
           <span class="path mono">{{ r.path }}</span>
         </div>
 
