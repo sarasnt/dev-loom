@@ -69,6 +69,20 @@ export const useDashboardStore = defineStore('dashboard', () => {
     try { localStorage.setItem(SWITCH_KEY, JSON.stringify(brainstormSwitch.value)) } catch { /* ignore */ }
   }
 
+  // A seed prompt handed to a freshly-created Brainstorm session (e.g. "Run" on an Agent
+  // handoff). The Brainstorm screen consumes it when it opens the matching session: for a chat
+  // session it prefills the composer; for a claude-cli session it's typed into the terminal.
+  const pendingSeed = ref<{ sessionId: string; text: string; mode: 'chat' | 'cli' } | null>(null)
+  function setPendingSeed(sessionId: string, text: string, mode: 'chat' | 'cli') {
+    pendingSeed.value = { sessionId, text, mode }
+  }
+  function takePendingSeed(sessionId: string): { text: string; mode: 'chat' | 'cli' } | null {
+    const s = pendingSeed.value
+    if (!s || s.sessionId !== sessionId) return null
+    pendingSeed.value = null
+    return { text: s.text, mode: s.mode }
+  }
+
   async function load() {
     loading.value = true
     error.value = null
@@ -116,5 +130,6 @@ export const useDashboardStore = defineStore('dashboard', () => {
     today, loading, error, buildBadge, models, agentModels, defaultModel, activeModel,
     screenModels, modelFor, setModelFor, reflectModel, snoozeItem,
     brainstormSwitch, setBrainstormSwitch, load, ensureLoaded,
+    pendingSeed, setPendingSeed, takePendingSeed,
   }
 })

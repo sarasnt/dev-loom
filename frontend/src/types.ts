@@ -123,6 +123,8 @@ export interface Handoff {
   rendered: string // the mono artifact body
   safety: { allow: string[]; forbid: string[] }
   sources: EvidenceRef[]
+  repo: string // owner/name slug of the target repo (for resolving a local repo to run in)
+  branch: string
 }
 
 // ---- Sources (multi-source configuration) ----

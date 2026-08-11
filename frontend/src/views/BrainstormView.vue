@@ -191,8 +191,21 @@ onMounted(async () => {
     await selectSession(want)
   }
   syncSessionModel()
+  applyPendingSeed()
   await scrollToEnd()
 })
+
+// A session opened from "Run" on an Agent handoff carries a seed prompt: a chat session gets it
+// prefilled in the composer to send; a claude-cli session gets it typed into the terminal.
+const terminalSeed = ref<string | undefined>(undefined)
+function applyPendingSeed() {
+  const a = data.value?.active
+  if (!a) return
+  const seed = store.takePendingSeed(a.id)
+  if (!seed) return
+  if (a.cliMode || seed.mode === 'cli') terminalSeed.value = seed.text
+  else draft.value = seed.text
+}
 
 function startRename(id: string, current: string) {
   editingSession.value = id
@@ -425,7 +438,7 @@ async function redoLast() {
             <option v-for="s in cliSessions" :key="s.id" :value="s.id">{{ s.title }}</option>
           </select>
         </div>
-        <TerminalPane :key="data.active.id" :session-id="data.active.id" class="termpane" />
+        <TerminalPane :key="data.active.id" :session-id="data.active.id" :seed="terminalSeed" class="termpane" />
       </template>
       <template v-else>
       <div v-if="data.active.repoPath" class="repobar mono">

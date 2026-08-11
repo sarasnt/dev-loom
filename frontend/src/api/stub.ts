@@ -95,6 +95,8 @@ const HANDOFF: Handoff = {
     forbid: ['Do NOT push / merge / deploy / delete without approval'],
   },
   sources: [],
+  repo: '—',
+  branch: '—',
 }
 export function fetchHandoff(_id: string): Promise<Handoff> {
   return delay(HANDOFF)

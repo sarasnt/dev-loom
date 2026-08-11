@@ -63,6 +63,6 @@ public class HandoffService {
 
         return new Dto.Handoff(
                 "handoff-" + b.id(), "Fix CI on " + b.branch(), "Claude Code", 1,
-                b.boundary(), rendered, safety, sources);
+                b.boundary(), rendered, safety, sources, b.repo(), b.branch());
     }
 }

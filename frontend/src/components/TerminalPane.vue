@@ -9,7 +9,9 @@ import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { openBrainstormTerminal } from '../api'
 
-const props = defineProps<{ sessionId: string }>()
+// `seed` (optional): text typed into claude's prompt once the terminal is ready — e.g. an Agent
+// handoff artifact. It is NOT auto-submitted; the user reviews it and presses Enter.
+const props = defineProps<{ sessionId: string; seed?: string }>()
 
 const host = ref<HTMLElement | null>(null)
 const status = ref<'connecting' | 'open' | 'closed' | 'error'>('connecting')
@@ -20,6 +22,7 @@ const term = shallowRef<Terminal | null>(null)
 let ws: WebSocket | null = null
 let fit: FitAddon | null = null
 let ro: ResizeObserver | null = null
+let seeded = false // send the seed prompt at most once
 
 // The host agent runs on the local machine at :8765 (browser reaches it directly).
 const AGENT_PORT = 8765
@@ -65,6 +68,16 @@ async function connect() {
     t.focus()
     doFit()
     window.setTimeout(doFit, 150) // re-fit once claude's TUI has drawn
+    // Seed the handoff into claude's prompt once its TUI is up (input only, no Enter — the user
+    // reviews and submits). Bracketed-paste markers keep a multi-line block as a single paste.
+    if (props.seed && !seeded) {
+      seeded = true
+      window.setTimeout(() => {
+        if (ws?.readyState !== WebSocket.OPEN) return
+        const payload = '\x1b[200~' + props.seed + '\x1b[201~'
+        ws.send(JSON.stringify({ type: 'input', data: payload }))
+      }, 900)
+    }
   }
   ws.onmessage = (ev) => t.write(typeof ev.data === 'string' ? ev.data : '')
   ws.onclose = () => { if (status.value !== 'error') status.value = 'closed' }

@@ -51,7 +51,7 @@ public final class Dto {
     public record Safety(List<String> allow, List<String> forbid) {}
     public record Handoff(
             String id, String title, String target, int version, Boundary boundary,
-            String rendered, Safety safety, List<EvidenceRef> sources) {}
+            String rendered, Safety safety, List<EvidenceRef> sources, String repo, String branch) {}
 
     // ---- Integrations ----
     public record Integration(
