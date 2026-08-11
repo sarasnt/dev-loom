@@ -61,7 +61,7 @@ function runAction(item: Recommendation, action: string) {
     <button class="btn ghost mini-act" @click="runPrimary(item)">{{ primaryAction(item.actions) }}</button>
   </div>
 
-  <article v-else :class="['card', { lead: item.lead }]">
+  <article v-else :class="['card', { lead: item.lead, elevated: amenu || whyOpen }]">
     <header class="ct">
       <h3>{{ item.title }}</h3>
       <Mono class="src">⎇ {{ item.source }}</Mono>
@@ -119,6 +119,8 @@ function runAction(item: Recommendation, action: string) {
   transition: border-color var(--motion) var(--ease-out);
 }
 .card:hover { border-color: var(--line-hi); }
+/* Lift the card (and its open dropdown) above sibling cards below it. */
+.card.elevated { position: relative; z-index: 50; }
 .card.lead {
   box-shadow: inset 2px 0 0 var(--warp);
   background: linear-gradient(90deg, var(--warp-weft), transparent 42%), var(--surface);

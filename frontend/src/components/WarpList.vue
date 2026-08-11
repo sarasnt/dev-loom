@@ -23,6 +23,8 @@ defineProps<{ items: Recommendation[] }>()
   background: linear-gradient(180deg, var(--warp), rgba(198, 144, 47, 0.25));
 }
 .item { position: relative; margin-bottom: 14px; animation: rise var(--motion) var(--ease-out) both; }
+/* Let a card lift its open dropdown above the cards below it (see RecommendationCard.elevated). */
+.item:has(.elevated) { z-index: 50; }
 .rank {
   position: absolute; left: -26px; top: 14px; width: 20px; height: 20px; border-radius: 50%;
   background: var(--bg); border: 1.5px solid var(--warp); color: var(--warp-hi);
