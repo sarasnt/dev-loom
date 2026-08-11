@@ -100,12 +100,13 @@ public class NotionConnector implements SourceConnector {
                 Map<String, Object> parent = asMap(r.get("parent"));
                 if ("database_id".equals(str(parent, "type"))) {
                     String dbId = clip(str(parent, "database_id").replace("-", ""));
-                    addTask(out, extId, title, extractStatus(r), dbTitle.getOrDefault(dbId, "Notion"), order, source);
+                    addTask(out, extId, title, extractStatus(r), dbTitle.getOrDefault(dbId, "Notion"), order, source, pageUrl(r, extId));
                 } else {
                     out.add(WorkItemEntity.create(extId, "doc",
                             title.isBlank() ? "(untitled page)" : title,
                             "note", "info", "", source, order[0]++)
-                            .withDetail("Notion page shared with DevLoom.", null));
+                            .withDetail("Notion page shared with DevLoom.", null)
+                            .withUrl(pageUrl(r, extId)));
                 }
             }
 
@@ -124,7 +125,7 @@ public class NotionConnector implements SourceConnector {
     }
 
     private void addTask(List<WorkItemEntity> out, String extId, String title, String status,
-                         String dbName, int[] order, String source) {
+                         String dbName, int[] order, String source, String url) {
         String tag = dbName.replace(",", " ").strip();
         String tone = switch (status.toLowerCase()) {
             case "done", "complete", "completed", "closed", "shipped", "archived" -> "healthy";
@@ -135,7 +136,17 @@ public class NotionConnector implements SourceConnector {
                 title.isBlank() ? "(untitled task)" : title,
                 status.isBlank() ? "task" : status, tone,
                 tag, source, order[0]++)
-                .withDetail("From Notion database: " + tag, null));
+                .withDetail("From Notion database: " + tag, null)
+                .withUrl(url));
+    }
+
+    /**
+     * The page's canonical web URL. Notion's API returns a {@code url} on every page/row; when
+     * it's absent we fall back to {@code notion.so/<id>}, which resolves to the same page.
+     */
+    private static String pageUrl(Map<String, Object> obj, String extId) {
+        String u = str(obj, "url");
+        return u.isBlank() ? "https://www.notion.so/" + extId : u;
     }
 
     private void addDatabaseRows(RestClient http, String rawDbId, String dbName, List<WorkItemEntity> out,
@@ -151,7 +162,7 @@ public class NotionConnector implements SourceConnector {
                 Map<String, Object> row = asMap(o);
                 String extId = clip(str(row, "id").replace("-", ""));
                 if (!seen.add(extId)) continue;
-                addTask(out, extId, extractTitle(row), extractStatus(row), dbName, order, source);
+                addTask(out, extId, extractTitle(row), extractStatus(row), dbName, order, source, pageUrl(row, extId));
                 added++;
             }
         } catch (Exception e) {
