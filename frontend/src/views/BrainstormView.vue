@@ -392,7 +392,7 @@ async function redoLast() {
         v-for="s in data.sessions"
         :key="s.id"
         class="srow"
-        :class="{ on: s.id === data.active.id }"
+        :class="{ on: s.id === data.active.id, cli: s.cliMode }"
       >
         <input
           v-if="editingSession === s.id"
@@ -403,7 +403,9 @@ async function redoLast() {
           @blur="commitRename(s.id)"
         />
         <template v-else>
-          <button class="s" :title="s.title" @click="selectSession(s.id)" @dblclick="startRename(s.id, s.title)">{{ s.title }}</button>
+          <button class="s" :title="s.cliMode ? 'Claude CLI terminal · ' + s.title : s.title" @click="selectSession(s.id)" @dblclick="startRename(s.id, s.title)">
+            <span v-if="s.cliMode" class="cliglyph" aria-label="Claude CLI terminal">⌨</span>{{ s.title }}
+          </button>
           <button class="sre" aria-label="Rename session" title="Rename" @click.stop="startRename(s.id, s.title)">✎</button>
           <button class="sx" aria-label="Delete session" title="Delete session" @click.stop="removeSession(s.id)">✕</button>
         </template>
@@ -564,6 +566,11 @@ async function redoLast() {
 }
 .srow:hover { background: var(--nav-hover); }
 .srow.on { background: var(--warp-weft); }
+/* Claude CLI terminal sessions stand out: accent bar + tinted title + keyboard glyph. */
+.srow.cli { box-shadow: inset 2px 0 0 var(--warp-hi); border-radius: 8px; }
+.srow.cli .s { color: var(--warp-hi); }
+.srow.cli:hover .s, .srow.cli.on .s { color: var(--warp-hi); }
+.cliglyph { margin-right: 6px; color: var(--warp-hi); font-size: 11px; }
 .s {
   flex: 1; min-width: 0; text-align: left; background: transparent; border: 0;
   padding: 8px 10px; color: var(--dim); font-size: 13px; cursor: pointer;
