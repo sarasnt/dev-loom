@@ -112,7 +112,7 @@ const cliSessions = computed(() =>
 function syncSessionModel() {
   const a = data.value?.active
   if (!a) return
-  sessionModel.value = a.cliMode ? 'claude-cli' : store.modelFor('brainstorm')
+  sessionModel.value = a.cliMode ? 'claude-cli' : (a.model || store.modelFor('brainstorm'))
   store.reflectModel(effectiveModel.value)
 }
 
@@ -120,6 +120,8 @@ function syncSessionModel() {
 // boundary would lose the session (its conversation lives elsewhere), so instead of converting
 // in place we offer to open a NEW session — honoring the saved preference (Settings > General).
 function requestModel(target: string) {
+  // A local-only repo may never use a remote model (defense in depth vs. the /model command).
+  if (data.value?.active.localOnly && isRemoteModel(target)) return
   const cur = effectiveModel.value
   const crossing = (cur === 'claude-cli') !== (target === 'claude-cli')
   if (!crossing) {
@@ -367,7 +369,7 @@ async function redoLast() {
   await scrollToEnd()
   try {
     const sourceIds = session.inContext.map((s) => s.id)
-    const reply = await sendBrainstorm(session.id, userText, sourceIds)
+    const reply = await sendBrainstorm(session.id, userText, sourceIds, effectiveModel.value)
     session.messages.push(reply)
   } catch {
     session.messages.push({ role: 'ai', text: 'Could not reach the model.', hypothesis: false })
@@ -499,9 +501,11 @@ async function redoLast() {
         screen="brainstorm"
         include-agent
         manual
+        :local-only="data.active.localOnly === true"
         :model-value="effectiveModel"
         @change="requestModel"
       />
+      <div v-if="data.active.localOnly" class="lolabel mono">🔒 local-only repo · remote models disabled</div>
       <BoundaryToken class="bt" :boundary="modelBoundary" />
     </aside>
 
@@ -585,6 +589,7 @@ async function redoLast() {
 .clisel { margin-left: auto; background: var(--chip-bg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; color: var(--ink); font-size: 12px; cursor: pointer; }
 .clisel:hover { border-color: var(--warp); }
 .hint { text-transform: none; letter-spacing: 0; color: var(--faint-text); }
+.lolabel { font-size: 11px; color: var(--healthy); margin-top: 6px; }
 .modal { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 50; }
 .dlg { width: 480px; max-width: 92vw; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; }
 .dlgh { font-size: 16px; margin-bottom: 10px; }

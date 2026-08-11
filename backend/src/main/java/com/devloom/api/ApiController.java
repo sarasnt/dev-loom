@@ -241,6 +241,12 @@ public class ApiController {
         return repoService.setIdentity(id, body.name(), body.email());
     }
 
+    /** Mark a repo local-only (brainstorm it only with local models) or clear it. */
+    @org.springframework.web.bind.annotation.PutMapping("/repos/{id}/local-only")
+    public Dto.RepoView repoLocalOnly(@PathVariable String id, @RequestBody Dto.RepoLocalOnly body) {
+        return repoService.setLocalOnly(id, body != null && body.value());
+    }
+
     @PostMapping("/repos/{id}/pull")
     public Map<String, Object> repoPull(@PathVariable String id) {
         return repoService.pull(id);

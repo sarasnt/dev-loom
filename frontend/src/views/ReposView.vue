@@ -20,9 +20,29 @@ import {
   repoCheckout,
   createBrainstormSession,
   fetchRepoSessions,
+  setRepoLocalOnly,
 } from '../api'
+import { storeToRefs } from 'pinia'
+import { useDashboardStore } from '../stores/dashboard'
+import { isRemoteModel } from '../utils/models'
 
 const router = useRouter()
+const store = useDashboardStore()
+const { models } = storeToRefs(store)
+
+// Models offered to brainstorm a repo. A local-only repo may use ONLY local models (no
+// claude-cli, no remote API) — otherwise the full list (local + remote + claude-cli).
+function repoModels(r: RepoView): string[] {
+  return r.localOnly ? models.value.filter((m) => !isRemoteModel(m)) : models.value
+}
+async function toggleLocalOnly(r: RepoView) {
+  const updated = await setRepoLocalOnly(r.id, !r.localOnly)
+  const i = repos.value.findIndex((x) => x.id === r.id)
+  if (i >= 0) repos.value[i] = { ...repos.value[i], localOnly: updated.localOnly }
+}
+function modelLabel(m: string): string {
+  return m === 'claude-cli' ? 'Claude CLI · interactive terminal' : m
+}
 const repoSessions = ref<{ id: string; title: string; repoPath: string }[]>([])
 function sessionsFor(path: string) {
   return repoSessions.value.filter((s) => s.repoPath === path)
@@ -69,7 +89,7 @@ const openBranch = ref<string | null>(null)
 const branchList = ref<Record<string, string[]>>({})
 const newBranch = ref<Record<string, string>>({})
 
-onMounted(load)
+onMounted(() => { store.ensureLoaded(); load() })
 
 async function load() {
   loading.value = true
@@ -277,28 +297,28 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
             {{ r.host === 'gitlab' ? 'Open MR' : 'Open PR' }}
           </button>
           <button class="btn" :disabled="busy === r.id || !agentUp" @click="startEdit(r)">Git identity</button>
+          <button
+            class="btn"
+            :class="{ localon: r.localOnly }"
+            :disabled="busy === r.id"
+            :title="r.localOnly ? 'Local-only: only local models can brainstorm this repo' : 'Allow remote models for this repo'"
+            @click="toggleLocalOnly(r)"
+          >{{ r.localOnly ? '🔒 Local-only' : '🔓 Any model' }}</button>
           <div class="splitwrap">
             <button
-              class="btn brainstorm split"
+              class="btn brainstorm"
               :disabled="busy === r.id || !agentUp"
-              title="Start a Claude Code chat that iterates over this repo"
-              @click="brainstormHere(r, 'claude-code')"
-            >
-              ✎ Brainstorm here
-            </button>
-            <button
-              class="btn brainstorm caret"
-              :disabled="busy === r.id || !agentUp"
-              aria-label="Choose model"
+              title="Choose a model to brainstorm this repo"
               @click="bmenu = bmenu === r.id ? '' : r.id"
-            >▾</button>
+            >
+              ✎ Brainstorm here ▾
+            </button>
             <div v-if="bmenu === r.id" class="bmenu" @click.self="bmenu = ''">
-              <button class="bmi" @click="brainstormHere(r, 'claude-code')">
-                <b>Claude Code</b><span class="mono">chat · iterates the repo</span>
+              <div class="bmlab mono">{{ r.localOnly ? 'local models only' : 'choose a model' }}</div>
+              <button v-for="m in repoModels(r)" :key="m" class="bmi" @click="brainstormHere(r, m)">
+                {{ modelLabel(m) }}
               </button>
-              <button class="bmi" @click="brainstormHere(r, 'claude-cli')">
-                <b>Claude CLI</b><span class="mono">interactive terminal in this repo</span>
-              </button>
+              <div v-if="!repoModels(r).length" class="bmi empty mono">no local models pulled</div>
             </div>
           </div>
           <button class="btn ghost" :disabled="busy === r.id" @click="remove(r)">Remove</button>
@@ -434,6 +454,10 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
 .bmi { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; text-align: left; background: transparent; border: 0; border-radius: 7px; padding: 8px 10px; color: var(--ink); font-size: 13px; cursor: pointer; }
 .bmi:hover { background: var(--nav-hover); }
 .bmi .mono { font-size: 11px; color: var(--faint-text); }
+.bmi.empty { color: var(--faint-text); cursor: default; }
+.bmi.empty:hover { background: transparent; }
+.bmlab { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint-text); padding: 4px 10px 6px; }
+.btn.localon { border-color: var(--healthy); color: var(--healthy); }
 /* changes */
 .changes { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 12px; }
 .cgroup { margin-bottom: 10px; }

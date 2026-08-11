@@ -45,6 +45,7 @@ export const scanRepoFolder = api.scanRepoFolder
 export const addRepoPath = api.addRepoPath
 export const removeRepo = api.removeRepo
 export const setRepoIdentity = api.setRepoIdentity
+export const setRepoLocalOnly = api.setRepoLocalOnly
 export const repoPull = api.repoPull
 export const repoPush = api.repoPush
 export const repoPr = api.repoPr

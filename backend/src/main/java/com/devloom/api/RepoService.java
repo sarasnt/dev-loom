@@ -136,18 +136,25 @@ public class RepoService {
         }
     }
 
+    /** Mark a repo local-only (may only be brainstormed with local models) or clear it. */
+    public Dto.RepoView setLocalOnly(String id, boolean value) {
+        GitRepoEntity r = repos.findById(parse(id)).orElseThrow();
+        r.setLocalOnly(value);
+        return enrich(repos.save(r));
+    }
+
     private Dto.RepoView view(GitRepoEntity r, Map<String, Object> info) {
         Map<String, Object> user = asMap(info.get("user"));
         return new Dto.RepoView(
                 String.valueOf(r.getId()), r.getPath(), str(info, "name").isBlank() ? r.getName() : str(info, "name"),
                 str(info, "host"), str(info, "slug"), str(info, "branch"), str(info, "remote"),
                 Boolean.TRUE.equals(info.get("dirty")), intOf(info.get("ahead")), intOf(info.get("behind")),
-                str(user, "name"), str(user, "email"), true);
+                str(user, "name"), str(user, "email"), true, r.isLocalOnly());
     }
 
     private Dto.RepoView stored(GitRepoEntity r) {
         return new Dto.RepoView(String.valueOf(r.getId()), r.getPath(), r.getName(),
-                r.getHost(), "", "", "", false, 0, 0, "", "", false);
+                r.getHost(), "", "", "", false, 0, 0, "", "", false, r.isLocalOnly());
     }
 
     private String pathOf(String id) {

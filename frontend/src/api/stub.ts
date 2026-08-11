@@ -199,7 +199,7 @@ export function removeBrainstormContext() {
   return delay(BRAINSTORM.active)
 }
 
-export function sendBrainstorm(_sessionId: string, message: string, sourceIds: string[]) {
+export function sendBrainstorm(_sessionId: string, message: string, sourceIds: string[], _model?: string) {
   const reply = {
     role: 'ai' as const,
     text: `(offline stub) You asked: "${message}". Attach a backend + local model to get a real reply.`,
@@ -267,6 +267,9 @@ export function removeRepo(id: string) {
 }
 export function setRepoIdentity() {
   return delay(null as unknown as import('../types').RepoView)
+}
+export function setRepoLocalOnly(_id: string, value: boolean) {
+  return delay({ localOnly: value } as unknown as import('../types').RepoView)
 }
 export function repoPull() {
   return delay({ ok: false, output: 'offline' })

@@ -110,8 +110,8 @@ export const addBrainstormContext = (sessionId: string, item: { kind: string; re
   post<BrainstormSession>(`/brainstorm/sessions/${sessionId}/context`, item)
 export const removeBrainstormContext = (sessionId: string, ctxId: string) =>
   del<BrainstormSession>(`/brainstorm/sessions/${sessionId}/context/${ctxId}`)
-export const sendBrainstorm = (sessionId: string, message: string, sourceIds: string[]) =>
-  post<BrainstormMessage>('/brainstorm/messages', { sessionId, message, sourceIds })
+export const sendBrainstorm = (sessionId: string, message: string, sourceIds: string[], model?: string) =>
+  post<BrainstormMessage>('/brainstorm/messages', { sessionId, message, sourceIds, model: model || undefined })
 export const fetchOnboarding = () => get<OnboardStep[]>('/onboarding')
 export const syncSource = (source: string) =>
   post<{ source: string; ingested: number }>(`/integrations/${source}/sync`, {})
@@ -136,6 +136,8 @@ export const addRepoPath = (path: string) => post<RepoView[]>('/repos', { path }
 export const removeRepo = (id: string) => del<{ removed: string }>(`/repos/${id}`)
 export const setRepoIdentity = (id: string, name: string, email: string) =>
   put<RepoView>(`/repos/${id}/identity`, { name, email })
+export const setRepoLocalOnly = (id: string, value: boolean) =>
+  put<RepoView>(`/repos/${id}/local-only`, { value })
 export const repoPull = (id: string) => post<{ ok: boolean; output: string }>(`/repos/${id}/pull`, {})
 export const repoPush = (id: string) => post<{ ok: boolean; output: string }>(`/repos/${id}/push`, {})
 export const repoPr = (id: string) =>

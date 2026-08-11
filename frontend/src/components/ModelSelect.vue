@@ -12,6 +12,7 @@ const props = defineProps<{
   label?: string
   disabled?: boolean
   includeAgent?: boolean // claude-code / claude-cli — only Brainstorm should offer these
+  localOnly?: boolean // restrict to local models only (a local-only repo never uses remote)
   manual?: boolean // don't persist on change; let the parent decide (Brainstorm boundary rules)
   modelValue?: string // optional override (e.g. a per-session model in Brainstorm)
 }>()
@@ -21,9 +22,12 @@ const store = useDashboardStore()
 const { models, agentModels } = storeToRefs(store)
 
 // The agent (subscription) modes are exclusive to Brainstorm; every other screen hides them.
-const options = computed(() =>
-  props.includeAgent ? models.value : models.value.filter((m) => !agentModels.value.includes(m)),
-)
+// A local-only context strips ALL remote models (agent modes leave the machine too).
+const options = computed(() => {
+  let list = models.value
+  if (props.localOnly) return list.filter((m) => !isRemoteModel(m))
+  return props.includeAgent ? list : list.filter((m) => !agentModels.value.includes(m))
+})
 const current = computed(() => props.modelValue ?? store.modelFor(props.screen))
 const remote = computed(() => isRemoteModel(current.value))
 

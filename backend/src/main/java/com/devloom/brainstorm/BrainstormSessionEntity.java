@@ -41,6 +41,10 @@ public class BrainstormSessionEntity {
     @Column(name = "cli_mode", nullable = false)
     private boolean cliMode = false;
 
+    // The model this session was created with (chat sessions); claude-cli uses cli_mode instead.
+    @Column(name = "model")
+    private String model;
+
     protected BrainstormSessionEntity() {
     }
 
@@ -69,4 +73,6 @@ public class BrainstormSessionEntity {
     public void setClaudeSessionId(String id) { this.claudeSessionId = id; }
     public boolean isCliMode() { return cliMode; }
     public void setCliMode(boolean cliMode) { this.cliMode = cliMode; }
+    public String getModel() { return model; }
+    public void setModel(String model) { this.model = model; }
 }

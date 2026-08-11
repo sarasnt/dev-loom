@@ -173,6 +173,7 @@ export interface RepoView {
   userName: string
   userEmail: string
   live: boolean
+  localOnly: boolean // brainstorm this repo only with local models (never remote)
 }
 
 export interface BrowseDir { name: string; path: string; repo: boolean }
@@ -309,6 +310,7 @@ export interface BrainstormSession {
   repoPath?: string | null
   cliMode?: boolean // session lives in the claude-cli terminal (locked to terminal mode)
   claudeSessionId?: string | null // Claude session id (for the `claude --resume` hint)
+  localOnly?: boolean // session's repo is local-only → only local models allowed
 }
 export interface BrainstormData {
   sessions: { id: string; title: string; cliMode?: boolean }[]

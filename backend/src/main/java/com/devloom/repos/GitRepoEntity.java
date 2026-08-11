@@ -30,6 +30,10 @@ public class GitRepoEntity {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt = Instant.now();
 
+    // Local-only: this repo may only be brainstormed with local models — never a remote one.
+    @Column(name = "local_only", nullable = false)
+    private boolean localOnly = false;
+
     protected GitRepoEntity() {
     }
 
@@ -46,4 +50,6 @@ public class GitRepoEntity {
     public String getName() { return name; }
     public String getHost() { return host; }
     public void setHost(String host) { this.host = host; }
+    public boolean isLocalOnly() { return localOnly; }
+    public void setLocalOnly(boolean localOnly) { this.localOnly = localOnly; }
 }

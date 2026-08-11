@@ -91,7 +91,7 @@ public final class Dto {
     public record BrainstormSession(
             String id, String title, String visibility, String model, Boundary boundary,
             List<ContextItem> inContext, List<BrainstormMessage> messages, String repoPath,
-            boolean cliMode, String claudeSessionId) {}
+            boolean cliMode, String claudeSessionId, boolean localOnly) {}
     public record Brainstorm(List<SessionRef> sessions, BrainstormSession active) {}
 
     // ---- Onboarding ----
@@ -101,7 +101,8 @@ public final class Dto {
     public record RepoView(
             String id, String path, String name, String host, String slug, String branch,
             String remote, boolean dirty, int ahead, int behind, String userName, String userEmail,
-            boolean live) {}
+            boolean live, boolean localOnly) {}
+    public record RepoLocalOnly(boolean value) {}
     public record RepoAdd(String path, String root) {}
     public record RepoIdentity(String name, String email) {}
     public record FsBrowse(String path) {}

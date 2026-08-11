@@ -57,13 +57,15 @@ public class BrainstormService {
     private final com.devloom.brainstorm.BrainstormContextRepository contexts;
     private final com.devloom.workmodel.WorkItemRepository workItems;
     private final com.devloom.common.AppConfigService appConfig;
+    private final com.devloom.repos.GitRepoRepository repos;
 
     public BrainstormService(LlmRouter llm, com.devloom.ai.HostAgentClient agent,
                              BrainstormSessionRepository sessions,
                              BrainstormMessageRepository messages,
                              com.devloom.brainstorm.BrainstormContextRepository contexts,
                              com.devloom.workmodel.WorkItemRepository workItems,
-                             com.devloom.common.AppConfigService appConfig) {
+                             com.devloom.common.AppConfigService appConfig,
+                             com.devloom.repos.GitRepoRepository repos) {
         this.llm = llm;
         this.agent = agent;
         this.sessions = sessions;
@@ -71,6 +73,12 @@ public class BrainstormService {
         this.contexts = contexts;
         this.workItems = workItems;
         this.appConfig = appConfig;
+        this.repos = repos;
+    }
+
+    /** True if the session's repo is marked local-only (may only use local models). */
+    private boolean repoLocalOnly(String repoPath) {
+        return repoPath != null && repos.findByPath(repoPath).map(r -> r.isLocalOnly()).orElse(false);
     }
 
     // ---- reads ----------------------------------------------------------------
@@ -113,6 +121,8 @@ public class BrainstormService {
         BrainstormSessionEntity s = BrainstormSessionEntity.create(title, repoPath);
         if ("claude-cli".equals(model)) {
             s.setCliMode(true);
+        } else if (model != null && !model.isBlank()) {
+            s.setModel(model); // remember the chat model this session was created with
         }
         s = sessions.save(s);
         if (s.getRepoPath() != null) {
@@ -189,29 +199,12 @@ public class BrainstormService {
         String userText = req.message() == null ? "" : req.message();
         messages.save(BrainstormMessageEntity.of(session.getId(), seq++, "you", userText, null, false));
 
-        String replyText;
-        String replyModel;
-        if (session.getRepoPath() != null) {
-            // Repo-scoped: Claude Code runs in the repo dir (reads/iterates it, uses its skills),
-            // resuming its own session for continuity — so we send just the new turn.
-            String prompt = cblock.isEmpty() ? userText : cblock + "\n" + userText;
-            try {
-                com.devloom.ai.HostAgentClient.Result cr =
-                        agent.claude(SYSTEM, prompt, session.getRepoPath(), session.getClaudeSessionId());
-                replyText = cr.text();
-                replyModel = "claude-code";
-                if (cr.sessionId() != null) session.setClaudeSessionId(cr.sessionId());
-            } catch (Exception e) {
-                replyText = "Couldn't run Claude Code in " + session.getRepoPath()
-                        + " — is the host agent running and `claude` logged in? (" + e.getMessage() + ")";
-                replyModel = "claude-code";
-            }
-        } else {
-            String prompt = buildPrompt(cblock, prior, userText);
-            LlmPort.LlmResult r = llm.generate(new LlmPort.LlmRequest("brainstorm", SYSTEM, prompt, null));
-            replyText = r.text();
-            replyModel = r.model();
-        }
+        // Chat replies route through the router with the session's model (repo pinned as context).
+        String prompt = buildPrompt(cblock, prior, userText);
+        String model = req.model() != null ? req.model() : session.getModel();
+        LlmPort.LlmResult r = llm.generate(new LlmPort.LlmRequest("brainstorm", SYSTEM, prompt, model));
+        String replyText = r.text();
+        String replyModel = r.model();
 
         messages.save(BrainstormMessageEntity.of(session.getId(), seq, "ai", replyText, replyModel, true));
 
@@ -246,12 +239,10 @@ public class BrainstormService {
         String userText = req.message() == null ? "" : req.message();
         messages.save(BrainstormMessageEntity.of(session.getId(), seq++, "you", userText, null, false));
 
-        // The model is chosen per Brainstorm session (frontend passes it); claude-code → the
-        // subscription agent, anything else → the router. Repo sessions always use the agent.
+        // Chat replies always go through the router with the session's chosen model (the old
+        // programmatic claude-code agent path is retired; claude-cli terminals are separate).
         String reqModel = req.model();
-        boolean useClaude = session.getRepoPath() != null
-                || "claude-code".equals(reqModel)
-                || (reqModel == null && "claude-code".equals(llm.activeModelLabel()));
+        boolean useClaude = false;
         String finalText;
         String finalModel;
 
@@ -289,8 +280,9 @@ public class BrainstormService {
             }
             finalModel = "claude-code";
         } else {
+            String chatModel = reqModel != null ? reqModel : session.getModel();
             LlmPort.LlmResult r = llm.generate(new LlmPort.LlmRequest("brainstorm", SYSTEM,
-                    buildPrompt(cblock, prior, userText), req.model()));
+                    buildPrompt(cblock, prior, userText), chatModel));
             finalText = r.text();
             finalModel = r.model();
             onDelta.accept(finalText);
@@ -349,12 +341,14 @@ public class BrainstormService {
      * separately (via cwd), so it's excluded here.
      */
     private String contextBlock(Long sessionId) {
-        List<BrainstormContextEntity> items = contexts.findBySessionIdOrderByIdAsc(sessionId).stream()
-                .filter(c -> !"repo".equals(c.getKind())).toList();
+        List<BrainstormContextEntity> items = contexts.findBySessionIdOrderByIdAsc(sessionId);
         if (items.isEmpty()) return "";
         StringBuilder sb = new StringBuilder("Attached context to brainstorm about:\n\n");
         for (BrainstormContextEntity c : items) {
-            if ("workitem".equals(c.getKind()) && c.getRef() != null) {
+            if ("repo".equals(c.getKind())) {
+                sb.append("- Repo: ").append(c.getLabel())
+                        .append(c.getRef() == null ? "" : " (" + c.getRef() + ")").append("\n\n");
+            } else if ("workitem".equals(c.getKind()) && c.getRef() != null) {
                 workItems.findFirstByExtId(c.getRef()).ifPresentOrElse(
                         w -> sb.append(renderWorkItem(w)),
                         () -> sb.append("- ").append(c.getLabel()).append("\n\n"));
@@ -411,11 +405,16 @@ public class BrainstormService {
                 .toList();
 
         boolean repo = s.getRepoPath() != null;
-        String model = s.isCliMode() ? "claude-cli" : (repo ? "claude-code" : llm.activeModelLabel());
+        boolean localOnly = repoLocalOnly(s.getRepoPath());
+        String model = s.isCliMode() ? "claude-cli"
+                : (s.getModel() != null && !s.getModel().isBlank() ? s.getModel() : llm.activeModelLabel());
+        boolean remoteModel = s.isCliMode() || model.startsWith("claude") || model.startsWith("gpt-")
+                || model.startsWith("o1") || model.startsWith("o3") || model.startsWith("o4");
         return new Dto.BrainstormSession(
                 String.valueOf(s.getId()), s.getTitle(), s.getVisibility(),
-                model, new Dto.Boundary(repo ? "remote" : "local", repo ? "Claude Code in repo" : "On your machine"),
-                inContext, msgs, s.getRepoPath(), s.isCliMode(), s.getClaudeSessionId());
+                model, new Dto.Boundary(remoteModel ? "remote" : "local",
+                        remoteModel ? "Leaves your machine" : "On your machine"),
+                inContext, msgs, s.getRepoPath(), s.isCliMode(), s.getClaudeSessionId(), localOnly);
     }
 
     /**
