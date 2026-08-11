@@ -175,6 +175,12 @@ export interface RepoView {
   userEmail: string
   live: boolean
   localOnly: boolean // brainstorm this repo only with local models (never remote)
+  staged: number
+  unstaged: number
+  untracked: number
+  hasUpstream: boolean
+  upstream: string | null // e.g. "origin/feature/login", or null if no tracking
+  operation: string | null // 'merge' | 'rebase' | 'cherry-pick' | 'revert' | null
 }
 
 export interface BrowseDir { name: string; path: string; repo: boolean }

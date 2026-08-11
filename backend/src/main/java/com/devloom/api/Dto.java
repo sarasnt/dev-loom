@@ -101,7 +101,9 @@ public final class Dto {
     public record RepoView(
             String id, String path, String name, String host, String slug, String branch,
             String remote, boolean dirty, int ahead, int behind, String userName, String userEmail,
-            boolean live, boolean localOnly) {}
+            boolean live, boolean localOnly,
+            int staged, int unstaged, int untracked, boolean hasUpstream, String upstream,
+            String operation) {}
     public record RepoLocalOnly(boolean value) {}
     public record RepoAdd(String path, String root) {}
     public record RepoIdentity(String name, String email) {}

@@ -120,17 +120,30 @@ function repoSlug(remoteUrl) {
 async function repoInfo(dir) {
   const isRepo = fs.existsSync(path.join(dir, '.git'))
   if (!isRepo) return null
-  const [branch, remote, dirty, upstream] = await Promise.all([
+  const [branch, remote, dirty, upstream, upstreamRef, gitDirRes] = await Promise.all([
     git(dir, ['rev-parse', '--abbrev-ref', 'HEAD']),
     git(dir, ['remote', 'get-url', 'origin']),
     git(dir, ['status', '--porcelain']),
     git(dir, ['rev-list', '--left-right', '--count', '@{u}...HEAD']),
+    git(dir, ['rev-parse', '--abbrev-ref', '@{u}']),
+    git(dir, ['rev-parse', '--git-dir']),
   ])
   const remoteUrl = remote.code === 0 ? remote.out.trim() : ''
+  const hasUpstream = upstream.code === 0
   let behind = 0, ahead = 0
-  if (upstream.code === 0) {
+  if (hasUpstream) {
     const m = upstream.out.trim().split(/\s+/)
     behind = Number(m[0] || 0); ahead = Number(m[1] || 0)
+  }
+  // Working-tree counts from porcelain (X = staged, Y = unstaged; "??" = untracked).
+  let staged = 0, unstaged = 0, untracked = 0
+  if (dirty.code === 0) {
+    for (const line of dirty.out.split('\n')) {
+      if (!line) continue
+      if (line.startsWith('??')) { untracked++; continue }
+      if (line[0] !== ' ' && line[0] !== '?') staged++
+      if (line[1] !== ' ' && line[1] !== '?') unstaged++
+    }
   }
   const cfg = await gitIdentity(dir)
   return {
@@ -141,9 +154,24 @@ async function repoInfo(dir) {
     slug: repoSlug(remoteUrl),
     host: hostOf(remoteUrl),
     dirty: dirty.code === 0 ? dirty.out.trim().length > 0 : false,
-    ahead, behind,
+    staged, unstaged, untracked,
+    ahead, behind, hasUpstream,
+    upstream: hasUpstream && upstreamRef.code === 0 ? upstreamRef.out.trim() : null,
+    operation: detectGitOperation(dir, gitDirRes.code === 0 ? gitDirRes.out.trim() : '.git'),
     user: cfg,
   }
+}
+
+/** Detect an in-progress git operation (merge/rebase/cherry-pick/revert) from the git dir. */
+function detectGitOperation(dir, gitDir) {
+  try {
+    const gd = path.isAbsolute(gitDir) ? gitDir : path.join(dir, gitDir)
+    if (fs.existsSync(path.join(gd, 'rebase-merge')) || fs.existsSync(path.join(gd, 'rebase-apply'))) return 'rebase'
+    if (fs.existsSync(path.join(gd, 'MERGE_HEAD'))) return 'merge'
+    if (fs.existsSync(path.join(gd, 'CHERRY_PICK_HEAD'))) return 'cherry-pick'
+    if (fs.existsSync(path.join(gd, 'REVERT_HEAD'))) return 'revert'
+  } catch { /* ignore */ }
+  return null
 }
 
 async function gitIdentity(dir) {

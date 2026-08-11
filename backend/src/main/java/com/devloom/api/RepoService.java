@@ -145,16 +145,22 @@ public class RepoService {
 
     private Dto.RepoView view(GitRepoEntity r, Map<String, Object> info) {
         Map<String, Object> user = asMap(info.get("user"));
+        Object op = info.get("operation");
         return new Dto.RepoView(
                 String.valueOf(r.getId()), r.getPath(), str(info, "name").isBlank() ? r.getName() : str(info, "name"),
                 str(info, "host"), str(info, "slug"), str(info, "branch"), str(info, "remote"),
                 Boolean.TRUE.equals(info.get("dirty")), intOf(info.get("ahead")), intOf(info.get("behind")),
-                str(user, "name"), str(user, "email"), true, r.isLocalOnly());
+                str(user, "name"), str(user, "email"), true, r.isLocalOnly(),
+                intOf(info.get("staged")), intOf(info.get("unstaged")), intOf(info.get("untracked")),
+                Boolean.TRUE.equals(info.get("hasUpstream")),
+                info.get("upstream") == null ? null : String.valueOf(info.get("upstream")),
+                op == null ? null : String.valueOf(op));
     }
 
     private Dto.RepoView stored(GitRepoEntity r) {
         return new Dto.RepoView(String.valueOf(r.getId()), r.getPath(), r.getName(),
-                r.getHost(), "", "", "", false, 0, 0, "", "", false, r.isLocalOnly());
+                r.getHost(), "", "", "", false, 0, 0, "", "", false, r.isLocalOnly(),
+                0, 0, 0, false, null, null);
     }
 
     private String pathOf(String id) {

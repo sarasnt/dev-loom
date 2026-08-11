@@ -43,6 +43,24 @@ async function toggleLocalOnly(r: RepoView) {
 function modelLabel(m: string): string {
   return m === 'claude-cli' ? 'Claude CLI · interactive terminal' : m
 }
+
+// ---- repository health (repo-spec §7) ----
+const openHealth = ref('')
+type Health = { label: string; tone: 'ok' | 'info' | 'warn' }
+// Working tree: operation-in-progress wins, then changes, else clean.
+function workTree(r: RepoView): Health {
+  if (r.operation) return { label: `${r.operation} in progress`, tone: 'warn' }
+  const n = (r.staged || 0) + (r.unstaged || 0) + (r.untracked || 0)
+  return n ? { label: `${n} change${n > 1 ? 's' : ''}`, tone: 'warn' } : { label: 'Clean', tone: 'ok' }
+}
+// Upstream synchronization vs the tracked branch.
+function upstreamState(r: RepoView): Health {
+  if (!r.hasUpstream) return { label: 'No upstream', tone: 'warn' }
+  if (r.ahead && r.behind) return { label: `Diverged ↑${r.ahead} ↓${r.behind}`, tone: 'warn' }
+  if (r.behind) return { label: `Needs pull ↓${r.behind}`, tone: 'warn' }
+  if (r.ahead) return { label: `Needs push ↑${r.ahead}`, tone: 'info' }
+  return { label: 'Up to date', tone: 'ok' }
+}
 const repoSessions = ref<{ id: string; title: string; repoPath: string }[]>([])
 function sessionsFor(path: string) {
   return repoSessions.value.filter((s) => s.repoPath === path)
@@ -250,10 +268,33 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
           <button class="branchbtn mono" :disabled="!agentUp" title="Switch branch" @click="toggleBranches(r)">
             ⎇ {{ r.branch || '—' }} ▾
           </button>
-          <span v-if="r.dirty" class="tag mono dirty">uncommitted</span>
-          <span v-if="r.ahead" class="tag mono">↑{{ r.ahead }}</span>
-          <span v-if="r.behind" class="tag mono">↓{{ r.behind }}</span>
+          <span class="hchip mono" :class="workTree(r).tone" :title="'Working tree'">{{ workTree(r).label }}</span>
+          <span class="hchip mono" :class="upstreamState(r).tone" :title="r.upstream ? 'vs ' + r.upstream : 'Upstream'">{{ upstreamState(r).label }}</span>
+          <button class="hmore mono" :aria-expanded="openHealth === r.id" @click="openHealth = openHealth === r.id ? '' : r.id">
+            health {{ openHealth === r.id ? '▴' : '▾' }}
+          </button>
           <span class="path mono">{{ r.path }}</span>
+        </div>
+
+        <!-- metadata: Git identity lives here (repo config), NOT in the action row -->
+        <div class="metarow mono">
+          <span class="slug">{{ r.slug || r.remote || 'local repo' }}</span>
+          <template v-if="editing !== r.id">
+            <span class="idsep">·</span>
+            <span class="idlabel">Commits as</span>
+            <b class="idname">{{ r.userName || '(unset)' }}</b>
+            <span class="idemail" :title="r.userEmail">&lt;{{ r.userEmail || 'no email' }}&gt;</span>
+            <button class="idchange" :disabled="!agentUp" @click="startEdit(r)">Change</button>
+            <span v-if="!r.userName || !r.userEmail" class="idwarn" title="New commits need a name + email">⚠ identity incomplete</span>
+          </template>
+        </div>
+
+        <!-- expanded health rows (repo-spec §11) -->
+        <div v-if="openHealth === r.id" class="healthbox">
+          <div class="hrow"><span class="hk mono">Working tree</span><span class="hv" :class="workTree(r).tone">{{ workTree(r).label }}</span>
+            <span v-if="r.staged || r.unstaged || r.untracked" class="mono hdet">{{ r.staged }} staged · {{ r.unstaged }} unstaged · {{ r.untracked }} untracked</span></div>
+          <div class="hrow"><span class="hk mono">Upstream</span><span class="hv" :class="upstreamState(r).tone">{{ upstreamState(r).label }}</span>
+            <span class="mono hdet">{{ r.upstream ? 'tracks ' + r.upstream : 'no tracking branch configured' }}</span></div>
         </div>
 
         <div v-if="openBranch === r.id" class="branchpanel">
@@ -284,8 +325,8 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
           <input v-model="editEmail" class="in sm" placeholder="git user.email" />
           <button class="btn pri" :disabled="busy === r.id" @click="saveEdit(r)">Save</button>
           <button class="btn ghost" @click="editing = null">Cancel</button>
+          <span class="idnote mono">Applies to future commits only.</span>
         </div>
-        <div v-else class="idrow mono">identity: {{ r.userName || '—' }} &lt;{{ r.userEmail || '—' }}&gt;</div>
 
         <div class="acts">
           <button class="btn" :disabled="busy === r.id || !agentUp" @click="toggleChanges(r)">
@@ -296,7 +337,6 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
           <button class="btn" :disabled="busy === r.id || !agentUp || r.host === 'none'" @click="act(r, () => repoPr(r.id), 'open PR/MR')">
             {{ r.host === 'gitlab' ? 'Open MR' : 'Open PR' }}
           </button>
-          <button class="btn" :disabled="busy === r.id || !agentUp" @click="startEdit(r)">Git identity</button>
           <button
             class="btn"
             :class="{ localon: r.localOnly }"
@@ -434,8 +474,28 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
 .path { font-size: 11px; color: var(--faint-text); margin-left: auto; }
 .tag { font-size: 10px; border: 1px solid var(--line); border-radius: 5px; padding: 2px 6px; color: var(--dim); }
 .tag.dirty { color: var(--warp-hi); border-color: var(--warp); }
-.idrow { font-size: 11px; color: var(--faint-text); margin: 8px 0; }
-.idedit { display: flex; gap: 8px; margin: 8px 0; align-items: center; }
+.idedit { display: flex; gap: 8px; margin: 8px 0; align-items: center; flex-wrap: wrap; }
+.idnote { font-size: 11px; color: var(--faint-text); }
+/* health chips + rows */
+.hchip { font-size: 10px; border: 1px solid var(--line); border-radius: 5px; padding: 2px 7px; }
+.hchip.ok { color: var(--healthy); border-color: color-mix(in srgb, var(--healthy) 50%, var(--line)); }
+.hchip.info { color: var(--warp-hi); border-color: var(--warp); }
+.hchip.warn { color: var(--chip-fail, #d88); border-color: var(--failed, #a55); }
+.hmore { font-size: 10px; color: var(--dim); background: transparent; border: 1px solid var(--line); border-radius: 5px; padding: 2px 7px; cursor: pointer; }
+.hmore:hover { border-color: var(--warp); color: var(--ink); }
+.metarow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 8px 0 2px; font-size: 11.5px; color: var(--faint-text); }
+.metarow .slug { color: var(--dim); }
+.metarow .idsep { color: var(--line-hi, var(--line)); }
+.metarow .idname { color: var(--ink); font-weight: 600; }
+.metarow .idemail { color: var(--faint-text); }
+.metarow .idchange { font-size: 11px; color: var(--warp-hi); background: transparent; border: 0; cursor: pointer; padding: 0 2px; text-decoration: underline; }
+.metarow .idwarn { color: var(--chip-fail, #d88); }
+.healthbox { border: 1px solid var(--line); border-radius: 8px; background: var(--bg); padding: 8px 12px; margin: 8px 0; }
+.hrow { display: flex; align-items: center; gap: 12px; padding: 4px 0; font-size: 12px; }
+.hrow .hk { width: 96px; color: var(--faint-text); text-transform: uppercase; letter-spacing: 0.08em; font-size: 10px; }
+.hrow .hv { font-size: 12px; }
+.hrow .hv.ok { color: var(--healthy); } .hrow .hv.info { color: var(--warp-hi); } .hrow .hv.warn { color: var(--chip-fail, #d88); }
+.hrow .hdet { margin-left: auto; color: var(--faint-text); font-size: 11px; }
 .acts { display: flex; gap: 8px; flex-wrap: wrap; }
 .rsessions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
 .rslab { font-size: 11px; color: var(--faint-text); }
