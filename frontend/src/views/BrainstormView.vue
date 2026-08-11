@@ -621,6 +621,11 @@ async function redoLast() {
 .md :deep(.md-pre) { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; overflow: auto; margin: 6px 0; }
 .md :deep(.md-pre code) { font-family: var(--mono); font-size: 12px; white-space: pre; background: none; border: 0; padding: 0; }
 .md :deep(a) { color: var(--warp-hi); text-decoration: underline; }
+.md :deep(.md-tablewrap) { overflow-x: auto; margin: 8px 0; }
+.md :deep(.md-table) { border-collapse: collapse; font-size: 12.5px; }
+.md :deep(.md-table th), .md :deep(.md-table td) { border: 1px solid var(--line); padding: 5px 9px; text-align: left; vertical-align: top; }
+.md :deep(.md-table th) { background: var(--chip-bg); color: var(--ink); font-weight: 600; }
+.md :deep(.md-table td) { color: var(--dim); }
 .md :deep(strong) { color: var(--ink); font-weight: 600; }
 .cursor { color: var(--warp-hi); animation: blink 1s steps(2) infinite; }
 @keyframes blink { 50% { opacity: 0; } }
