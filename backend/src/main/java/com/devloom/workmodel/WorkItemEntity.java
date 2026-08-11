@@ -52,6 +52,10 @@ public class WorkItemEntity {
     @Column(name = "metadata", columnDefinition = "text")
     private String metadata;
 
+    // Canonical URL to open this item (GitHub PR/issue, Jira browse, Notion page).
+    @Column(name = "url", columnDefinition = "text")
+    private String url;
+
     protected WorkItemEntity() {
     }
 
@@ -87,6 +91,12 @@ public class WorkItemEntity {
         return this;
     }
 
+    /** Canonical URL to open the item in its source. */
+    public WorkItemEntity withUrl(String url) {
+        this.url = (url == null || url.isBlank()) ? null : url.strip();
+        return this;
+    }
+
     private static String trim(String s, int max) {
         if (s == null || s.isBlank()) return null;
         String t = s.strip();
@@ -107,4 +117,5 @@ public class WorkItemEntity {
     public Long getSourceInstanceId() { return sourceInstanceId; }
     public void setSourceInstanceId(Long id) { this.sourceInstanceId = id; }
     public String getMetadata() { return metadata; }
+    public String getUrl() { return url; }
 }

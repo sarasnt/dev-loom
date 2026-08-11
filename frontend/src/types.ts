@@ -36,6 +36,7 @@ export interface Recommendation {
   evidence?: EvidenceRef[]
   score?: number
   actions: string[]
+  url?: string | null // open the item in its source (GitHub/Jira/Notion)
 }
 
 export interface SyncSource {

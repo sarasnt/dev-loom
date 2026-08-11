@@ -1,28 +1,54 @@
 <script setup lang="ts">
+import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { storeToRefs } from 'pinia'
 import type { Recommendation } from '../types'
+import { useDashboardStore } from '../stores/dashboard'
 import Mono from './Mono.vue'
 
-defineProps<{ item: Recommendation }>()
+const props = defineProps<{ item: Recommendation }>()
 
 const router = useRouter()
+const store = useDashboardStore()
+const { models, agentModels } = storeToRefs(store)
 
 const primaryAction = (actions: string[]) => actions[0]
 const restActions = (actions: string[]) => actions.slice(1)
 
-// Wire the primary action to the real thing: a build → its on-machine analysis; a GitHub
-// PR/issue → open on GitHub (/issues/N redirects to the PR when N is a PR).
-function runPrimary(item: Recommendation) {
-  if (item.type === 'build') {
-    router.push(`/builds/${item.id}`)
-    return
-  }
-  // GitHub item ids are "owner/repo#number": PRs live under /pull, issues under /issues.
+const whyOpen = ref(false)
+const amenu = ref(false)
+// Build analysis uses local + keyed-remote models (never the Brainstorm-only agent modes).
+const analyzeModels = computed(() => models.value.filter((m) => !agentModels.value.includes(m)))
+
+// Resolve a GitHub URL from the "owner/repo#number" id when the backend didn't supply one.
+function itemUrl(item: Recommendation): string | null {
+  if (item.url) return item.url
   if (item.source === 'GitHub' && item.id.includes('#')) {
     const [repo, num] = item.id.split('#')
-    const path = item.type === 'pr' ? 'pull' : 'issues'
-    window.open(`https://github.com/${repo}/${path}/${num}`, '_blank', 'noopener')
+    return `https://github.com/${repo}/${item.type === 'pr' ? 'pull' : 'issues'}/${num}`
   }
+  return null
+}
+function openItem(item: Recommendation) {
+  const u = itemUrl(item)
+  if (u) window.open(u, '_blank', 'noopener')
+}
+
+// Primary: a build → its on-machine analysis (default model); anything else → open it.
+function runPrimary(item: Recommendation) {
+  if (item.type === 'build') { router.push(`/builds/${item.id}`); return }
+  openItem(item)
+}
+function analyzeWith(item: Recommendation, model: string) {
+  amenu.value = false
+  router.push({ path: `/builds/${item.id}`, query: { model } })
+}
+// Wire a secondary action button by its label.
+function runAction(item: Recommendation, action: string) {
+  if (action === 'Why') whyOpen.value = !whyOpen.value
+  else if (action === 'Snooze') store.snoozeItem(item.id)
+  else if (action === 'Open') openItem(item)
+  else runPrimary(item)
 }
 </script>
 
@@ -32,7 +58,7 @@ function runPrimary(item: Recommendation) {
     <span class="mini-title">{{ item.title }}</span>
     <Mono class="chip stale">{{ item.chips[0]?.label }}</Mono>
     <span class="mini-why">{{ item.why }}</span>
-    <button class="btn ghost mini-act">{{ primaryAction(item.actions) }}</button>
+    <button class="btn ghost mini-act" @click="runPrimary(item)">{{ primaryAction(item.actions) }}</button>
   </div>
 
   <article v-else :class="['card', { lead: item.lead }]">
@@ -56,9 +82,30 @@ function runPrimary(item: Recommendation) {
       >
     </div>
 
+    <!-- Why: the priority signals + evidence behind the ranking -->
+    <div v-if="whyOpen" class="whybox mono">
+      <div v-for="s in item.signals ?? []" :key="s.name" class="sig-row">
+        <span class="sig-name">{{ s.name }}</span>
+        <span class="sig-disp">{{ s.value }}</span>
+        <span class="sig-bar"><i :style="{ width: Math.round((s.normalized ?? 0) * 100) + '%' }"></i></span>
+        <span class="sig-w">×{{ s.weight }}</span>
+      </div>
+      <div v-if="item.evidence?.length" class="ev">evidence → {{ item.evidence.map((e) => e.id).join(' · ') }}</div>
+      <div v-if="!item.signals?.length && !item.evidence?.length" class="ev">{{ item.why }}</div>
+    </div>
+
     <div class="acts">
       <button class="btn pri" @click="runPrimary(item)">{{ primaryAction(item.actions) }} ▸</button>
-      <button v-for="a in restActions(item.actions)" :key="a" class="btn ghost">{{ a }}</button>
+      <!-- Analyze with… (build only): pick a model for this run -->
+      <div v-if="item.type === 'build'" class="awrap">
+        <button class="btn" @click="amenu = !amenu">Analyze with ▾</button>
+        <div v-if="amenu" class="amenu" @click.self="amenu = false">
+          <div class="amlab mono">choose a model</div>
+          <button v-for="m in analyzeModels" :key="m" class="ami mono" @click="analyzeWith(item, m)">{{ m }}</button>
+          <div v-if="!analyzeModels.length" class="ami empty mono">no models available</div>
+        </div>
+      </div>
+      <button v-for="a in restActions(item.actions)" :key="a" class="btn ghost" @click="runAction(item, a)">{{ a }}</button>
     </div>
   </article>
 </template>
@@ -93,7 +140,21 @@ function runPrimary(item: Recommendation) {
 .chip.warn { color: var(--warp-hi); border-color: var(--warp); }
 .chip.fail { color: var(--chip-fail); border-color: var(--failed); }
 .chip.stale { color: var(--chip-stale); border-color: var(--stale); }
-.acts { display: flex; gap: 8px; margin-top: 12px; }
+.whybox { margin-top: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); padding: 10px 12px; font-size: 11.5px; color: var(--dim); }
+.sig-row { display: flex; align-items: center; gap: 10px; padding: 3px 0; }
+.sig-name { width: 66px; color: var(--warp-hi); }
+.sig-disp { width: 96px; color: var(--faint-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sig-bar { flex: 1; height: 6px; border-radius: 4px; background: var(--raised); overflow: hidden; }
+.sig-bar i { display: block; height: 100%; background: var(--warp); }
+.sig-w { width: 34px; text-align: right; color: var(--faint-text); }
+.ev { margin-top: 6px; color: var(--warp-hi); }
+.acts { display: flex; gap: 8px; margin-top: 12px; align-items: center; }
+.awrap { position: relative; }
+.amenu { position: absolute; top: calc(100% + 4px); left: 0; z-index: 20; min-width: 200px; max-height: 260px; overflow-y: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 4px; box-shadow: 0 8px 24px rgba(0,0,0,0.35); }
+.amlab { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint-text); padding: 4px 9px 6px; }
+.ami { display: block; width: 100%; text-align: left; background: transparent; border: 0; border-radius: 6px; padding: 6px 9px; color: var(--ink); font-size: 12px; cursor: pointer; white-space: nowrap; }
+.ami:hover { background: var(--nav-hover); }
+.ami.empty { color: var(--faint-text); cursor: default; }
 .btn {
   font-size: 13px; font-weight: 500; border-radius: var(--r-ctl); padding: 6px 12px;
   border: 1px solid var(--line); background: var(--btn-bg); color: var(--ink);

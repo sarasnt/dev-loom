@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import type { TodayData, ProvidersData } from '../types'
-import { fetchToday, fetchWork, fetchProviders } from '../api'
+import { fetchToday, fetchWork, fetchProviders, snoozeToday } from '../api'
 
 // Local models + remote models from any keyed provider (the router maps names → adapter).
 function unionModels(p: ProvidersData): string[] {
@@ -46,6 +46,11 @@ export const useDashboardStore = defineStore('dashboard', () => {
   // e.g. when a Brainstorm session is locked to claude-cli.
   function reflectModel(name: string) {
     if (name) activeModel.value = name
+  }
+
+  // Snooze a Today card and refresh the list from the server's new state.
+  async function snoozeItem(id: string) {
+    try { today.value = await snoozeToday(id) } catch { /* leave list as-is */ }
   }
 
   // Brainstorm boundary-crossing preference (persisted; also editable in Settings > General).
@@ -109,7 +114,7 @@ export const useDashboardStore = defineStore('dashboard', () => {
 
   return {
     today, loading, error, buildBadge, models, agentModels, defaultModel, activeModel,
-    screenModels, modelFor, setModelFor, reflectModel,
+    screenModels, modelFor, setModelFor, reflectModel, snoozeItem,
     brainstormSwitch, setBrainstormSwitch, load, ensureLoaded,
   }
 })

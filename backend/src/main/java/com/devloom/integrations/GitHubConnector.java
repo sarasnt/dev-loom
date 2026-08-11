@@ -124,7 +124,8 @@ public class GitHubConnector implements SourceConnector {
                 String title = "CI " + (runNo.isBlank() ? "" : "#" + runNo + " ") + "· " + name + " failed";
                 // meta = [branch, repo] — BuildFailureService recovers repo from meta[1].
                 out.add(WorkItemEntity.create(runId, "build", title, "failed", "fail",
-                        branch + "," + repo, source, baseOrder + i++));
+                        branch + "," + repo, source, baseOrder + i++)
+                        .withUrl(str(r, "html_url")));
             }
             return i;
         } catch (Exception e) {
@@ -150,7 +151,8 @@ public class GitHubConnector implements SourceConnector {
         }
         String displayTitle = "#" + number + " · " + title;
         String meta = String.join(",", state, repo);
-        return WorkItemEntity.create(extId, type, displayTitle, status, tone, meta, source, order);
+        return WorkItemEntity.create(extId, type, displayTitle, status, tone, meta, source, order)
+                .withUrl(str(item, "html_url"));
     }
 
     private static String repoShortName(String repositoryUrl) {

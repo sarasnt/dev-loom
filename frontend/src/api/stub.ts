@@ -42,6 +42,9 @@ function delay<T>(value: T, ms = 350): Promise<T> {
 export function fetchToday(): Promise<TodayData> {
   return delay(TODAY, 300)
 }
+export function snoozeToday(_id: string): Promise<TodayData> {
+  return delay(TODAY, 150)
+}
 
 // ---- Work browser ----
 export function fetchWork(): Promise<WorkRow[]> {

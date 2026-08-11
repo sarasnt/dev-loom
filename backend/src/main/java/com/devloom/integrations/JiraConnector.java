@@ -81,7 +81,7 @@ public class JiraConnector implements SourceConnector {
             Map<String, Object> names = asMap(root == null ? null : root.get("names")); // fieldId → label
             int order = 100;
             for (Object issueObj : issues) {
-                out.add(map(asMap(issueObj), names, inst.getName(), order++));
+                out.add(map(asMap(issueObj), names, inst.getName(), order++, baseUrl));
             }
             log.info("Jira sync [{}]: fetched {} issues from {}", inst.getName(), out.size(), baseUrl);
             return out;
@@ -91,7 +91,7 @@ public class JiraConnector implements SourceConnector {
         }
     }
 
-    private WorkItemEntity map(Map<String, Object> issue, Map<String, Object> names, String source, int order) {
+    private WorkItemEntity map(Map<String, Object> issue, Map<String, Object> names, String source, int order, String baseUrl) {
         String key = str(issue, "key");
         Map<String, Object> f = asMap(issue.get("fields"));
         String summary = str(f, "summary");
@@ -114,11 +114,13 @@ public class JiraConnector implements SourceConnector {
         if (!priority.isBlank()) metaParts.add(priority);
         if (!projectKey.isBlank()) metaParts.add(projectKey);
         String title = key + " · " + summary;
+        String base = baseUrl == null ? "" : baseUrl.replaceAll("/+$", "");
         return WorkItemEntity.create(key, "task", title,
                 statusName.isBlank() ? "open" : statusName, tone,
                 String.join(",", metaParts), source, order)
                 .withDetail(description, parentKey)
-                .withMetadata(buildMetadata(f, names));
+                .withMetadata(buildMetadata(f, names))
+                .withUrl(base.isBlank() || key.isBlank() ? null : base + "/browse/" + key);
     }
 
     /**

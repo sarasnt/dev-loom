@@ -7,6 +7,7 @@ const useStub = import.meta.env.VITE_USE_STUB === 'true'
 const api = useStub ? stub : http
 
 export const fetchToday = api.fetchToday
+export const snoozeToday = api.snoozeToday
 export const fetchWork = api.fetchWork
 export const fetchBuildFailure = api.fetchBuildFailure
 export const fetchLatestBuild = api.fetchLatestBuild

@@ -99,7 +99,8 @@ const canRedo = computed(
 
 onMounted(async () => {
   await store.ensureLoaded()
-  runModel.value = store.modelFor('builds') // open with the configured default
+  // "Analyze with X" from a Today card passes ?model; otherwise open with the configured default.
+  runModel.value = (route.query.model as string) || store.modelFor('builds')
   store.reflectModel(runModel.value)
   analyze()
 })

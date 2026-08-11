@@ -112,6 +112,13 @@ public class ApiController {
         return todayService.today();
     }
 
+    /** Snooze a Today card (hide it from the list). */
+    @PostMapping("/today/snooze/{id}")
+    public Dto.Today snooze(@PathVariable String id) {
+        todayService.snooze(id);
+        return todayService.today();
+    }
+
     @GetMapping("/work")
     public List<Dto.WorkRow> work() {
         return workModel.allWork();

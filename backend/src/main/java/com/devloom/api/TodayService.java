@@ -35,26 +35,38 @@ public class TodayService {
     private final ChangesService changes;
     private final WorkItemRepository workItems;
     private final ProvidersService providers;
+    private final com.devloom.common.AppConfigService appConfig;
     private final String workspace;
     private final String user;
 
     public TodayService(PriorityEngine priority, ChangesService changes,
                         WorkItemRepository workItems, ProvidersService providers,
+                        com.devloom.common.AppConfigService appConfig,
                         @Value("${devloom.workspace:My workspace}") String workspace,
                         @Value("${devloom.user:you}") String user) {
         this.priority = priority;
         this.changes = changes;
         this.workItems = workItems;
         this.providers = providers;
+        this.appConfig = appConfig;
         this.workspace = workspace;
         this.user = user;
+    }
+
+    /** Hide a work item from Today. */
+    public void snooze(String extId) {
+        appConfig.snooze(extId);
     }
 
     /** A candidate before ranking: the source item + the signals that score it. */
     private record Candidate(WorkItemEntity item, List<SignalComponent> signals) {}
 
     public Dto.Today today() {
-        List<WorkItemEntity> all = workItems.findAllByOrderBySortOrderAsc();
+        List<WorkItemEntity> everything = workItems.findAllByOrderBySortOrderAsc();
+        java.util.Set<String> snoozed = appConfig.snoozed();
+        List<WorkItemEntity> all = everything.stream()
+                .filter(w -> !snoozed.contains(w.getExtId()))
+                .toList();
 
         List<Candidate> candidates = all.stream()
                 .map(w -> new Candidate(w, signalsFor(w)))
@@ -76,11 +88,12 @@ public class TodayService {
                     "");
         }
 
+        int snoozedCount = (int) everything.stream().filter(w -> snoozed.contains(w.getExtId())).count();
         return new Dto.Today(
                 workspace, user, NOW.format(Instant.now()),
                 changed, syncState(all), model(),
                 new Dto.Boundary("local", "On your machine"),
-                next, all.size(), 0);
+                next, all.size(), snoozedCount);
     }
 
     // ---- signals ---------------------------------------------------------------
@@ -130,7 +143,7 @@ public class TodayService {
                 whyFor(w), false, chipsFor(w),
                 lead ? Boolean.TRUE : null,
                 lead ? toSignalDtos(s.item().signals()) : null,
-                evidenceFor(w), s.score(), actionsFor(type));
+                evidenceFor(w), s.score(), actionsFor(type), w.getUrl());
         return base;
     }
 

@@ -25,7 +25,7 @@ public final class Dto {
             String id, int rank, String type, String title, String source, String why,
             boolean isHypothesis, List<SignalChip> chips, Boolean lead,
             List<SignalComponent> signals, List<EvidenceRef> evidence, Double score,
-            List<String> actions) {}
+            List<String> actions, String url) {}
     public record Today(
             String workspace, String user, String now, Changed changed, Sync sync,
             Model model, Boundary boundary, List<Recommendation> next,
