@@ -99,6 +99,60 @@ public class FleetService {
         return toDto(runs.save(run));
     }
 
+    /** The diff a run produced in its working dir (edit runs; empty for read-only). Passthrough of
+     *  the host agent's changes shape ({staged,unstaged,untracked} of {file,status}). */
+    public Map<String, Object> changes(String id) {
+        AgentRunEntity run = runs.findById(parse(id)).orElseThrow();
+        String dir = run.getRunDir() == null ? run.getRepoPath() : run.getRunDir();
+        try {
+            return agent.changes(dir);
+        } catch (Exception e) {
+            return Map.of("staged", List.of(), "unstaged", List.of(), "untracked", List.of());
+        }
+    }
+
+    /** Re-run: launch a fresh run with the same parameters. */
+    @Transactional
+    public Dto.AgentRun rerun(String id) {
+        AgentRunEntity r = runs.findById(parse(id)).orElseThrow();
+        String repoId = repos.findAll().stream()
+                .filter(g -> g.getPath().equalsIgnoreCase(r.getRepoPath()))
+                .map(g -> String.valueOf(g.getId())).findFirst().orElseThrow();
+        // Re-use the original title as the prompt is not stored; the human can refine after.
+        return launch(new Dto.RunLaunch(repoId, r.getTitle(), r.getModel(),
+                r.getPermission() == null ? "readonly" : r.getPermission(), r.isAllowTests(), false));
+    }
+
+    /** Remove a run from the board (does not touch any files it produced). */
+    @Transactional
+    public void delete(String id) {
+        runs.findById(parse(id)).ifPresent(runs::delete);
+    }
+
+    // ---- interactive runs (claude-cli sessions surface on the board) ----
+
+    /** Record an interactive terminal run so it appears on the Fleet board. */
+    @Transactional
+    public void recordInteractive(String title, String repoPath, Long brainstormSessionId, String claudeSessionId) {
+        AgentRunEntity e = AgentRunEntity.interactive(title, repoPath == null ? "" : repoPath,
+                brainstormSessionId, claudeSessionId);
+        runs.save(e);
+    }
+
+    /** Mark an interactive run ended (e.g. its brainstorm session was deleted). */
+    @Transactional
+    public void endInteractive(Long brainstormSessionId) {
+        for (AgentRunEntity r : runs.findAll()) {
+            if ("interactive".equals(r.getKind()) && brainstormSessionId.equals(r.getBrainstormSessionId())
+                    && "active".equals(r.getStatus())) {
+                r.setStatus("ended");
+                r.setFinishedAt(Instant.now());
+                runs.save(r);
+            }
+        }
+    }
+
+
     /** Poll running background runs and transition them as the host agent's process finishes. */
     @Scheduled(fixedRate = 10_000)
     @Transactional
@@ -116,6 +170,7 @@ public class FleetService {
                 case "done" -> {
                     run.setStatus("review"); // finished — awaiting the user's review
                     run.setResultSummary(str(st.get("result")));
+                    if (st.get("sessionId") != null) run.setClaudeSessionId(str(st.get("sessionId")));
                     run.setFinishedAt(Instant.now());
                 }
                 case "failed" -> {
@@ -151,7 +206,9 @@ public class FleetService {
                 String.valueOf(r.getId()), r.getTitle(), r.getRepoPath(), r.getRunDir(), r.getBranch(),
                 r.getKind(), r.getPermission(), r.isAllowTests(), r.isIsolated(), r.getModel(),
                 r.getStatus(), r.getResultSummary(), r.getError(),
-                iso(r.getCreatedAt()), iso(r.getStartedAt()), iso(r.getFinishedAt()));
+                iso(r.getCreatedAt()), iso(r.getStartedAt()), iso(r.getFinishedAt()),
+                r.getClaudeSessionId(),
+                r.getBrainstormSessionId() == null ? null : String.valueOf(r.getBrainstormSessionId()));
     }
 
     private static String iso(Instant t) { return t == null ? null : t.toString(); }

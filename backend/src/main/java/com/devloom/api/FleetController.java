@@ -41,4 +41,20 @@ public class FleetController {
     public Dto.AgentRun cancel(@PathVariable String id) {
         return fleet.cancel(id);
     }
+
+    @GetMapping("/runs/{id}/changes")
+    public java.util.Map<String, Object> changes(@PathVariable String id) {
+        return fleet.changes(id);
+    }
+
+    @PostMapping("/runs/{id}/rerun")
+    public Dto.AgentRun rerun(@PathVariable String id) {
+        return fleet.rerun(id);
+    }
+
+    @org.springframework.web.bind.annotation.DeleteMapping("/runs/{id}")
+    public java.util.Map<String, Object> delete(@PathVariable String id) {
+        fleet.delete(id);
+        return java.util.Map.of("deleted", id);
+    }
 }

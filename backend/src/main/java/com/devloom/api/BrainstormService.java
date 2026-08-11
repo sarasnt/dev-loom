@@ -58,6 +58,7 @@ public class BrainstormService {
     private final com.devloom.workmodel.WorkItemRepository workItems;
     private final com.devloom.common.AppConfigService appConfig;
     private final com.devloom.repos.GitRepoRepository repos;
+    private final com.devloom.fleet.FleetService fleet;
 
     public BrainstormService(LlmRouter llm, com.devloom.ai.HostAgentClient agent,
                              BrainstormSessionRepository sessions,
@@ -65,7 +66,8 @@ public class BrainstormService {
                              com.devloom.brainstorm.BrainstormContextRepository contexts,
                              com.devloom.workmodel.WorkItemRepository workItems,
                              com.devloom.common.AppConfigService appConfig,
-                             com.devloom.repos.GitRepoRepository repos) {
+                             com.devloom.repos.GitRepoRepository repos,
+                             com.devloom.fleet.FleetService fleet) {
         this.llm = llm;
         this.agent = agent;
         this.sessions = sessions;
@@ -74,6 +76,7 @@ public class BrainstormService {
         this.workItems = workItems;
         this.appConfig = appConfig;
         this.repos = repos;
+        this.fleet = fleet;
     }
 
     /** True if the session's repo is marked local-only (may only use local models). */
@@ -132,6 +135,10 @@ public class BrainstormService {
             contexts.save(com.devloom.brainstorm.BrainstormContextEntity.of(
                     s.getId(), "repo", s.getRepoPath(), name, true));
         }
+        // A claude-cli session is an interactive run — surface it on the Fleet board.
+        if (s.isCliMode()) {
+            fleet.recordInteractive(s.getTitle(), s.getRepoPath(), s.getId(), s.getClaudeSessionId());
+        }
         return toDto(s);
     }
 
@@ -176,6 +183,7 @@ public class BrainstormService {
         Long sid = parse(id);
         messages.deleteBySessionId(sid);
         sessions.deleteById(sid);
+        fleet.endInteractive(sid); // mark any matching Fleet interactive run as ended
     }
 
     // ---- write: a turn --------------------------------------------------------

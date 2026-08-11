@@ -409,6 +409,8 @@ export interface AgentRun {
   createdAt: string
   startedAt: string | null
   finishedAt: string | null
+  claudeSessionId: string | null
+  brainstormSessionId: string | null
 }
 export interface RunLaunch {
   repoId: string

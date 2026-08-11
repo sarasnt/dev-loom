@@ -371,3 +371,6 @@ export function fleetRuns() { return delay([] as import('../types').AgentRun[]) 
 export function fleetRun() { return delay(null as unknown as import('../types').AgentRun) }
 export function launchRun() { return delay(null as unknown as import('../types').AgentRun) }
 export function cancelRun() { return delay(null as unknown as import('../types').AgentRun) }
+export function fleetRunChanges() { return delay({ staged: [], unstaged: [], untracked: [] } as import('../types').RepoChanges) }
+export function rerunRun() { return delay(null as unknown as import('../types').AgentRun) }
+export function deleteRun() { return delay({ deleted: '' }) }

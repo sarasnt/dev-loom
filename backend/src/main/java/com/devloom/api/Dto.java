@@ -141,7 +141,8 @@ public final class Dto {
     public record AgentRun(
             String id, String title, String repoPath, String runDir, String branch, String kind,
             String permission, boolean allowTests, boolean isolated, String model, String status,
-            String resultSummary, String error, String createdAt, String startedAt, String finishedAt) {}
+            String resultSummary, String error, String createdAt, String startedAt, String finishedAt,
+            String claudeSessionId, String brainstormSessionId) {}
     public record RunLaunch(String repoId, String prompt, String model, String permission,
                             boolean allowTests, boolean isolate) {}
 

@@ -189,3 +189,7 @@ export const fleetRun = (id: string) => get<import('../types').AgentRun>(`/fleet
 export const launchRun = (body: import('../types').RunLaunch) =>
   post<import('../types').AgentRun>('/fleet/runs', body)
 export const cancelRun = (id: string) => post<import('../types').AgentRun>(`/fleet/runs/${id}/cancel`, {})
+export const fleetRunChanges = (id: string) =>
+  get<import('../types').RepoChanges>(`/fleet/runs/${id}/changes`)
+export const rerunRun = (id: string) => post<import('../types').AgentRun>(`/fleet/runs/${id}/rerun`, {})
+export const deleteRun = (id: string) => del<{ deleted: string }>(`/fleet/runs/${id}`)

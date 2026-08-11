@@ -87,6 +87,24 @@ public class AgentRunEntity {
         return e;
     }
 
+    /** An interactive claude-cli terminal run (surfaces on the Fleet board as 'active'). */
+    public static AgentRunEntity interactive(String title, String repoPath,
+                                             Long brainstormSessionId, String claudeSessionId) {
+        AgentRunEntity e = new AgentRunEntity();
+        e.title = title;
+        e.repoPath = repoPath;
+        e.runDir = repoPath;
+        e.kind = "interactive";
+        e.allowTests = false;
+        e.isolated = false;
+        e.model = "claude-cli";
+        e.status = "active";
+        e.brainstormSessionId = brainstormSessionId;
+        e.claudeSessionId = claudeSessionId;
+        e.startedAt = Instant.now();
+        return e;
+    }
+
     public Long getId() { return id; }
     public String getTitle() { return title; }
     public String getRepoPath() { return repoPath; }

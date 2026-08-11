@@ -115,7 +115,7 @@ function startRun({ cwd, prompt, model, permission }) {
   if (model) args.push('--model', model)
   args.push('--permission-mode', permission === 'edit' ? 'acceptEdits' : 'plan')
   args.push('--append-system-prompt', RUN_SAFETY)
-  const rec = { id, status: 'running', out: '', err: '', result: null, error: null, exitCode: null, child: null }
+  const rec = { id, status: 'running', out: '', err: '', result: null, error: null, exitCode: null, sessionId: null, child: null }
   runs.set(id, rec)
   let child
   try {
@@ -131,8 +131,11 @@ function startRun({ cwd, prompt, model, permission }) {
     rec.exitCode = code
     if (rec.status === 'canceled') return
     if (code === 0) {
-      try { const p = JSON.parse(rec.out); rec.result = String(p.result ?? p.text ?? '') }
-      catch { rec.result = rec.out.trim() }
+      try {
+        const p = JSON.parse(rec.out)
+        rec.result = String(p.result ?? p.text ?? '')
+        rec.sessionId = p.session_id || null
+      } catch { rec.result = rec.out.trim() }
       rec.status = 'done'
     } else {
       rec.status = 'failed'
@@ -146,7 +149,7 @@ function startRun({ cwd, prompt, model, permission }) {
 function runStatus(id) {
   const rec = runs.get(id)
   if (!rec) return { status: 'unknown' }
-  return { status: rec.status, result: rec.result, error: rec.error, exitCode: rec.exitCode }
+  return { status: rec.status, result: rec.result, error: rec.error, exitCode: rec.exitCode, sessionId: rec.sessionId }
 }
 
 function cancelRun(id) {

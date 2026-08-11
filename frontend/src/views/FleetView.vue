@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useDashboardStore } from '../stores/dashboard'
-import { fleetRuns, launchRun, cancelRun, fetchRepos } from '../api'
-import type { AgentRun, RepoView, RunLaunch } from '../types'
+import { fleetRuns, launchRun, cancelRun, fetchRepos, fleetRunChanges, rerunRun, deleteRun, createBrainstormSession } from '../api'
+import type { AgentRun, RepoView, RepoChanges, RunLaunch } from '../types'
 
+const router = useRouter()
 const store = useDashboardStore()
 const { models } = storeToRefs(store)
 
@@ -12,12 +14,12 @@ const runs = ref<AgentRun[]>([])
 const repos = ref<RepoView[]>([])
 const loading = ref(true)
 const flash = ref('')
-const expanded = ref<string>('')
 let timer: number | undefined
 
-// Attention-routed groups (the board proper arrives in the next slice).
+// Attention-routed groups.
 const needsReview = computed(() => runs.value.filter((r) => r.status === 'review' || r.status === 'failed'))
 const running = computed(() => runs.value.filter((r) => r.status === 'running'))
+const active = computed(() => runs.value.filter((r) => r.status === 'active'))
 const recent = computed(() => runs.value.filter((r) => ['done', 'canceled', 'ended'].includes(r.status)))
 
 async function refresh() {
@@ -74,6 +76,48 @@ async function submit() {
 async function stop(r: AgentRun) {
   try { const u = await cancelRun(r.id); runs.value = runs.value.map((x) => (x.id === u.id ? u : x)) } catch { /* ignore */ }
 }
+
+// ---- run detail ----
+const detail = ref<AgentRun | null>(null)
+const detailChanges = ref<RepoChanges | null>(null)
+const detailBusy = ref(false)
+async function openDetail(r: AgentRun) {
+  detail.value = r
+  detailChanges.value = null
+  if (r.permission === 'edit') {
+    try { detailChanges.value = await fleetRunChanges(r.id) } catch { detailChanges.value = null }
+  }
+}
+const changedFiles = computed(() => {
+  const c = detailChanges.value
+  if (!c) return [] as { file: string; status: string }[]
+  return [...c.staged, ...c.unstaged, ...c.untracked]
+})
+async function rerun(r: AgentRun) {
+  detailBusy.value = true
+  try { const run = await rerunRun(r.id); runs.value = [run, ...runs.value]; detail.value = null }
+  catch { flash.value = 'Re-run failed — is the host agent running?' }
+  finally { detailBusy.value = false }
+}
+async function dismiss(r: AgentRun) {
+  detailBusy.value = true
+  try { await deleteRun(r.id); runs.value = runs.value.filter((x) => x.id !== r.id); if (detail.value?.id === r.id) detail.value = null }
+  finally { detailBusy.value = false }
+}
+// Open a run in an interactive claude-cli terminal: interactive runs jump to their session;
+// a finished background run opens a fresh cli session in its dir to continue the work.
+async function openInTerminal(r: AgentRun) {
+  if (r.kind === 'interactive' && r.brainstormSessionId) {
+    router.push({ path: '/brainstorm', query: { session: r.brainstormSessionId } })
+    return
+  }
+  detailBusy.value = true
+  try {
+    const s = await createBrainstormSession(`Continue · ${r.title}`, r.runDir || r.repoPath, 'claude-cli')
+    if (r.resultSummary) store.setPendingSeed(s.id, `Continue this task:\n\n${r.title}\n\nPrior result:\n${r.resultSummary}`, 'cli')
+    router.push({ path: '/brainstorm', query: { session: s.id } })
+  } finally { detailBusy.value = false }
+}
 </script>
 
 <template>
@@ -92,58 +136,99 @@ async function stop(r: AgentRun) {
     <template v-else>
       <section v-if="needsReview.length" class="grp">
         <div class="glab mono">Needs review</div>
-        <div v-for="r in needsReview" :key="r.id" class="run" :class="r.status">
-          <div class="rtop">
-            <span class="rstatus mono" :class="r.status">{{ statusLabel[r.status] }}</span>
-            <span class="rtitle">{{ r.title }}</span>
-            <span class="rbadges mono">
-              <span class="rb">{{ repoName(r.repoPath) }}</span>
-              <span class="rb" :class="r.permission || ''">{{ r.permission }}</span>
-              <span v-if="r.model" class="rb">{{ r.model }}</span>
-              <span class="rb">{{ elapsed(r) }}</span>
-            </span>
-            <button class="link mono" @click="expanded = expanded === r.id ? '' : r.id">{{ expanded === r.id ? 'hide' : 'view' }}</button>
-          </div>
-          <pre v-if="expanded === r.id" class="rbody mono">{{ r.error || r.resultSummary || '(no output)' }}</pre>
-        </div>
+        <button v-for="r in needsReview" :key="r.id" class="run" :class="r.status" @click="openDetail(r)">
+          <span class="rstatus mono" :class="r.status">{{ statusLabel[r.status] }}</span>
+          <span class="rtitle">{{ r.title }}</span>
+          <span class="rbadges mono">
+            <span class="rb">{{ repoName(r.repoPath) }}</span>
+            <span class="rb" :class="r.permission || ''">{{ r.permission }}</span>
+            <span v-if="r.model" class="rb">{{ r.model }}</span>
+            <span class="rb">{{ elapsed(r) }}</span>
+          </span>
+          <span class="chev">›</span>
+        </button>
       </section>
 
       <section v-if="running.length" class="grp">
         <div class="glab mono">Running</div>
         <div v-for="r in running" :key="r.id" class="run running">
-          <div class="rtop">
-            <span class="rstatus mono running"><span class="spin"></span>running</span>
-            <span class="rtitle">{{ r.title }}</span>
-            <span class="rbadges mono">
-              <span class="rb">{{ repoName(r.repoPath) }}</span>
-              <span class="rb" :class="r.permission || ''">{{ r.permission }}</span>
-              <span v-if="r.model" class="rb">{{ r.model }}</span>
-              <span class="rb">{{ elapsed(r) }}</span>
-            </span>
-            <button class="link mono danger" @click="stop(r)">cancel</button>
-          </div>
+          <span class="rstatus mono running"><span class="spin"></span>running</span>
+          <span class="rtitle">{{ r.title }}</span>
+          <span class="rbadges mono">
+            <span class="rb">{{ repoName(r.repoPath) }}</span>
+            <span class="rb" :class="r.permission || ''">{{ r.permission }}</span>
+            <span v-if="r.model" class="rb">{{ r.model }}</span>
+            <span class="rb">{{ elapsed(r) }}</span>
+          </span>
+          <button class="link mono danger" @click="stop(r)">cancel</button>
         </div>
+      </section>
+
+      <section v-if="active.length" class="grp">
+        <div class="glab mono">Active · interactive</div>
+        <button v-for="r in active" :key="r.id" class="run active" @click="openInTerminal(r)">
+          <span class="rstatus mono active">⌨ terminal</span>
+          <span class="rtitle">{{ r.title }}</span>
+          <span class="rbadges mono"><span class="rb">{{ repoName(r.repoPath) }}</span></span>
+          <span class="chev">open ›</span>
+        </button>
       </section>
 
       <section v-if="recent.length" class="grp">
         <div class="glab mono">Recent</div>
-        <div v-for="r in recent" :key="r.id" class="run recent">
-          <div class="rtop">
-            <span class="rstatus mono" :class="r.status">{{ statusLabel[r.status] }}</span>
-            <span class="rtitle">{{ r.title }}</span>
-            <span class="rbadges mono">
-              <span class="rb">{{ repoName(r.repoPath) }}</span>
-              <span v-if="r.model" class="rb">{{ r.model }}</span>
-              <span class="rb">{{ elapsed(r) }}</span>
-            </span>
-            <button class="link mono" @click="expanded = expanded === r.id ? '' : r.id">{{ expanded === r.id ? 'hide' : 'view' }}</button>
-          </div>
-          <pre v-if="expanded === r.id" class="rbody mono">{{ r.error || r.resultSummary || '(no output)' }}</pre>
-        </div>
+        <button v-for="r in recent" :key="r.id" class="run recent" @click="openDetail(r)">
+          <span class="rstatus mono" :class="r.status">{{ statusLabel[r.status] }}</span>
+          <span class="rtitle">{{ r.title }}</span>
+          <span class="rbadges mono">
+            <span class="rb">{{ repoName(r.repoPath) }}</span>
+            <span v-if="r.model" class="rb">{{ r.model }}</span>
+            <span class="rb">{{ elapsed(r) }}</span>
+          </span>
+          <span class="chev">›</span>
+        </button>
       </section>
 
       <div v-if="!runs.length" class="mono empty">No runs yet — launch one to fan out background work.</div>
     </template>
+
+    <!-- run detail -->
+    <div v-if="detail" class="over" @click.self="detail = null">
+      <div class="box detail">
+        <div class="dh">
+          <span class="rstatus mono" :class="detail.status">{{ statusLabel[detail.status] }}</span>
+          <span class="dtitle">{{ detail.title }}</span>
+          <button class="x" @click="detail = null">✕</button>
+        </div>
+        <div class="dmeta mono">
+          <span class="rb">{{ repoName(detail.repoPath) }}</span>
+          <span v-if="detail.branch" class="rb">⎇ {{ detail.branch }}</span>
+          <span v-if="detail.permission" class="rb" :class="detail.permission">{{ detail.permission }}</span>
+          <span v-if="detail.model" class="rb">{{ detail.model }}</span>
+          <span class="rb">{{ elapsed(detail) }}</span>
+        </div>
+
+        <div v-if="detail.permission === 'edit' && changedFiles.length" class="dsec">
+          <div class="dlab mono">Changed files ({{ changedFiles.length }})</div>
+          <div class="difflist mono">
+            <div v-for="f in changedFiles" :key="f.file" class="diffrow"><span class="dfstat">{{ f.status }}</span>{{ f.file }}</div>
+          </div>
+        </div>
+        <div v-else-if="detail.permission === 'edit'" class="dsec mono muted">No file changes were produced.</div>
+
+        <div class="dsec">
+          <div class="dlab mono">{{ detail.error ? 'Error' : 'Result' }}</div>
+          <pre class="rbody mono">{{ detail.error || detail.resultSummary || '(no output)' }}</pre>
+        </div>
+
+        <div class="df">
+          <button v-if="detail.status === 'running'" class="btn danger" @click="stop(detail)">Cancel</button>
+          <button class="btn" :disabled="detailBusy" @click="openInTerminal(detail)">Open in terminal ▸</button>
+          <button v-if="detail.kind === 'background'" class="btn" :disabled="detailBusy" @click="rerun(detail)">Re-run</button>
+          <span class="grow"></span>
+          <button class="btn ghost" :disabled="detailBusy" @click="dismiss(detail)">Dismiss</button>
+        </div>
+      </div>
+    </div>
 
     <!-- launch dialog -->
     <div v-if="dlg" class="over" @click.self="dlg = false">
@@ -191,17 +276,20 @@ async function stop(r: AgentRun) {
 .flash { color: var(--warp-hi); margin-bottom: 10px; font-size: 12px; }
 .grp { margin-bottom: 18px; }
 .glab { font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--faint-text); margin-bottom: 8px; }
-.run { border: 1px solid var(--line); border-radius: 10px; background: var(--surface); padding: 10px 14px; margin-bottom: 8px; }
+.run { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); padding: 10px 14px; margin-bottom: 8px; cursor: pointer; color: inherit; font: inherit; }
+button.run:hover { border-color: var(--warp); }
 .run.review { border-left: 2px solid var(--warp); }
 .run.failed { border-left: 2px solid var(--failed, #a55); }
-.run.running { border-left: 2px solid var(--warp-hi); }
-.rtop { display: flex; align-items: center; gap: 12px; }
+.run.running { border-left: 2px solid var(--warp-hi); cursor: default; }
+.run.active { border-left: 2px solid var(--warp-hi); }
+.chev { color: var(--faint-text); font-size: 13px; }
 .rtitle { flex: 1; font-size: 14px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rstatus { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; padding: 2px 7px; border-radius: 5px; border: 1px solid var(--line); color: var(--dim); display: inline-flex; align-items: center; gap: 5px; }
 .rstatus.review { color: var(--warp-hi); border-color: var(--warp); }
 .rstatus.failed { color: var(--chip-fail, #d88); border-color: var(--failed, #a55); }
 .rstatus.running { color: var(--warp-hi); border-color: var(--warp); }
 .rstatus.done { color: var(--healthy); }
+.rstatus.active { color: var(--warp-hi); border-color: var(--warp); }
 .rbadges { display: flex; gap: 6px; }
 .rb { font-size: 10px; color: var(--faint-text); border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; }
 .rb.edit { color: var(--warp-hi); border-color: var(--warp); }
@@ -230,5 +318,22 @@ async function stop(r: AgentRun) {
 .btn { font-size: 13px; font-weight: 500; border-radius: var(--r-ctl); padding: 7px 13px; border: 1px solid var(--line); background: var(--btn-bg); color: var(--ink); cursor: pointer; }
 .btn.pri { background: var(--warp); border-color: var(--warp); color: var(--on-warp); font-weight: 600; }
 .btn.ghost { background: transparent; color: var(--dim); border-color: transparent; }
+.btn.danger { border-color: var(--failed, #a55); color: var(--chip-fail, #d88); }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+/* run detail */
+.box.detail { width: min(680px, 94vw); max-height: 84vh; display: flex; flex-direction: column; }
+.dh { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.dtitle { flex: 1; font-size: 15px; color: var(--ink); }
+.x { background: transparent; border: 0; color: var(--faint-text); font-size: 15px; cursor: pointer; }
+.x:hover { color: var(--ink); }
+.dmeta { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+.dsec { margin-bottom: 12px; overflow: auto; }
+.dsec.muted { color: var(--faint-text); font-size: 12px; }
+.dlab { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint-text); margin-bottom: 6px; }
+.difflist { border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+.diffrow { display: flex; gap: 10px; padding: 4px 10px; font-size: 12px; color: var(--dim); border-bottom: 1px solid var(--line); }
+.diffrow:last-child { border-bottom: 0; }
+.dfstat { color: var(--warp-hi); min-width: 22px; }
+.df { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+.df .grow { flex: 1; }
 </style>
