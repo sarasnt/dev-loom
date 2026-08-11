@@ -308,9 +308,10 @@ export interface BrainstormSession {
   messages: BrainstormMessage[]
   repoPath?: string | null
   cliMode?: boolean // session lives in the claude-cli terminal (locked to terminal mode)
+  claudeSessionId?: string | null // Claude session id (for the `claude --resume` hint)
 }
 export interface BrainstormData {
-  sessions: { id: string; title: string }[]
+  sessions: { id: string; title: string; cliMode?: boolean }[]
   active: BrainstormSession
 }
 

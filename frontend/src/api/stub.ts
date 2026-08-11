@@ -71,10 +71,10 @@ const EMPTY_BUILD: BuildFailure = {
   fixes: [],
   analyzedBy: 'deterministic',
 }
-export function fetchBuildFailure(id: string): Promise<BuildFailure> {
+export function fetchBuildFailure(id: string, _model?: string): Promise<BuildFailure> {
   return delay({ ...EMPTY_BUILD, id: id || 'none' })
 }
-export function fetchLatestBuild(): Promise<BuildFailure> {
+export function fetchLatestBuild(_model?: string): Promise<BuildFailure> {
   return delay(EMPTY_BUILD)
 }
 
@@ -177,8 +177,11 @@ export function fetchBrainstorm(): Promise<BrainstormData> {
 export function fetchBrainstormSession(_id: string) {
   return delay(BRAINSTORM.active)
 }
-export function createBrainstormSession(title?: string) {
-  return delay({ ...BRAINSTORM.active, id: 'new', title: title || 'New brainstorm', messages: [] })
+export function createBrainstormSession(title?: string, _repoPath?: string, model?: string) {
+  return delay({
+    ...BRAINSTORM.active, id: 'new', title: title || 'New brainstorm', messages: [],
+    cliMode: model === 'claude-cli',
+  })
 }
 export function deleteBrainstormSession(id: string) {
   return delay({ deleted: id })

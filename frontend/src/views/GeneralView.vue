@@ -1,8 +1,18 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { storeToRefs } from 'pinia'
 import type { BrowseResult } from '../types'
 import { fetchSettings, saveTerminalWorkdir, browseFs } from '../api'
+import { useDashboardStore } from '../stores/dashboard'
 import SettingsTabs from '../components/SettingsTabs.vue'
+
+const store = useDashboardStore()
+const { brainstormSwitch } = storeToRefs(store)
+const switchOpts = [
+  { v: 'ask', label: 'Ask each time' },
+  { v: 'new', label: 'Open a new session' },
+  { v: 'cancel', label: "Don't switch" },
+]
 
 const workdir = ref('')
 const loading = ref(true)
@@ -78,6 +88,26 @@ function useFolder() {
           <button class="btn pri" :disabled="saving" @click="save">Save</button>
         </div>
       </section>
+
+      <section class="block">
+        <div class="lab mono">Brainstorm — switching to/from Claude CLI</div>
+        <p class="prose">
+          Claude Interactive CLI runs outside DevLoom's boundaries, so switching a session
+          to or from it can't carry the conversation across. Choose what happens when you switch:
+        </p>
+        <div class="row">
+          <span class="mono fld">Switching <b>to</b> Claude CLI</span>
+          <select class="in narrow mono" :value="brainstormSwitch.toCli" @change="store.setBrainstormSwitch('toCli', ($event.target as HTMLSelectElement).value as any)">
+            <option v-for="o in switchOpts" :key="o.v" :value="o.v">{{ o.label }}</option>
+          </select>
+        </div>
+        <div class="row">
+          <span class="mono fld">Switching <b>from</b> Claude CLI</span>
+          <select class="in narrow mono" :value="brainstormSwitch.fromCli" @change="store.setBrainstormSwitch('fromCli', ($event.target as HTMLSelectElement).value as any)">
+            <option v-for="o in switchOpts" :key="o.v" :value="o.v">{{ o.label }}</option>
+          </select>
+        </div>
+      </section>
     </template>
 
     <!-- folder browser modal -->
@@ -113,6 +143,8 @@ function useFolder() {
 .row { display: flex; align-items: center; gap: 10px; }
 .in { flex: 1; max-width: 460px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 7px 10px; color: var(--ink); font-size: 12px; }
 .in:focus { outline: none; border-color: var(--warp); }
+.in.narrow { flex: 0 0 auto; max-width: 220px; cursor: pointer; }
+.fld { font-size: 12px; color: var(--dim); min-width: 190px; }
 .btn { font-size: 13px; border-radius: var(--r-ctl); padding: 6px 12px; border: 1px solid var(--line); background: var(--btn-bg); color: var(--ink); cursor: pointer; white-space: nowrap; }
 .btn:hover { border-color: var(--warp); }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }

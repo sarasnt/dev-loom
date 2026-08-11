@@ -6,7 +6,7 @@ import { useDashboardStore } from './stores/dashboard'
 import AppRail from './components/AppRail.vue'
 
 const store = useDashboardStore()
-const { today, buildBadge, models, activeModel } = storeToRefs(store)
+const { today, buildBadge, activeModel } = storeToRefs(store)
 const route = useRoute()
 
 // Load the rail's real data (workspace/model/sync/badge) once, on any entry page.
@@ -34,9 +34,8 @@ const railDefaults = {
       :model="today?.model ?? railDefaults.model"
       :boundary="today?.boundary ?? railDefaults.boundary"
       :build-badge="buildBadge"
-      :models="models"
       :active-model="activeModel"
-      @select-model="store.setModel"
+      hide-model
     />
     <RouterView />
   </div>

@@ -27,10 +27,16 @@ const repoSessions = ref<{ id: string; title: string; repoPath: string }[]>([])
 function sessionsFor(path: string) {
   return repoSessions.value.filter((s) => s.repoPath === path)
 }
-async function brainstormHere(r: RepoView) {
+// Which repo's "Brainstorm here" menu is open (choose the model before starting).
+const bmenu = ref('')
+// claude-cli → an interactive terminal opened IN this repo (cwd = repo). claude-code → the
+// repo-iterating chat. Both run Claude Code; other models don't operate on a repo.
+async function brainstormHere(r: RepoView, model: string) {
+  bmenu.value = ''
   busy.value = r.id
   try {
-    const s = await createBrainstormSession(`Brainstorm · ${r.name}`, r.path)
+    const title = model === 'claude-cli' ? `Terminal · ${r.name}` : `Brainstorm · ${r.name}`
+    const s = await createBrainstormSession(title, r.path, model)
     router.push({ path: '/brainstorm', query: { session: s.id } })
   } finally {
     busy.value = ''
@@ -271,9 +277,30 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
             {{ r.host === 'gitlab' ? 'Open MR' : 'Open PR' }}
           </button>
           <button class="btn" :disabled="busy === r.id || !agentUp" @click="startEdit(r)">Git identity</button>
-          <button class="btn brainstorm" :disabled="busy === r.id || !agentUp" title="Start a Claude Code brainstorm that iterates over this repo" @click="brainstormHere(r)">
-            ✎ Brainstorm here
-          </button>
+          <div class="splitwrap">
+            <button
+              class="btn brainstorm split"
+              :disabled="busy === r.id || !agentUp"
+              title="Start a Claude Code chat that iterates over this repo"
+              @click="brainstormHere(r, 'claude-code')"
+            >
+              ✎ Brainstorm here
+            </button>
+            <button
+              class="btn brainstorm caret"
+              :disabled="busy === r.id || !agentUp"
+              aria-label="Choose model"
+              @click="bmenu = bmenu === r.id ? '' : r.id"
+            >▾</button>
+            <div v-if="bmenu === r.id" class="bmenu" @click.self="bmenu = ''">
+              <button class="bmi" @click="brainstormHere(r, 'claude-code')">
+                <b>Claude Code</b><span class="mono">chat · iterates the repo</span>
+              </button>
+              <button class="bmi" @click="brainstormHere(r, 'claude-cli')">
+                <b>Claude CLI</b><span class="mono">interactive terminal in this repo</span>
+              </button>
+            </div>
+          </div>
           <button class="btn ghost" :disabled="busy === r.id" @click="remove(r)">Remove</button>
         </div>
 
@@ -400,6 +427,13 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
 .btn.pri { background: var(--warp); border-color: var(--warp); color: var(--on-warp); font-weight: 600; }
 .btn.ghost { background: transparent; color: var(--dim); border-color: transparent; }
 .btn.brainstorm { border-color: var(--warp); color: var(--warp-hi); }
+.splitwrap { position: relative; display: inline-flex; }
+.btn.split { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.btn.caret { border-top-left-radius: 0; border-bottom-left-radius: 0; border-left: 0; padding: 6px 8px; }
+.bmenu { position: absolute; top: calc(100% + 4px); right: 0; z-index: 20; min-width: 240px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 6px; box-shadow: 0 8px 24px rgba(0,0,0,0.35); }
+.bmi { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; text-align: left; background: transparent; border: 0; border-radius: 7px; padding: 8px 10px; color: var(--ink); font-size: 13px; cursor: pointer; }
+.bmi:hover { background: var(--nav-hover); }
+.bmi .mono { font-size: 11px; color: var(--faint-text); }
 /* changes */
 .changes { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 12px; }
 .cgroup { margin-bottom: 10px; }

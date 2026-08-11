@@ -163,7 +163,9 @@ onBeforeUnmount(() => {
 }
 .resume:hover { color: var(--ink); border-color: var(--warp); }
 .term {
+  /* No padding: FitAddon measures this element to compute rows; padding made it overestimate
+     by a fraction of a row, so claude's bottom status line got clipped. Keep it flush. */
   flex: 1; min-height: 0; background: #0e0f13; border: 1px solid var(--line);
-  border-radius: 0 0 8px 8px; padding: 8px; overflow: hidden;
+  border-radius: 0 0 8px 8px; padding: 0; overflow: hidden; box-sizing: border-box;
 }
 </style>

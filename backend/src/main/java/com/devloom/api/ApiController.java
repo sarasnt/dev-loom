@@ -118,9 +118,10 @@ public class ApiController {
     }
 
     @GetMapping({"/builds/{id}", "/builds"})
-    public Dto.BuildFailure build(@PathVariable(required = false) String id) {
+    public Dto.BuildFailure build(@PathVariable(required = false) String id,
+                                  @org.springframework.web.bind.annotation.RequestParam(required = false) String model) {
         // No id → the service resolves the most recent real failed CI run.
-        return buildFailureService.analyze(id);
+        return buildFailureService.analyze(id, s -> {}, model);
     }
 
     /**
@@ -129,7 +130,8 @@ public class ApiController {
      * genuine progress instead of a time estimate.
      */
     @GetMapping({"/builds/{id}/stream", "/builds/stream"})
-    public SseEmitter buildStream(@PathVariable(required = false) String id) {
+    public SseEmitter buildStream(@PathVariable(required = false) String id,
+                                  @org.springframework.web.bind.annotation.RequestParam(required = false) String model) {
         SseEmitter emitter = new SseEmitter(180_000L);
         sse.execute(() -> {
             try {
@@ -139,7 +141,7 @@ public class ApiController {
                     } catch (Exception ignore) {
                         // client went away mid-stream — the analyze() will still finish
                     }
-                });
+                }, model);
                 emitter.send(SseEmitter.event().name("result").data(result));
                 emitter.complete();
             } catch (Exception e) {
@@ -336,7 +338,8 @@ public class ApiController {
     public Dto.BrainstormSession brainstormNewSession(@RequestBody(required = false) Dto.NewSession body) {
         return brainstormService.createSession(
                 body == null ? null : body.title(),
-                body == null ? null : body.repoPath());
+                body == null ? null : body.repoPath(),
+                body == null ? null : body.model());
     }
 
     /** Rename a brainstorming session. */

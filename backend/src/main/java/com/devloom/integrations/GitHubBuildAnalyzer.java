@@ -77,14 +77,15 @@ public class GitHubBuildAnalyzer {
 
     /** repo is "owner/name"; runId is the GitHub Actions run id. Returns null on any failure. */
     public Dto.BuildFailure analyze(String repo, String runId) {
-        return analyze(repo, runId, s -> {});
+        return analyze(repo, runId, s -> {}, null);
     }
 
     /**
      * As {@link #analyze(String, String)}, but reports each stage to {@code progress} (used to
-     * stream real progress over SSE). Runs on the caller's thread.
+     * stream real progress over SSE) and summarizes with the caller-selected {@code model}.
+     * Runs on the caller's thread.
      */
-    public Dto.BuildFailure analyze(String repo, String runId, Consumer<String> progress) {
+    public Dto.BuildFailure analyze(String repo, String runId, Consumer<String> progress, String model) {
         if (!enabled) {
             return null;
         }
@@ -117,7 +118,7 @@ public class GitHubBuildAnalyzer {
             List<Dto.LogLine> excerpt = logExcerpt(repo, jobId);
 
             progress.accept("Summarizing with the local model…");
-            Summary summary = summarize(jobName, failingStep, excerpt);
+            Summary summary = summarize(jobName, failingStep, excerpt, model);
 
             List<Dto.EvidenceRef> evidence = List.of(
                     new Dto.EvidenceRef("commit " + (sha.length() >= 8 ? sha.substring(0, 8) : sha), null, "local"),
@@ -145,12 +146,13 @@ public class GitHubBuildAnalyzer {
         }
     }
 
-    private Summary summarize(String jobName, String step, List<Dto.LogLine> excerpt) {
+    private Summary summarize(String jobName, String step, List<Dto.LogLine> excerpt, String model) {
         try {
             String logText = excerpt.stream().map(Dto.LogLine::text).reduce("", (a, b) -> a + "\n" + b);
             String prompt = "Failing job: %s\nFailing step: %s\nRedacted log tail:\n%s"
                     .formatted(jobName, step, logText);
-            LlmPort.LlmResult r = llm.generate(new LlmPort.LlmRequest("build-failure", SYSTEM, prompt, null));
+            String m = model == null || model.isBlank() ? null : model;
+            LlmPort.LlmResult r = llm.generate(new LlmPort.LlmRequest("build-failure", SYSTEM, prompt, m));
             if (!"stub".equals(r.provider()) && r.text() != null && !r.text().isBlank()) {
                 return new Summary(r.text().trim(), r.model());
             }

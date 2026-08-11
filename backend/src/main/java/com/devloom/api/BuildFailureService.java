@@ -29,11 +29,12 @@ public class BuildFailureService {
     }
 
     public Dto.BuildFailure analyze(String id) {
-        return analyze(id, s -> {});
+        return analyze(id, s -> {}, null);
     }
 
-    /** As {@link #analyze(String)} but streams stage labels to {@code progress} (SSE). */
-    public Dto.BuildFailure analyze(String id, Consumer<String> progress) {
+    /** As {@link #analyze(String)} but streams stage labels to {@code progress} (SSE), and uses
+     *  the caller-selected {@code model} (Builds screen) for the analysis. */
+    public Dto.BuildFailure analyze(String id, Consumer<String> progress, String model) {
         String runId = resolveRunId(id);
         if (runId == null || !ghAnalyzer.enabled()) {
             return emptyState();
@@ -43,7 +44,7 @@ public class BuildFailureService {
         if (repo == null) {
             return emptyState();
         }
-        Dto.BuildFailure real = ghAnalyzer.analyze(repo, runId, progress);
+        Dto.BuildFailure real = ghAnalyzer.analyze(repo, runId, progress, model);
         return real != null ? real : emptyState();
     }
 

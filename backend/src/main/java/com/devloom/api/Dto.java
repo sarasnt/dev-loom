@@ -84,14 +84,14 @@ public final class Dto {
 
     // ---- Brainstorm ----
     public record BrainstormMessage(String role, String text, String model, Boolean hypothesis, List<EvidenceRef> sources) {}
-    public record SessionRef(String id, String title) {}
+    public record SessionRef(String id, String title, boolean cliMode) {}
     public record ContextItem(String id, String kind, String ref, String label, boolean pinned) {}
     public record RepoSession(String id, String title, String repoPath) {}
     public record ContextAdd(String kind, String ref, String label) {}
     public record BrainstormSession(
             String id, String title, String visibility, String model, Boundary boundary,
             List<ContextItem> inContext, List<BrainstormMessage> messages, String repoPath,
-            boolean cliMode) {}
+            boolean cliMode, String claudeSessionId) {}
     public record Brainstorm(List<SessionRef> sessions, BrainstormSession active) {}
 
     // ---- Onboarding ----
@@ -116,5 +116,5 @@ public final class Dto {
     public record Turn(String role, String text) {}
     public record BrainstormSend(String sessionId, String message, List<String> sourceIds,
                                  List<Turn> history, String model) {}
-    public record NewSession(String title, String repoPath) {}
+    public record NewSession(String title, String repoPath, String model) {}
 }

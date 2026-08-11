@@ -84,7 +84,7 @@ public class BrainstormService {
             all = List.of(active);
         }
         List<Dto.SessionRef> refs = all.stream()
-                .map(s -> new Dto.SessionRef(String.valueOf(s.getId()), s.getTitle()))
+                .map(s -> new Dto.SessionRef(String.valueOf(s.getId()), s.getTitle(), s.isCliMode()))
                 .toList();
         return new Dto.Brainstorm(refs, toDto(active));
     }
@@ -96,13 +96,25 @@ public class BrainstormService {
 
     @Transactional
     public Dto.BrainstormSession createSession(String title) {
-        return createSession(title, null);
+        return createSession(title, null, null);
     }
 
-    /** Create a session, optionally bound to a local repo (Claude Code runs in its dir). */
-    @Transactional
     public Dto.BrainstormSession createSession(String title, String repoPath) {
-        BrainstormSessionEntity s = sessions.save(BrainstormSessionEntity.create(title, repoPath));
+        return createSession(title, repoPath, null);
+    }
+
+    /**
+     * Create a session, optionally bound to a local repo (Claude Code runs in its dir) and to an
+     * initial model. Choosing {@code claude-cli} makes it a terminal session from the start (for
+     * a repo, the terminal opens in that repo — cwd = repoPath).
+     */
+    @Transactional
+    public Dto.BrainstormSession createSession(String title, String repoPath, String model) {
+        BrainstormSessionEntity s = BrainstormSessionEntity.create(title, repoPath);
+        if ("claude-cli".equals(model)) {
+            s.setCliMode(true);
+        }
+        s = sessions.save(s);
         if (s.getRepoPath() != null) {
             // The repo is the pinned, default context for a repo-bound session.
             String name = s.getRepoPath().replace('\\', '/');
@@ -234,7 +246,12 @@ public class BrainstormService {
         String userText = req.message() == null ? "" : req.message();
         messages.save(BrainstormMessageEntity.of(session.getId(), seq++, "you", userText, null, false));
 
-        boolean useClaude = session.getRepoPath() != null || "claude-code".equals(llm.activeModelLabel());
+        // The model is chosen per Brainstorm session (frontend passes it); claude-code → the
+        // subscription agent, anything else → the router. Repo sessions always use the agent.
+        String reqModel = req.model();
+        boolean useClaude = session.getRepoPath() != null
+                || "claude-code".equals(reqModel)
+                || (reqModel == null && "claude-code".equals(llm.activeModelLabel()));
         String finalText;
         String finalModel;
 
@@ -398,7 +415,7 @@ public class BrainstormService {
         return new Dto.BrainstormSession(
                 String.valueOf(s.getId()), s.getTitle(), s.getVisibility(),
                 model, new Dto.Boundary(repo ? "remote" : "local", repo ? "Claude Code in repo" : "On your machine"),
-                inContext, msgs, s.getRepoPath(), s.isCliMode());
+                inContext, msgs, s.getRepoPath(), s.isCliMode(), s.getClaudeSessionId());
     }
 
     /**

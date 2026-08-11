@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import type { TodayData, ProvidersData } from '../types'
-import { fetchToday, fetchWork, fetchProviders, setActiveModel } from '../api'
+import { fetchToday, fetchWork, fetchProviders } from '../api'
 
 // Local models + remote models from any keyed provider (the router maps names → adapter).
 function unionModels(p: ProvidersData): string[] {
@@ -17,8 +17,52 @@ export const useDashboardStore = defineStore('dashboard', () => {
   const loading = ref(false)
   const error = ref<string | null>(null)
   const buildBadge = ref(0) // count of real failing CI builds, for the rail badge
-  const models = ref<string[]>([]) // local models available to switch between
-  const activeModel = ref<string>('') // currently selected model
+  const models = ref<string[]>([]) // every model a user can pick (local + agent + keyed remote)
+  const agentModels = ref<string[]>([]) // claude-code / claude-cli — Brainstorm-only (exclusive)
+  const defaultModel = ref<string>('') // backend's active/default model — the per-screen fallback
+  const activeModel = ref<string>('') // model of the CURRENT screen (rail boundary reflects this)
+
+  // Per-screen model choice, bounded to each screen and persisted locally. Handoffs and
+  // Brainstorm can each run a different model; there is no single global selection.
+  const SCREEN_KEY = 'devloom.screenModels'
+  function loadScreenModels(): Record<string, string> {
+    try { return JSON.parse(localStorage.getItem(SCREEN_KEY) || '{}') } catch { return {} }
+  }
+  const screenModels = ref<Record<string, string>>(loadScreenModels())
+
+  // The model for a screen: its saved choice (if still available) else the backend default.
+  function modelFor(screen: string): string {
+    const m = screenModels.value[screen]
+    return m && models.value.includes(m) ? m : defaultModel.value
+  }
+  // Set a screen's model (local-only; screens pass the model per request). Also reflects it on
+  // the rail so the boundary token matches the screen you're on.
+  function setModelFor(screen: string, name: string) {
+    screenModels.value = { ...screenModels.value, [screen]: name }
+    try { localStorage.setItem(SCREEN_KEY, JSON.stringify(screenModels.value)) } catch { /* ignore */ }
+    activeModel.value = name
+  }
+  // Reflect a model on the rail (boundary token) without changing a screen's saved choice —
+  // e.g. when a Brainstorm session is locked to claude-cli.
+  function reflectModel(name: string) {
+    if (name) activeModel.value = name
+  }
+
+  // Brainstorm boundary-crossing preference (persisted; also editable in Settings > General).
+  // 'ask' → prompt; 'new' → silently open a new session; 'cancel' → silently ignore the switch.
+  type SwitchPref = 'ask' | 'new' | 'cancel'
+  const SWITCH_KEY = 'devloom.brainstormSwitch'
+  function loadSwitch(): { toCli: SwitchPref; fromCli: SwitchPref } {
+    try {
+      const s = JSON.parse(localStorage.getItem(SWITCH_KEY) || '{}')
+      return { toCli: s.toCli || 'ask', fromCli: s.fromCli || 'ask' }
+    } catch { return { toCli: 'ask', fromCli: 'ask' } }
+  }
+  const brainstormSwitch = ref(loadSwitch())
+  function setBrainstormSwitch(dir: 'toCli' | 'fromCli', v: SwitchPref) {
+    brainstormSwitch.value = { ...brainstormSwitch.value, [dir]: v }
+    try { localStorage.setItem(SWITCH_KEY, JSON.stringify(brainstormSwitch.value)) } catch { /* ignore */ }
+  }
 
   async function load() {
     loading.value = true
@@ -55,25 +99,17 @@ export const useDashboardStore = defineStore('dashboard', () => {
     try {
       const p = await fetchProviders()
       models.value = unionModels(p)
-      activeModel.value = p.local.active ?? p.local.defaultModel ?? ''
+      agentModels.value = p.agentModels ?? []
+      defaultModel.value = p.local.active ?? p.local.defaultModel ?? (models.value[0] ?? '')
+      if (!activeModel.value) activeModel.value = defaultModel.value
     } catch {
       // leave the previous value
     }
   }
 
-  // Switch the active model (rail dropdown) — persists on the backend and updates the rail.
-  async function setModel(name: string) {
-    activeModel.value = name // optimistic
-    try {
-      const p = await setActiveModel(name)
-      // Keep the FULL union so the selected remote model stays in the list (don't shrink to local).
-      models.value = unionModels(p)
-      activeModel.value = p.local.active ?? name
-      if (today.value) today.value.model = { name: activeModel.value, local: false }
-    } catch {
-      // keep the optimistic value
-    }
+  return {
+    today, loading, error, buildBadge, models, agentModels, defaultModel, activeModel,
+    screenModels, modelFor, setModelFor, reflectModel,
+    brainstormSwitch, setBrainstormSwitch, load, ensureLoaded,
   }
-
-  return { today, loading, error, buildBadge, models, activeModel, load, ensureLoaded, setModel }
 })

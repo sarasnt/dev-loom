@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import type { SyncSource, Boundary } from '../types'
 import BoundaryToken from './BoundaryToken.vue'
+import { isRemoteModel } from '../utils/models'
 
 const props = defineProps<{
   workspace: string
@@ -20,14 +21,7 @@ function onModelChange(e: Event) {
   emit('select-model', (e.target as HTMLSelectElement).value)
 }
 
-// Remote (paid) models leave the machine — reflect that in the flag + boundary token.
-// Note: local Ollama's "gpt-oss" must NOT be treated as OpenAI's gpt-*.
-function isRemoteModel(m?: string): boolean {
-  const s = (m || '').toLowerCase()
-  if (s.startsWith('claude')) return true // incl. claude-code (subscription → Anthropic)
-  if (s.startsWith('gpt-oss')) return false
-  return s.startsWith('gpt-') || s.startsWith('o1') || s.startsWith('o3') || s.startsWith('o4')
-}
+// The rail's boundary token reflects the CURRENT screen's model (screens set activeModel).
 const modelRemote = computed(() => isRemoteModel(props.activeModel))
 const modelBoundary = computed<Boundary>(() =>
   modelRemote.value

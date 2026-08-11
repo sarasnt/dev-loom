@@ -74,8 +74,10 @@ async function put<T>(path: string, body: unknown): Promise<T> {
 
 export const fetchToday = () => get<TodayData>('/today')
 export const fetchWork = () => get<WorkRow[]>('/work')
-export const fetchBuildFailure = (id: string) => get<BuildFailure>(`/builds/${id}`)
-export const fetchLatestBuild = () => get<BuildFailure>('/builds')
+export const fetchBuildFailure = (id: string, model?: string) =>
+  get<BuildFailure>(`/builds/${id}${model ? `?model=${encodeURIComponent(model)}` : ''}`)
+export const fetchLatestBuild = (model?: string) =>
+  get<BuildFailure>(`/builds${model ? `?model=${encodeURIComponent(model)}` : ''}`)
 export const fetchHandoff = (id: string) => get<Handoff>(`/handoffs/${id}`)
 export const fetchIntegrations = () => get<Integration[]>('/integrations')
 export const fetchProviders = () => get<ProvidersData>('/providers')
@@ -94,8 +96,10 @@ export const fetchPrivacy = () => get<PrivacyData>('/privacy')
 export const fetchBrainstorm = () => get<BrainstormData>('/brainstorm')
 export const fetchBrainstormSession = (id: string) =>
   get<BrainstormSession>(`/brainstorm/sessions/${id}`)
-export const createBrainstormSession = (title?: string, repoPath?: string) =>
-  post<BrainstormSession>('/brainstorm/sessions', { title: title ?? '', repoPath: repoPath ?? '' })
+export const createBrainstormSession = (title?: string, repoPath?: string, model?: string) =>
+  post<BrainstormSession>('/brainstorm/sessions', {
+    title: title ?? '', repoPath: repoPath ?? '', model: model ?? '',
+  })
 export const renameBrainstormSession = (id: string, title: string) =>
   put<BrainstormSession>(`/brainstorm/sessions/${id}`, { title })
 export const fetchRepoSessions = () =>

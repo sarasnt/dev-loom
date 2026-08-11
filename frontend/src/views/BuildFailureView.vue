@@ -1,19 +1,20 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { storeToRefs } from 'pinia'
 import type { BuildFailure } from '../types'
 import { fetchBuildFailure, fetchLatestBuild } from '../api'
 import { useDashboardStore } from '../stores/dashboard'
 import SourceChip from '../components/SourceChip.vue'
 import LoomLoader from '../components/LoomLoader.vue'
+import ModelSelect from '../components/ModelSelect.vue'
 
 const API = (import.meta.env.VITE_API_BASE as string) ?? '/api/v1'
 
 const route = useRoute()
 const router = useRouter()
 const store = useDashboardStore()
-const { activeModel } = storeToRefs(store)
+// Model is bounded to the Builds screen (agent modes excluded — those are Brainstorm-only).
+const buildsModel = computed(() => store.modelFor('builds'))
 
 const data = ref<BuildFailure | null>(null)
 const loading = ref(true)
@@ -37,7 +38,8 @@ function analyze() {
   step.value = 'Connecting…'
   progress.value = 3
   const id = route.params.id ? String(route.params.id) : ''
-  const url = `${API}/builds/${id ? id + '/stream' : 'stream'}`
+  const m = buildsModel.value ? `?model=${encodeURIComponent(buildsModel.value)}` : ''
+  const url = `${API}/builds/${id ? id + '/stream' : 'stream'}${m}`
   try {
     es = new EventSource(url)
   } catch {
@@ -71,7 +73,7 @@ function analyze() {
 async function loadFallback() {
   const id = route.params.id ? String(route.params.id) : ''
   try {
-    data.value = id ? await fetchBuildFailure(id) : await fetchLatestBuild()
+    data.value = id ? await fetchBuildFailure(id, buildsModel.value) : await fetchLatestBuild(buildsModel.value)
     resultModel.value = data.value?.analyzedBy ?? ''
   } finally {
     loading.value = false
@@ -86,12 +88,17 @@ const canRedo = computed(
     data.value.id !== 'none' &&
     !!resultModel.value &&
     resultModel.value !== 'deterministic' &&
-    !!activeModel.value &&
-    activeModel.value !== resultModel.value,
+    !!buildsModel.value &&
+    buildsModel.value !== resultModel.value,
 )
 
-onMounted(analyze)
+onMounted(async () => {
+  await store.ensureLoaded()
+  store.reflectModel(buildsModel.value) // rail boundary reflects the Builds screen model
+  analyze()
+})
 watch(() => route.params.id, analyze)
+watch(buildsModel, (m) => store.reflectModel(m))
 onUnmounted(closeStream)
 </script>
 
@@ -113,16 +120,19 @@ onUnmounted(closeStream)
     <template v-else-if="data">
       <div class="head">
         <h1>Build failure · run <span class="mono">{{ data.run }}</span></h1>
-        <span class="when">{{ data.branch }}<template v-if="data.pr"> · PR #{{ data.pr }}</template> · {{ data.failedAgo }}</span>
+        <div class="headright">
+          <ModelSelect screen="builds" label="analyze with" />
+          <span class="when">{{ data.branch }}<template v-if="data.pr"> · PR #{{ data.pr }}</template> · {{ data.failedAgo }}</span>
+        </div>
       </div>
 
       <!-- Offered when you switch models after this was analyzed -->
       <div v-if="canRedo" class="redo">
         <span>
           Analyzed by <b class="mono">{{ resultModel }}</b> · you've switched to
-          <b class="mono">{{ activeModel }}</b>.
+          <b class="mono">{{ buildsModel }}</b>.
         </span>
-        <button class="redo-btn" @click="analyze()">Re-run with {{ activeModel }} ↻</button>
+        <button class="redo-btn" @click="analyze()">Re-run with {{ buildsModel }} ↻</button>
       </div>
 
       <section class="step">
@@ -189,8 +199,9 @@ onUnmounted(closeStream)
 
 <style scoped>
 .bf { padding: 22px 26px; overflow: auto; }
-.head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 18px; }
+.head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 18px; gap: 14px; flex-wrap: wrap; }
 .head h1 { font-size: 22px; }
+.headright { display: flex; align-items: center; gap: 14px; }
 .when { font-size: 12px; color: var(--faint-text); }
 .empty { color: var(--faint-text); padding: 24px 0; }
 .loadwrap { display: flex; justify-content: center; padding: 64px 0; }

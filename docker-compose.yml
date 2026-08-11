@@ -51,12 +51,11 @@ services:
       DEVLOOM_SECRET: ${DEVLOOM_SECRET:-}
       # DevLoom host agent (Claude subscription bridge + repos), reached on the host.
       DEVLOOM_HOST_AGENT_URL: ${DEVLOOM_HOST_AGENT_URL:-http://host.docker.internal:8765}
-      # Langfuse export. Keys default to the LANGFUSE_INIT_* bootstrap below so it works
-      # out of the box with `--profile obs`; flip DEVLOOM_LANGFUSE_ENABLED=true to send.
-      DEVLOOM_LANGFUSE_ENABLED: ${DEVLOOM_LANGFUSE_ENABLED:-false}
+      # Langfuse export. HOST is infra (backend → langfuse over the compose network). The
+      # enable flag + project keys come from backend/.env (paste them from your Langfuse
+      # project's Setup Tracing screen). NOTE: compose `environment:` overrides `env_file`, so
+      # ENABLED/keys are intentionally NOT set here — that lets backend/.env be authoritative.
       DEVLOOM_LANGFUSE_HOST: ${DEVLOOM_LANGFUSE_HOST:-http://langfuse:3000}
-      DEVLOOM_LANGFUSE_PUBLIC_KEY: ${DEVLOOM_LANGFUSE_PUBLIC_KEY:-pk-lf-devloom-local}
-      DEVLOOM_LANGFUSE_SECRET_KEY: ${DEVLOOM_LANGFUSE_SECRET_KEY:-sk-lf-devloom-local}
     # Make host.docker.internal resolve on Linux/Debian too (Docker Desktop provides it already).
     extra_hosts:
       - "host.docker.internal:host-gateway"

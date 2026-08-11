@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref } from 'vue'
-import { storeToRefs } from 'pinia'
 import type { BrainstormData } from '../types'
 import { useRoute } from 'vue-router'
 import {
@@ -20,6 +19,7 @@ import SourceChip from '../components/SourceChip.vue'
 import BoundaryToken from '../components/BoundaryToken.vue'
 import LoomLoader from '../components/LoomLoader.vue'
 import TerminalPane from '../components/TerminalPane.vue'
+import ModelSelect from '../components/ModelSelect.vue'
 import { renderMarkdown } from '../utils/markdown'
 
 const thinkingSteps = [
@@ -29,7 +29,6 @@ const thinkingSteps = [
 ]
 
 const store = useDashboardStore()
-const { activeModel } = storeToRefs(store)
 
 const data = ref<BrainstormData | null>(null)
 const loading = ref(true)
@@ -38,8 +37,13 @@ const sending = ref(false)
 const switching = ref(false)
 const chatEl = ref<HTMLElement | null>(null)
 const streamingText = ref('') // live-streamed reply while sending
-const sessionModel = ref('') // per-session /model override (claude-code)
+const sessionModel = ref('') // this session's model (seeded from the Brainstorm screen default)
 const API = (import.meta.env.VITE_API_BASE as string) ?? '/api/v1'
+
+// Boundary-crossing confirmation (chat ⇄ claude-cli). See requestModel().
+const boundary = ref<{ open: boolean; dir: 'toCli' | 'fromCli'; target: string; remember: boolean }>(
+  { open: false, dir: 'toCli', target: '', remember: false },
+)
 
 // Read the SSE stream from POST /brainstorm/messages/stream, calling onDelta per chunk.
 async function streamReply(
@@ -51,7 +55,7 @@ async function streamReply(
   const resp = await fetch(`${API}/brainstorm/messages/stream`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ sessionId, message, sourceIds: [], model: sessionModel.value || undefined }),
+    body: JSON.stringify({ sessionId, message, sourceIds: [], model: effectiveModel.value || undefined }),
   })
   if (!resp.ok || !resp.body) throw new Error(`stream ${resp.status}`)
   const reader = resp.body.getReader()
@@ -82,17 +86,76 @@ async function streamReply(
   }
 }
 
-// Effective model for this session: per-session /model override, else the rail's active model.
-// When it's "claude-cli" we swap the chat for an embedded interactive terminal.
-const effectiveModel = computed(
-  () => sessionModel.value || activeModel.value || data.value?.active.model || '',
+// This session's model. A claude-cli-locked session is always the terminal; otherwise it's the
+// session's chosen model (seeded from the Brainstorm screen default). Model choice is bounded
+// to Brainstorm — switching here never touches other screens.
+const effectiveModel = computed(() =>
+  data.value?.active.cliMode ? 'claude-cli' : (sessionModel.value || store.modelFor('brainstorm')),
 )
-// A session is a terminal if it's been locked to claude-cli (its conversation lives in the
-// terminal), OR the currently-selected model is claude-cli. Locked sessions ignore rail
-// model switches, so you never flip a terminal session to an empty chat.
-const isCliMode = computed(
-  () => data.value?.active.cliMode === true || effectiveModel.value === 'claude-cli',
+const isCliMode = computed(() => effectiveModel.value === 'claude-cli')
+
+// Previous claude-cli sessions (to resume from within interactive mode).
+const cliSessions = computed(() =>
+  (data.value?.sessions ?? []).filter((s) => s.cliMode && s.id !== data.value?.active.id),
 )
+
+// Seed the per-session model when a session loads, and reflect it on the rail boundary token.
+function syncSessionModel() {
+  const a = data.value?.active
+  if (!a) return
+  sessionModel.value = a.cliMode ? 'claude-cli' : store.modelFor('brainstorm')
+  store.reflectModel(effectiveModel.value)
+}
+
+// Handle a model pick from the in-screen selector. Switching across the chat⇄claude-cli
+// boundary would lose the session (its conversation lives elsewhere), so instead of converting
+// in place we offer to open a NEW session — honoring the saved preference (Settings > General).
+function requestModel(target: string) {
+  const cur = effectiveModel.value
+  const crossing = (cur === 'claude-cli') !== (target === 'claude-cli')
+  if (!crossing) {
+    // Same side (e.g. gpt-oss → claude-code chat): switch in place for this session.
+    sessionModel.value = target
+    store.setModelFor('brainstorm', target)
+    return
+  }
+  const dir: 'toCli' | 'fromCli' = target === 'claude-cli' ? 'toCli' : 'fromCli'
+  const pref = store.brainstormSwitch[dir]
+  if (pref === 'new') openNewWith(target)
+  else if (pref === 'cancel') { /* keep current session/model */ }
+  else boundary.value = { open: true, dir, target, remember: false }
+}
+
+async function openNewWith(model: string) {
+  if (!data.value) return
+  const repoPath = data.value.active.repoPath ?? undefined
+  const title = model === 'claude-cli' ? 'Claude CLI session' : 'New brainstorm'
+  const s = await createBrainstormSession(title, repoPath, model)
+  data.value.sessions.unshift({ id: s.id, title: s.title, cliMode: s.cliMode })
+  data.value.active = s
+  store.setModelFor('brainstorm', model)
+  sessionModel.value = model
+  await scrollToEnd()
+}
+
+function boundaryYes() {
+  const { dir, target, remember } = boundary.value
+  if (remember) store.setBrainstormSwitch(dir, 'new')
+  boundary.value.open = false
+  openNewWith(target)
+}
+function boundaryNo() {
+  const { dir, remember } = boundary.value
+  if (remember) store.setBrainstormSwitch(dir, 'cancel')
+  boundary.value.open = false // current session/model unchanged
+}
+
+// Resume a previous claude-cli session from within interactive mode.
+function resumeCli(e: Event) {
+  const id = (e.target as HTMLSelectElement).value
+  if (id) selectSession(id)
+  ;(e.target as HTMLSelectElement).value = ''
+}
 
 const route = useRoute()
 const editingSession = ref<string | null>(null)
@@ -107,6 +170,7 @@ onMounted(async () => {
   if (typeof want === 'string' && data.value && data.value.active.id !== want) {
     await selectSession(want)
   }
+  syncSessionModel()
   await scrollToEnd()
 })
 
@@ -134,6 +198,7 @@ async function selectSession(id: string) {
   switching.value = true
   try {
     data.value.active = await fetchBrainstormSession(id)
+    syncSessionModel()
   } finally {
     switching.value = false
     await scrollToEnd()
@@ -142,10 +207,12 @@ async function selectSession(id: string) {
 
 async function newSession() {
   if (!data.value) return
-  const s = await createBrainstormSession()
-  data.value.sessions.unshift({ id: s.id, title: s.title })
+  // A fresh session uses the Brainstorm screen's current model.
+  const s = await createBrainstormSession(undefined, undefined, store.modelFor('brainstorm'))
+  data.value.sessions.unshift({ id: s.id, title: s.title, cliMode: s.cliMode })
   data.value.active = s
   draft.value = ''
+  syncSessionModel()
   await scrollToEnd()
 }
 
@@ -161,6 +228,7 @@ async function removeSession(id: string) {
       // none left → reload; the backend hands back a fresh empty session
       data.value = await fetchBrainstorm()
     }
+    syncSessionModel()
     await scrollToEnd()
   }
 }
@@ -183,16 +251,11 @@ async function send() {
   if (!text || sending.value || !data.value) return
   const session = data.value.active
 
-  // In-composer /model — switch the model for this session (claude-code), no round-trip.
+  // In-composer /model — same rules as the selector (crossing the claude-cli boundary prompts).
   if (text.startsWith('/model')) {
     const m = text.slice('/model'.length).trim()
-    sessionModel.value = m
     draft.value = ''
-    session.messages.push({
-      role: 'ai',
-      text: m ? `Switched model to \`${m}\` for this session.` : 'Using the default model for this session.',
-      hypothesis: false,
-    })
+    if (m) requestModel(m)
     await scrollToEnd()
     return
   }
@@ -227,14 +290,14 @@ async function send() {
 
 // The most recent AI reply used a model; if you've since switched, offer to redo it.
 const canRedo = computed(() => {
-  if (!data.value || sending.value) return false
+  if (!data.value || sending.value || isCliMode.value) return false
   const lastAi = [...data.value.active.messages].reverse().find((m) => m.role === 'ai' && m.model)
   return (
     !!lastAi &&
     !!lastAi.model &&
     lastAi.model !== 'stub-deterministic' &&
-    !!activeModel.value &&
-    lastAi.model !== activeModel.value
+    !!effectiveModel.value &&
+    lastAi.model !== effectiveModel.value
   )
 })
 
@@ -331,7 +394,16 @@ async function redoLast() {
     <!-- conversation -->
     <main class="chat">
       <!-- claude-cli: full interactive Claude Code in an embedded terminal -->
-      <TerminalPane v-if="isCliMode" :key="data.active.id" :session-id="data.active.id" class="termpane" />
+      <template v-if="isCliMode">
+        <div class="clibar mono">
+          <span class="clitag">⌨ interactive · outside DevLoom boundaries</span>
+          <select v-if="cliSessions.length" class="clisel" aria-label="Resume a CLI session" @change="resumeCli">
+            <option value="">↻ resume another CLI session…</option>
+            <option v-for="s in cliSessions" :key="s.id" :value="s.id">{{ s.title }}</option>
+          </select>
+        </div>
+        <TerminalPane :key="data.active.id" :session-id="data.active.id" class="termpane" />
+      </template>
       <template v-else>
       <div v-if="data.active.repoPath" class="repobar mono">
         ⑂ Claude Code · iterating in <b>{{ data.active.repoPath }}</b> (read-only)
@@ -358,8 +430,8 @@ async function redoLast() {
       </div>
 
       <div v-if="canRedo" class="redo mono">
-        <span>Model switched to <b>{{ activeModel }}</b> since the last reply.</span>
-        <button class="redo-btn" @click="redoLast">Redo with {{ activeModel }} ↻</button>
+        <span>Model switched to <b>{{ effectiveModel }}</b> since the last reply.</span>
+        <button class="redo-btn" @click="redoLast">Redo with {{ effectiveModel }} ↻</button>
       </div>
 
       <div class="composer">
@@ -405,13 +477,41 @@ async function redoLast() {
         <input v-model="freeInput" class="ctxin mono" placeholder="…or a file path / note" @keydown.enter="addFree" />
         <button class="chip" :disabled="!freeInput.trim()" @click="addFree">Add</button>
       </div>
-      <div class="lab mono">Model</div>
-      <div class="select mono">
-        {{ isCliMode ? 'claude-cli' : (effectiveModel || data.active.model) }} ·
-        <span class="railhint">{{ isCliMode ? 'terminal session' : 'rail, or /model claude-cli' }}</span>
-      </div>
+      <div class="lab mono">Model <span class="hint">· this brainstorm</span></div>
+      <ModelSelect
+        screen="brainstorm"
+        include-agent
+        manual
+        :model-value="effectiveModel"
+        @change="requestModel"
+      />
       <BoundaryToken class="bt" :boundary="data.active.boundary" />
     </aside>
+
+    <!-- boundary-crossing confirmation (chat ⇄ claude-cli) -->
+    <div v-if="boundary.open" class="modal" @click.self="boundaryNo">
+      <div class="dlg">
+        <h3 class="dlgh">{{ boundary.dir === 'toCli' ? 'Switch to Claude Interactive CLI?' : 'Switch to a chat model?' }}</h3>
+        <p class="dlgp" v-if="boundary.dir === 'toCli'">
+          Claude Interactive CLI runs <b>outside DevLoom's boundaries</b>. Switching won't carry this
+          conversation across — this session would be lost. Open a <b>new</b> brainstorm session using
+          <code>claude-cli</code> instead?
+        </p>
+        <p class="dlgp" v-else>
+          Claude Interactive CLI runs outside DevLoom's boundaries, so this terminal conversation
+          won't transfer to <code>{{ boundary.target }}</code>. You can resume it later with
+          <code v-if="data.active.claudeSessionId">claude --resume {{ data.active.claudeSessionId }}</code><code v-else>claude --resume</code>.
+          Open a <b>new</b> brainstorm session using <code>{{ boundary.target }}</code> instead?
+        </p>
+        <label class="dlgremember mono">
+          <input type="checkbox" v-model="boundary.remember" /> Remember my choice (change in Settings → General)
+        </label>
+        <div class="dlgbtns">
+          <button class="btn ghost" @click="boundaryNo">No</button>
+          <button class="btn pri" @click="boundaryYes">Yes, open a new session</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -463,6 +563,22 @@ async function redoLast() {
 .vis { font-size: 12px; color: var(--faint-text); }
 .chat { display: flex; flex-direction: column; padding: 16px 18px; min-height: 0; }
 .termpane { flex: 1; min-height: 0; }
+.clibar { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+.clitag { font-size: 11px; color: var(--warp-hi); border: 1px solid var(--warp); border-radius: 6px; padding: 3px 8px; }
+.clisel { margin-left: auto; background: var(--chip-bg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; color: var(--ink); font-size: 12px; cursor: pointer; }
+.clisel:hover { border-color: var(--warp); }
+.hint { text-transform: none; letter-spacing: 0; color: var(--faint-text); }
+.modal { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 50; }
+.dlg { width: 480px; max-width: 92vw; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; }
+.dlgh { font-size: 16px; margin-bottom: 10px; }
+.dlgp { font-size: 13px; color: var(--dim); line-height: 1.55; margin: 0 0 12px; }
+.dlgp code { font-family: var(--mono); font-size: 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; color: var(--warp-hi); }
+.dlgremember { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--dim); margin-bottom: 14px; }
+.dlgbtns { display: flex; justify-content: flex-end; gap: 10px; }
+.btn { font-size: 13px; border-radius: var(--r-ctl); padding: 6px 12px; border: 1px solid var(--line); background: var(--btn-bg); color: var(--ink); cursor: pointer; }
+.btn:hover { border-color: var(--warp); }
+.btn.pri { background: var(--warp); border-color: var(--warp); color: var(--on-warp); font-weight: 600; }
+.btn.ghost { background: transparent; color: var(--dim); border-color: transparent; }
 .repobar { font-size: 12px; color: var(--warp-hi); border: 1px solid var(--warp); background: var(--warp-weft); border-radius: 8px; padding: 7px 12px; margin-bottom: 12px; }
 .stream { flex: 1; overflow: auto; min-height: 0; }
 .msg { margin-bottom: 16px; max-width: 58ch; }
