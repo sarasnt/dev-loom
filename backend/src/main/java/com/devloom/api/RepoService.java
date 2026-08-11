@@ -294,8 +294,9 @@ public class RepoService {
                 @SuppressWarnings("unchecked")
                 Map<String, Object> w = (Map<String, Object>) o;
                 String wp = str(w, "path");
+                String wpn = normPath(wp);
                 GitRepoEntity tracked = all.stream()
-                        .filter(r -> r.getPath().equalsIgnoreCase(wp)).findFirst().orElse(null);
+                        .filter(r -> normPath(r.getPath()).equals(wpn)).findFirst().orElse(null);
                 out.add(new Dto.WorktreeInfo(wp,
                         w.get("branch") == null ? null : String.valueOf(w.get("branch")),
                         w.get("head") == null ? null : String.valueOf(w.get("head")),
@@ -309,6 +310,11 @@ public class RepoService {
 
     private String pathOf(String id) {
         return repos.findById(parse(id)).map(GitRepoEntity::getPath).orElseThrow();
+    }
+
+    /** Compare filesystem paths ignoring slash direction and case (Windows-friendly). */
+    private static String normPath(String p) {
+        return p == null ? "" : p.replace('\\', '/').toLowerCase();
     }
 
     @SuppressWarnings("unchecked")
