@@ -25,6 +25,8 @@ public class AppConfigService {
     public static final String NOTIFY_URGENT_CI = "notify.urgent.ci";
     public static final String NOTIFY_URGENT_REVIEW = "notify.urgent.review";
     public static final String NOTIFY_PR_WAIT_HOURS = "notify.urgent.prWaitHours";
+    /** Fleet: default to running edit runs in an isolated git worktree. */
+    public static final String FLEET_WORKTREES_DEFAULT = "fleet.worktreesDefault";
 
     private final AppConfigRepository repo;
 

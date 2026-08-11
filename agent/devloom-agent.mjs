@@ -165,6 +165,34 @@ function git(cwd, args) {
   return run('git', args, { cwd, timeoutMs: 120000 })
 }
 
+// ---- worktree isolation (Fleet) ----
+// Give an edit run its own linked worktree + branch so many runs can work one repo at once
+// without touching the user's checkout. `finalize` either keeps the run's branch (committing its
+// edits) or discards everything.
+async function worktreeAdd(repoPath, branch) {
+  const dir = path.join(os.tmpdir(), 'devloom-worktrees',
+    branch.replace(/[^a-z0-9._-]/gi, '_') + '-' + Date.now().toString(36))
+  fs.mkdirSync(path.dirname(dir), { recursive: true })
+  const r = await git(repoPath, ['worktree', 'add', dir, '-b', branch])
+  if (r.code !== 0) return { ok: false, error: (r.err || 'worktree add failed').trim().slice(0, 300) }
+  return { ok: true, path: dir }
+}
+
+async function worktreeFinalize(repoPath, wtPath, branch, mode) {
+  if (mode === 'apply') {
+    // Commit the run's edits onto its branch, then drop the worktree (the branch persists).
+    await git(wtPath, ['add', '-A'])
+    const commit = await git(wtPath, ['commit', '-m', 'DevLoom run: ' + (branch || 'changes')])
+    const committed = commit.code === 0
+    const rm = await git(repoPath, ['worktree', 'remove', '--force', wtPath])
+    return { ok: rm.code === 0, committed, branch, output: (commit.out + commit.err).trim().slice(0, 400) }
+  }
+  // discard: remove the worktree and delete its branch — nothing is kept.
+  const rm = await git(repoPath, ['worktree', 'remove', '--force', wtPath])
+  if (branch) await git(repoPath, ['branch', '-D', branch])
+  return { ok: rm.code === 0, output: (rm.out + rm.err).trim().slice(0, 300) }
+}
+
 /**
  * Native desktop toast — no npm deps; shells out to the OS notifier. Windows uses a PowerShell
  * toast (built into Win10/11), macOS uses osascript, Linux uses notify-send. Best-effort: returns
@@ -547,6 +575,14 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/notify') {
       const { title, body, urgency } = await readBody(req)
       return json(res, 200, await osNotify(title, body, urgency))
+    }
+    if (req.method === 'POST' && url.pathname === '/agent/worktree/add') {
+      const { repoPath, branch } = await readBody(req)
+      return json(res, 200, await worktreeAdd(repoPath, branch))
+    }
+    if (req.method === 'POST' && url.pathname === '/agent/worktree/finalize') {
+      const { repoPath, wtPath, branch, mode } = await readBody(req)
+      return json(res, 200, await worktreeFinalize(repoPath, wtPath, branch, mode))
     }
     if (req.method === 'POST' && url.pathname === '/agent/run') {
       const body = await readBody(req)

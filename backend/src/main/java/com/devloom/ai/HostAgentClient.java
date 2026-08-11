@@ -287,6 +287,17 @@ public class HostAgentClient {
         return post("/agent/run/" + agentRunId + "/cancel", Map.of());
     }
 
+    /** Create an isolated worktree + branch for an edit run. */
+    public Map<String, Object> worktreeAdd(String repoPath, String branch) {
+        return post("/agent/worktree/add", Map.of("repoPath", repoPath, "branch", branch));
+    }
+
+    /** Finalize a run's worktree: {@code apply} keeps the branch (committing edits), {@code discard} removes both. */
+    public Map<String, Object> worktreeFinalize(String repoPath, String wtPath, String branch, String mode) {
+        return post("/agent/worktree/finalize", Map.of("repoPath", repoPath, "wtPath", wtPath,
+                "branch", branch == null ? "" : branch, "mode", mode));
+    }
+
     private Map<String, Object> get(String path) {
         Map<String, Object> resp = http.get().uri(path).retrieve().body(MAP);
         if (resp == null) throw new IllegalStateException("no response from host agent");

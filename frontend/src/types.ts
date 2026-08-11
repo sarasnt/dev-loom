@@ -342,6 +342,7 @@ export interface SettingsData {
   terminalWorkdir: string // default working dir for claude-cli terminals (empty = home)
   repoDirs: string[] // parent directories scanned by "Sync" on the Repos page
   notify: NotifySettings // desktop-notification preferences
+  fleetWorktreesDefault: boolean // default: isolate edit runs in a git worktree
 }
 
 // ---- local model management (Ollama) ----

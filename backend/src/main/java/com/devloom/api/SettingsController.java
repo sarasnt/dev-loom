@@ -33,7 +33,19 @@ public class SettingsController {
         m.put("terminalWorkdir", config.get(AppConfigService.TERMINAL_WORKDIR).orElse(""));
         m.put("repoDirs", config.repoDirs());
         m.put("notify", NotifyConfig.from(config).toMap());
+        m.put("fleetWorktreesDefault",
+                config.get(AppConfigService.FLEET_WORKTREES_DEFAULT).map(Boolean::parseBoolean).orElse(true));
         return m;
+    }
+
+    public record FleetSettings(Boolean worktreesDefault) {}
+
+    @PutMapping("/fleet")
+    public Map<String, Object> setFleet(@RequestBody FleetSettings body) {
+        if (body != null && body.worktreesDefault() != null) {
+            config.set(AppConfigService.FLEET_WORKTREES_DEFAULT, String.valueOf(body.worktreesDefault()));
+        }
+        return get();
     }
 
     public record TerminalWorkdir(String path) {}

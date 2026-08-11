@@ -47,20 +47,23 @@ public class FleetService {
         return runs.findById(parse(id)).map(FleetService::toDto).orElseThrow();
     }
 
-    /** Launch a background run. Edit runs in the main checkout require a clean working tree. */
+    /**
+     * Launch a background run. An edit run either runs in its own worktree (isolated — safe to run
+     * many at once) or, if isolation is off, in the main checkout which must be clean.
+     */
     @Transactional
     public Dto.AgentRun launch(Dto.RunLaunch body) {
         GitRepoEntity repo = repos.findById(parse(body.repoId())).orElseThrow();
         String path = repo.getPath();
         String permission = "edit".equals(body.permission()) ? "edit" : "readonly";
+        boolean isolate = body.isolate() && "edit".equals(permission); // isolation only matters for edits
 
-        // Slice 2: no worktree isolation yet — an edit run must not clobber uncommitted work.
-        if ("edit".equals(permission)) {
+        if ("edit".equals(permission) && !isolate) {
             Map<String, Object> status = agent.status(path);
             if (Boolean.TRUE.equals(status.get("dirty"))) {
                 throw new IllegalStateException(
-                        "Working tree has uncommitted changes — commit/stash first, or use a read-only run "
-                                + "(worktree isolation for edit runs lands in a later update).");
+                        "Working tree has uncommitted changes — commit/stash first, turn on worktree "
+                                + "isolation, or use a read-only run.");
             }
         }
 
@@ -68,8 +71,32 @@ public class FleetService {
         AgentRunEntity run = AgentRunEntity.background(title, path, body.model(), permission, body.allowTests());
         run = runs.save(run);
 
+        String cwd = path;
+        if (isolate) {
+            String branch = "devloom/run-" + run.getId();
+            try {
+                Map<String, Object> wt = agent.worktreeAdd(path, branch);
+                if (!Boolean.TRUE.equals(wt.get("ok")) || wt.get("path") == null) {
+                    run.setStatus("failed");
+                    run.setError("could not create worktree: " + str(wt.get("error")));
+                    run.setFinishedAt(Instant.now());
+                    return toDto(runs.save(run));
+                }
+                cwd = String.valueOf(wt.get("path"));
+                run.setIsolated(true);
+                run.setBranch(branch);
+                run.setRunDir(cwd);
+                run = runs.save(run);
+            } catch (Exception e) {
+                run.setStatus("failed");
+                run.setError("could not create worktree: " + e.getMessage());
+                run.setFinishedAt(Instant.now());
+                return toDto(runs.save(run));
+            }
+        }
+
         try {
-            Map<String, Object> res = agent.startRun(path, body.prompt(), body.model(), permission, body.allowTests());
+            Map<String, Object> res = agent.startRun(cwd, body.prompt(), body.model(), permission, body.allowTests());
             Object runId = res.get("runId");
             if (runId == null) {
                 run.setStatus("failed");
@@ -84,9 +111,38 @@ public class FleetService {
             run.setFinishedAt(Instant.now());
         }
         runs.save(run);
-        audit.record("fleet_launch", path, permission + " · " + title);
+        audit.record("fleet_launch", path, permission + (isolate ? " · isolated" : "") + " · " + title);
         return toDto(run);
     }
+
+    /** Apply an isolated run's result: commit its edits onto its branch, drop the worktree. */
+    @Transactional
+    public Dto.AgentRun apply(String id) {
+        AgentRunEntity run = runs.findById(parse(id)).orElseThrow();
+        if (run.isIsolated() && run.getBranch() != null) {
+            agent.worktreeFinalize(run.getRepoPath(), run.getRunDir(), run.getBranch(), "apply");
+            run.setResultSummary("Applied — changes are on branch " + run.getBranch()
+                    + " (check it out in Repos to review, commit and push).\n\n" + nz(run.getResultSummary()));
+        }
+        run.setStatus("done");
+        audit.record("fleet_apply", run.getRepoPath(), run.getBranch());
+        return toDto(runs.save(run));
+    }
+
+    /** Discard an isolated run: remove its worktree and branch; nothing is kept. */
+    @Transactional
+    public Dto.AgentRun discard(String id) {
+        AgentRunEntity run = runs.findById(parse(id)).orElseThrow();
+        if (run.isIsolated() && run.getBranch() != null) {
+            agent.worktreeFinalize(run.getRepoPath(), run.getRunDir(), run.getBranch(), "discard");
+            run.setResultSummary("Discarded — worktree and branch removed.\n\n" + nz(run.getResultSummary()));
+        }
+        run.setStatus("done");
+        audit.record("fleet_discard", run.getRepoPath(), run.getBranch());
+        return toDto(runs.save(run));
+    }
+
+    private static String nz(String s) { return s == null ? "" : s; }
 
     @Transactional
     public Dto.AgentRun cancel(String id) {

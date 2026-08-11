@@ -116,6 +116,7 @@ public class AgentRunEntity {
     public String getPermission() { return permission; }
     public boolean isAllowTests() { return allowTests; }
     public boolean isIsolated() { return isolated; }
+    public void setIsolated(boolean v) { this.isolated = v; }
     public String getModel() { return model; }
     public String getStatus() { return status; }
     public void setStatus(String s) { this.status = s; }

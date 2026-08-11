@@ -52,6 +52,16 @@ public class FleetController {
         return fleet.rerun(id);
     }
 
+    @PostMapping("/runs/{id}/apply")
+    public Dto.AgentRun apply(@PathVariable String id) {
+        return fleet.apply(id);
+    }
+
+    @PostMapping("/runs/{id}/discard")
+    public Dto.AgentRun discard(@PathVariable String id) {
+        return fleet.discard(id);
+    }
+
     @org.springframework.web.bind.annotation.DeleteMapping("/runs/{id}")
     public java.util.Map<String, Object> delete(@PathVariable String id) {
         fleet.delete(id);

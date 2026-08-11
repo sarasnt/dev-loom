@@ -146,21 +146,21 @@ const NOTIFY_STUB = {
   urgentCi: true, urgentReview: true, prWaitHours: 24,
 }
 export function fetchSettings(): Promise<import('../types').SettingsData> {
-  return delay({ terminalWorkdir: '', repoDirs: [], notify: NOTIFY_STUB })
+  return delay({ terminalWorkdir: '', repoDirs: [], notify: NOTIFY_STUB, fleetWorktreesDefault: true })
 }
 export function saveTerminalWorkdir(path: string): Promise<import('../types').SettingsData> {
-  return delay({ terminalWorkdir: path, repoDirs: [], notify: NOTIFY_STUB })
+  return delay({ terminalWorkdir: path, repoDirs: [], notify: NOTIFY_STUB, fleetWorktreesDefault: true })
 }
 export function addRepoDir(path: string): Promise<import('../types').SettingsData> {
-  return delay({ terminalWorkdir: '', repoDirs: [path], notify: NOTIFY_STUB })
+  return delay({ terminalWorkdir: '', repoDirs: [path], notify: NOTIFY_STUB, fleetWorktreesDefault: true })
 }
 export function removeRepoDir(): Promise<import('../types').SettingsData> {
-  return delay({ terminalWorkdir: '', repoDirs: [], notify: NOTIFY_STUB })
+  return delay({ terminalWorkdir: '', repoDirs: [], notify: NOTIFY_STUB, fleetWorktreesDefault: true })
 }
 export function saveNotificationSettings(
   b: Partial<import('../types').NotifySettings>,
 ): Promise<import('../types').SettingsData> {
-  return delay({ terminalWorkdir: '', repoDirs: [], notify: { ...NOTIFY_STUB, ...b } })
+  return delay({ terminalWorkdir: '', repoDirs: [], notify: { ...NOTIFY_STUB, ...b }, fleetWorktreesDefault: true })
 }
 export function testNotification(): Promise<{ ok: boolean; error?: string }> {
   return delay({ ok: false, error: 'offline' })
@@ -374,3 +374,8 @@ export function cancelRun() { return delay(null as unknown as import('../types')
 export function fleetRunChanges() { return delay({ staged: [], unstaged: [], untracked: [] } as import('../types').RepoChanges) }
 export function rerunRun() { return delay(null as unknown as import('../types').AgentRun) }
 export function deleteRun() { return delay({ deleted: '' }) }
+export function applyRun() { return delay(null as unknown as import('../types').AgentRun) }
+export function discardRun() { return delay(null as unknown as import('../types').AgentRun) }
+export function saveFleetSettings() {
+  return delay({ terminalWorkdir: '', repoDirs: [], notify: NOTIFY_STUB, fleetWorktreesDefault: true })
+}

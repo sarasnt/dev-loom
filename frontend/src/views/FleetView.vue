@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useDashboardStore } from '../stores/dashboard'
-import { fleetRuns, launchRun, cancelRun, fetchRepos, fleetRunChanges, rerunRun, deleteRun, createBrainstormSession } from '../api'
+import { fleetRuns, launchRun, cancelRun, fetchRepos, fleetRunChanges, rerunRun, deleteRun, createBrainstormSession, fetchSettings, applyRun, discardRun } from '../api'
 import type { AgentRun, RepoView, RepoChanges, RunLaunch } from '../types'
 
 const router = useRouter()
@@ -25,10 +25,12 @@ const recent = computed(() => runs.value.filter((r) => ['done', 'canceled', 'end
 async function refresh() {
   try { runs.value = await fleetRuns() } catch { /* keep last */ }
 }
+const worktreesDefault = ref(true)
 onMounted(async () => {
   store.ensureLoaded() // populate the model list for the launch dialog
   await refresh()
   try { repos.value = (await fetchRepos()).repos } catch { /* agent offline */ }
+  try { worktreesDefault.value = (await fetchSettings()).fleetWorktreesDefault } catch { /* default true */ }
   loading.value = false
   timer = window.setInterval(refresh, 4000)
 })
@@ -56,7 +58,7 @@ const dlg = ref(false)
 const busy = ref(false)
 const form = ref<RunLaunch>({ repoId: '', prompt: '', model: undefined, permission: 'readonly', allowTests: false, isolate: false })
 function openLaunch() {
-  form.value = { repoId: repos.value[0]?.id ?? '', prompt: '', model: undefined, permission: 'readonly', allowTests: false, isolate: false }
+  form.value = { repoId: repos.value[0]?.id ?? '', prompt: '', model: undefined, permission: 'readonly', allowTests: false, isolate: worktreesDefault.value }
   flash.value = ''
   dlg.value = true
 }
@@ -104,6 +106,20 @@ async function dismiss(r: AgentRun) {
   try { await deleteRun(r.id); runs.value = runs.value.filter((x) => x.id !== r.id); if (detail.value?.id === r.id) detail.value = null }
   finally { detailBusy.value = false }
 }
+// Apply an isolated run: keep its branch (edits committed to devloom/run-<id>). Discard: drop it.
+async function applyIsolated(r: AgentRun) {
+  detailBusy.value = true
+  try { const u = await applyRun(r.id); runs.value = runs.value.map((x) => (x.id === u.id ? u : x)); detail.value = u }
+  catch { flash.value = 'Apply failed — is the host agent running?' }
+  finally { detailBusy.value = false }
+}
+async function discardIsolated(r: AgentRun) {
+  detailBusy.value = true
+  try { const u = await discardRun(r.id); runs.value = runs.value.map((x) => (x.id === u.id ? u : x)); detail.value = u }
+  catch { flash.value = 'Discard failed — is the host agent running?' }
+  finally { detailBusy.value = false }
+}
+const isolatedReview = computed(() => !!detail.value && detail.value.isolated && detail.value.status === 'review')
 // Open a run in an interactive claude-cli terminal: interactive runs jump to their session;
 // a finished background run opens a fresh cli session in its dir to continue the work.
 async function openInTerminal(r: AgentRun) {
@@ -220,8 +236,11 @@ async function openInTerminal(r: AgentRun) {
           <pre class="rbody mono">{{ detail.error || detail.resultSummary || '(no output)' }}</pre>
         </div>
 
+        <p v-if="detail.isolated && detail.branch" class="wtnote mono">⑂ isolated on <b>{{ detail.branch }}</b> — apply keeps that branch; discard removes it.</p>
         <div class="df">
           <button v-if="detail.status === 'running'" class="btn danger" @click="stop(detail)">Cancel</button>
+          <button v-if="isolatedReview" class="btn pri" :disabled="detailBusy" @click="applyIsolated(detail)">Apply ✓</button>
+          <button v-if="isolatedReview" class="btn danger" :disabled="detailBusy" @click="discardIsolated(detail)">Discard</button>
           <button class="btn" :disabled="detailBusy" @click="openInTerminal(detail)">Open in terminal ▸</button>
           <button v-if="detail.kind === 'background'" class="btn" :disabled="detailBusy" @click="rerun(detail)">Re-run</button>
           <span class="grow"></span>
@@ -255,7 +274,8 @@ async function openInTerminal(r: AgentRun) {
           </div>
         </div>
         <label v-if="form.permission === 'edit'" class="fld ck"><input type="checkbox" v-model="form.allowTests" /> <span>Let it run tests</span></label>
-        <p v-if="form.permission === 'edit'" class="warn mono">Edit runs need a clean working tree (worktree isolation comes in a later update).</p>
+        <label v-if="form.permission === 'edit'" class="fld ck"><input type="checkbox" v-model="form.isolate" /> <span>Isolate in a worktree<span class="mono hint"> — its own branch; many can run at once</span></span></label>
+        <p v-if="form.permission === 'edit' && !form.isolate" class="warn mono">Without isolation the run edits your main checkout, which must be clean.</p>
         <div class="bf">
           <button class="btn ghost" @click="dlg = false">Cancel</button>
           <button class="btn pri" :disabled="busy || !form.repoId || !form.prompt.trim()" @click="submit">{{ busy ? 'Launching…' : 'Launch run ▸' }}</button>
@@ -314,6 +334,9 @@ button.run:hover { border-color: var(--warp); }
 .pr { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink); }
 .pr .mono { font-size: 11px; color: var(--faint-text); }
 .warn { font-size: 11px; color: var(--warp-hi); margin: 0 0 8px; }
+.hint { color: var(--faint-text); }
+.wtnote { font-size: 11.5px; color: var(--warp-hi); margin: 0 0 8px; }
+.wtnote b { color: var(--ink); }
 .bf { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
 .btn { font-size: 13px; font-weight: 500; border-radius: var(--r-ctl); padding: 7px 13px; border: 1px solid var(--line); background: var(--btn-bg); color: var(--ink); cursor: pointer; }
 .btn.pri { background: var(--warp); border-color: var(--warp); color: var(--on-warp); font-weight: 600; }

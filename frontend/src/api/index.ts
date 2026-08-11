@@ -79,3 +79,6 @@ export const cancelRun = api.cancelRun
 export const fleetRunChanges = api.fleetRunChanges
 export const rerunRun = api.rerunRun
 export const deleteRun = api.deleteRun
+export const applyRun = api.applyRun
+export const discardRun = api.discardRun
+export const saveFleetSettings = api.saveFleetSettings
