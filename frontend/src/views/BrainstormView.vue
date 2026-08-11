@@ -112,7 +112,9 @@ const cliSessions = computed(() =>
 function syncSessionModel() {
   const a = data.value?.active
   if (!a) return
-  sessionModel.value = a.cliMode ? 'claude-cli' : (a.model || store.modelFor('brainstorm'))
+  // Only trust the session's stored model if it's actually available; else the screen default.
+  const stored = a.model && store.models.includes(a.model) ? a.model : store.modelFor('brainstorm')
+  sessionModel.value = a.cliMode ? 'claude-cli' : stored
   store.reflectModel(effectiveModel.value)
 }
 
