@@ -133,10 +133,19 @@ export function removeModel(_name: string): Promise<{ removed: boolean }> {
   return delay({ removed: false })
 }
 export function fetchSettings(): Promise<import('../types').SettingsData> {
-  return delay({ terminalWorkdir: '' })
+  return delay({ terminalWorkdir: '', repoDirs: [] })
 }
 export function saveTerminalWorkdir(path: string): Promise<import('../types').SettingsData> {
-  return delay({ terminalWorkdir: path })
+  return delay({ terminalWorkdir: path, repoDirs: [] })
+}
+export function addRepoDir(path: string): Promise<import('../types').SettingsData> {
+  return delay({ terminalWorkdir: '', repoDirs: [path] })
+}
+export function removeRepoDir(): Promise<import('../types').SettingsData> {
+  return delay({ terminalWorkdir: '', repoDirs: [] })
+}
+export function syncRepos() {
+  return delay({ added: 0, dirs: [] as string[], agentUp: false, repos: [] as import('../types').RepoView[] })
 }
 export function fetchMonitoring(): Promise<import('../types').MonitoringData> {
   return delay({

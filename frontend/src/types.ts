@@ -303,6 +303,7 @@ export interface MonitoringData {
 // ---- user settings ----
 export interface SettingsData {
   terminalWorkdir: string // default working dir for claude-cli terminals (empty = home)
+  repoDirs: string[] // parent directories scanned by "Sync" on the Repos page
 }
 
 // ---- local model management (Ollama) ----

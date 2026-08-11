@@ -231,6 +231,12 @@ public class ApiController {
         return repoService.addFolder(body.root());
     }
 
+    /** Sync: scan the parent directories configured in Settings and add any new git repos. */
+    @PostMapping("/repos/sync")
+    public Map<String, Object> syncRepos() {
+        return repoService.sync();
+    }
+
     /** Add a single repo by path. */
     @PostMapping("/repos")
     public List<Dto.RepoView> addRepo(@RequestBody Dto.RepoAdd body) {

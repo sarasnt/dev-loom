@@ -58,6 +58,29 @@ public class RepoService {
         return list();
     }
 
+    /**
+     * Scan every parent directory the user configured in Settings and add any git repos not yet
+     * tracked (repo-spec follow-up: "Sync"). Manual add/scan still works alongside this.
+     */
+    @Transactional
+    public Map<String, Object> sync() {
+        List<String> dirs = config.repoDirs();
+        int before = (int) repos.count();
+        for (String root : dirs) {
+            try {
+                for (Map<String, Object> info : agent.scan(root)) persist(info);
+            } catch (Exception e) { /* skip an unreachable dir, keep syncing the rest */ }
+        }
+        int added = (int) repos.count() - before;
+        audit.record("repo_sync", String.join(", ", dirs), "added=" + added);
+        Map<String, Object> out = new java.util.HashMap<>();
+        out.put("added", added);
+        out.put("dirs", dirs);
+        out.put("agentUp", agent.up());
+        out.put("repos", list());
+        return out;
+    }
+
     @Transactional
     public List<Dto.RepoView> addRepo(String path) {
         Map<String, Object> info = agent.status(path); // validates it's a git repo (throws if not)

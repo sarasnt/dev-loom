@@ -90,6 +90,12 @@ export const removeModel = (name: string) => del<{ removed: boolean }>(`/models/
 export const fetchSettings = () => get<SettingsData>('/settings')
 export const saveTerminalWorkdir = (path: string) =>
   put<SettingsData>('/settings/terminal-workdir', { path })
+export const addRepoDir = (path: string) =>
+  put<SettingsData>('/settings/repo-dirs/add', { path })
+export const removeRepoDir = (path: string) =>
+  put<SettingsData>('/settings/repo-dirs/remove', { path })
+export const syncRepos = () =>
+  post<{ added: number; dirs: string[]; agentUp: boolean; repos: RepoView[] }>('/repos/sync', {})
 export const setActiveModel = (name: string) => post<ProvidersData>('/providers/model', { name })
 export const setProviderKey = (provider: string, key: string) =>
   post<ProvidersData>('/providers/keys', { provider, key })

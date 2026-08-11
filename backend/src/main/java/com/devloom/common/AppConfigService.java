@@ -15,6 +15,8 @@ public class AppConfigService {
     public static final String TODAY_SNOOZED = "today.snoozed";
     /** User-desired Ollama models (re-pulled on startup so they survive a fresh volume). */
     public static final String OLLAMA_MODELS = "ollama.models";
+    /** Parent directories scanned by "Sync" to auto-add git repos, newline-separated. */
+    public static final String REPO_DIRS = "repo.dirs";
 
     private final AppConfigRepository repo;
 
@@ -68,6 +70,30 @@ public class AppConfigService {
     public void removeOllamaModel(String model) {
         java.util.Set<String> s = ollamaModels();
         if (s.remove(model)) set(OLLAMA_MODELS, s.isEmpty() ? null : String.join("\n", s));
+    }
+
+    /** Parent directories the user configured for repo auto-sync (order preserved). */
+    public java.util.List<String> repoDirs() {
+        return new java.util.ArrayList<>(lines(REPO_DIRS));
+    }
+
+    public void addRepoDir(String dir) {
+        if (dir == null || dir.isBlank()) return;
+        java.util.Set<String> s = lines(REPO_DIRS);
+        s.add(dir.trim());
+        set(REPO_DIRS, String.join("\n", s));
+    }
+
+    public void removeRepoDir(String dir) {
+        java.util.Set<String> s = lines(REPO_DIRS);
+        if (s.remove(dir)) set(REPO_DIRS, s.isEmpty() ? null : String.join("\n", s));
+    }
+
+    private java.util.LinkedHashSet<String> lines(String key) {
+        return get(key)
+                .map(v -> new java.util.LinkedHashSet<>(java.util.Arrays.stream(v.split("\n"))
+                        .map(String::trim).filter(s -> !s.isBlank()).toList()))
+                .orElseGet(java.util.LinkedHashSet::new);
     }
 
     @Transactional

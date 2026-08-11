@@ -3,7 +3,7 @@ import { onMounted, onBeforeUnmount, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import type { BrowseResult } from '../types'
 import type { InstalledModel } from '../types'
-import { fetchSettings, saveTerminalWorkdir, browseFs, fetchInstalledModels, removeModel } from '../api'
+import { fetchSettings, saveTerminalWorkdir, browseFs, fetchInstalledModels, removeModel, addRepoDir, removeRepoDir } from '../api'
 import { useDashboardStore } from '../stores/dashboard'
 import SettingsTabs from '../components/SettingsTabs.vue'
 import ModelSelect from '../components/ModelSelect.vue'
@@ -71,9 +71,14 @@ function installModel() {
 }
 
 const workdir = ref('')
+const repoDirs = ref<string[]>([])
+const newDir = ref('')
 const loading = ref(true)
 const saving = ref(false)
 const flash = ref('')
+// The browse modal is shared: `browseFor` says whether picking a folder sets the terminal
+// workdir or adds a repository directory.
+const browseFor = ref<'workdir' | 'repodir'>('workdir')
 const browse = ref<{ open: boolean; data: BrowseResult | null; loading: boolean }>({
   open: false,
   data: null,
@@ -81,10 +86,25 @@ const browse = ref<{ open: boolean; data: BrowseResult | null; loading: boolean 
 })
 
 onMounted(async () => {
-  try { workdir.value = (await fetchSettings()).terminalWorkdir } catch { /* ignore */ }
+  try { const s = await fetchSettings(); workdir.value = s.terminalWorkdir; repoDirs.value = s.repoDirs ?? [] } catch { /* ignore */ }
   loadInstalled()
   loading.value = false
 })
+
+async function addDir(path: string) {
+  const p = (path || '').trim()
+  if (!p || saving.value) return
+  saving.value = true; flash.value = ''
+  try { repoDirs.value = (await addRepoDir(p)).repoDirs; newDir.value = ''; flash.value = 'Directory added — use Sync on the Repos page to import repos.' }
+  catch { flash.value = 'Could not add directory.' }
+  finally { saving.value = false }
+}
+async function removeDir(path: string) {
+  saving.value = true; flash.value = ''
+  try { repoDirs.value = (await removeRepoDir(path)).repoDirs }
+  catch { flash.value = 'Could not remove directory.' }
+  finally { saving.value = false }
+}
 onBeforeUnmount(() => pullEs?.close())
 
 async function save() {
@@ -101,9 +121,10 @@ async function save() {
   }
 }
 
-async function openBrowse() {
+async function openBrowse(target: 'workdir' | 'repodir' = 'workdir') {
+  browseFor.value = target
   browse.value.open = true
-  await navigate(workdir.value || '')
+  await navigate((target === 'workdir' ? workdir.value : newDir.value) || '')
 }
 async function navigate(p: string) {
   browse.value.loading = true
@@ -113,8 +134,10 @@ async function navigate(p: string) {
 }
 function useFolder() {
   if (!browse.value.data) return
-  workdir.value = browse.value.data.path
+  const picked = browse.value.data.path
   browse.value.open = false
+  if (browseFor.value === 'repodir') addDir(picked)
+  else workdir.value = picked
 }
 </script>
 
@@ -142,8 +165,36 @@ function useFolder() {
             :disabled="saving"
             @keydown.enter="save"
           />
-          <button class="btn" :disabled="saving" @click="openBrowse">Browse…</button>
+          <button class="btn" :disabled="saving" @click="openBrowse('workdir')">Browse…</button>
           <button class="btn pri" :disabled="saving" @click="save">Save</button>
+        </div>
+      </section>
+
+      <section class="block">
+        <div class="lab mono">Repository directories</div>
+        <p class="prose">
+          Parent folders DevLoom scans when you click <b>Sync</b> on the Repositories page. Any
+          subfolder containing a <code>.git</code> is added automatically — drop new clones into
+          one of these and a Sync brings them in. (You can still add repos or folders manually.)
+        </p>
+        <div class="mlist">
+          <div v-for="d in repoDirs" :key="d" class="mrow mono">
+            <span class="mn">{{ d }}</span>
+            <button class="btn ghost mrm" :disabled="saving" @click="removeDir(d)">Remove</button>
+          </div>
+          <div v-if="!repoDirs.length" class="empty mono">no directories configured</div>
+        </div>
+        <div class="row">
+          <input
+            v-model="newDir"
+            class="in mono"
+            type="text"
+            placeholder="e.g. C:\Users\you\Documents\projects"
+            :disabled="saving"
+            @keydown.enter="addDir(newDir)"
+          />
+          <button class="btn" :disabled="saving" @click="openBrowse('repodir')">Browse…</button>
+          <button class="btn pri" :disabled="saving || !newDir.trim()" @click="addDir(newDir)">Add</button>
         </div>
       </section>
 

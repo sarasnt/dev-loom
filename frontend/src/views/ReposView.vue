@@ -5,6 +5,7 @@ import type { RepoView, BrowseResult, RepoChanges, SourceStatus, ConflictStatus 
 import {
   fetchRepos,
   scanRepoFolder,
+  syncRepos,
   addRepoPath,
   removeRepo,
   setRepoIdentity,
@@ -237,6 +238,22 @@ async function addOne() {
   finally { busy.value = '' }
 }
 
+// Sync: scan the parent directories configured in Settings and import any new repos.
+async function sync() {
+  if (busy.value) return
+  busy.value = 'sync'; flash.value = ''
+  try {
+    const r = await syncRepos()
+    agentUp.value = r.agentUp
+    repos.value = r.repos
+    flash.value = !r.dirs.length
+      ? 'No repository directories configured — add some in Settings › General.'
+      : `Synced ${r.dirs.length} director${r.dirs.length > 1 ? 'ies' : 'y'} — ${r.added} new repo${r.added === 1 ? '' : 's'} added.`
+    try { repoSessions.value = await fetchRepoSessions() } catch { /* keep */ }
+  } catch { flash.value = 'Sync failed — is the host agent running?' }
+  finally { busy.value = '' }
+}
+
 // ---- browse ----
 async function openBrowse() {
   browse.value.open = true
@@ -434,6 +451,12 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
       <button class="btn" :disabled="!agentUp" @click="openBrowse">Browse…</button>
       <button class="btn" :disabled="busy === 'add' || !pathInput.trim()" @click="scan">Scan folder</button>
       <button class="btn" :disabled="busy === 'add' || !pathInput.trim()" @click="addOne">Add repo</button>
+      <button
+        class="btn pri"
+        :disabled="busy === 'sync' || !agentUp"
+        title="Scan the directories configured in Settings and add any new git repos"
+        @click="sync"
+      >{{ busy === 'sync' ? 'Syncing…' : 'Sync' }}</button>
     </div>
 
     <div v-if="flash" class="flash mono">{{ flash }}</div>
