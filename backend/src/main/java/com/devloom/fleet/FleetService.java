@@ -13,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.devloom.ai.HostAgentClient;
 import com.devloom.api.Dto;
 import com.devloom.audit.AuditService;
+import com.devloom.briefing.NotificationService;
 import com.devloom.repos.GitRepoEntity;
 import com.devloom.repos.GitRepoRepository;
 
@@ -30,13 +31,15 @@ public class FleetService {
     private final GitRepoRepository repos;
     private final HostAgentClient agent;
     private final AuditService audit;
+    private final NotificationService notifications;
 
     public FleetService(AgentRunRepository runs, GitRepoRepository repos,
-                        HostAgentClient agent, AuditService audit) {
+                        HostAgentClient agent, AuditService audit, NotificationService notifications) {
         this.runs = runs;
         this.repos = repos;
         this.agent = agent;
         this.audit = audit;
+        this.notifications = notifications;
     }
 
     public List<Dto.AgentRun> list() {
@@ -144,6 +147,11 @@ public class FleetService {
 
     private static String nz(String s) { return s == null ? "" : s; }
 
+    private static String repoName(String path) {
+        String p = path == null ? "" : path.replace('\\', '/');
+        return p.substring(p.lastIndexOf('/') + 1);
+    }
+
     @Transactional
     public Dto.AgentRun cancel(String id) {
         AgentRunEntity run = runs.findById(parse(id)).orElseThrow();
@@ -228,11 +236,13 @@ public class FleetService {
                     run.setResultSummary(str(st.get("result")));
                     if (st.get("sessionId") != null) run.setClaudeSessionId(str(st.get("sessionId")));
                     run.setFinishedAt(Instant.now());
+                    notifications.notify("Run finished · review in Fleet", run.getTitle(), false);
                 }
                 case "failed" -> {
                     run.setStatus("failed");
                     run.setError(str(st.get("error")));
                     run.setFinishedAt(Instant.now());
+                    notifications.notify("Run failed · " + repoName(run.getRepoPath()), run.getTitle(), true);
                 }
                 case "canceled" -> {
                     run.setStatus("canceled");

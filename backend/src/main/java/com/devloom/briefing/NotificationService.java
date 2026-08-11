@@ -76,6 +76,14 @@ public class NotificationService {
         send("DevLoom · needs you", composeUrgent(newlyUrgent), "urgent");
     }
 
+    /** Ad-hoc notification (e.g. a Fleet run finished/failed), honoring enable + quiet hours. */
+    public void notify(String title, String body, boolean urgent) {
+        NotifyConfig c = NotifyConfig.from(cfg);
+        if (!c.enabled()) return;
+        if (quiet(LocalTime.now(zone), c)) return;
+        send(title, body, urgent ? "urgent" : "normal");
+    }
+
     private void send(String title, String body, String urgency) {
         try {
             Map<String, Object> r = agent.notify(title, body, urgency);
