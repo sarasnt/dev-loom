@@ -105,7 +105,7 @@ services:
       - ollama
     environment:
       OLLAMA_HOST: http://ollama:11434
-      DEVLOOM_OLLAMA_MODELS: ${DEVLOOM_OLLAMA_MODELS:-qwen2.5-coder:7b gpt-oss:20b}
+      DEVLOOM_OLLAMA_MODELS: ${DEVLOOM_OLLAMA_MODELS:-qwen2.5-coder:7b gpt-oss:20b qwen3-coder:30b}
     entrypoint:
       - /bin/sh
       - -c
