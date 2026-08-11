@@ -35,7 +35,20 @@ public class SettingsController {
         m.put("notify", NotifyConfig.from(config).toMap());
         m.put("fleetWorktreesDefault",
                 config.get(AppConfigService.FLEET_WORKTREES_DEFAULT).map(Boolean::parseBoolean).orElse(true));
+        m.put("gitPushProtection", config.get(AppConfigService.GIT_PUSH_PROTECTION).orElse("protected"));
+        m.put("gitProtectedPatterns", config.get(AppConfigService.GIT_PROTECTED_PATTERNS).orElse("main, master, develop, dev"));
         return m;
+    }
+
+    public record GitSettings(String pushProtection, String protectedPatterns) {}
+
+    @PutMapping("/git")
+    public Map<String, Object> setGit(@RequestBody GitSettings body) {
+        if (body != null) {
+            if (body.pushProtection() != null) config.set(AppConfigService.GIT_PUSH_PROTECTION, body.pushProtection());
+            if (body.protectedPatterns() != null) config.set(AppConfigService.GIT_PROTECTED_PATTERNS, body.protectedPatterns());
+        }
+        return get();
     }
 
     public record FleetSettings(Boolean worktreesDefault) {}

@@ -108,9 +108,82 @@ public class RepoService {
     }
 
     public Map<String, Object> push(String id, boolean force) {
-        Map<String, Object> r = agent.push(pathOf(id), force);
-        audit.record(force ? "repo_push_force" : "repo_push", pathOf(id), null);
+        String path = pathOf(id);
+        String block = pushBlockReason(id, path, force);
+        if (block != null) {
+            audit.record("repo_push_blocked", path, block);
+            return Map.of("ok", false, "output", block, "blocked", true);
+        }
+        Map<String, Object> r = agent.push(path, force);
+        audit.record(force ? "repo_push_force" : "repo_push", path, null);
         return r;
+    }
+
+    /** The effective push-protection policy for a repo: its override, else the global default. */
+    public Map<String, Object> pushProtection(String id) {
+        Map<String, Object> m = new java.util.HashMap<>();
+        m.put("mode", effMode(id));
+        m.put("patterns", String.join(", ", effPatterns(id)));
+        m.put("overridden", config.get(protKey(id)).isPresent());
+        m.put("globalMode", config.get(com.devloom.common.AppConfigService.GIT_PUSH_PROTECTION).orElse("protected"));
+        return m;
+    }
+
+    /** Save (or clear, when mode is blank/"inherit") a repo's push-protection override. */
+    public Map<String, Object> setPushProtection(String id, String mode, String patterns) {
+        if (mode == null || mode.isBlank() || "inherit".equals(mode)) {
+            config.set(protKey(id), null);
+            config.set(patKey(id), null);
+        } else {
+            config.set(protKey(id), mode);
+            if (patterns != null) config.set(patKey(id), patterns);
+        }
+        return pushProtection(id);
+    }
+
+    private String effMode(String id) {
+        return config.get(protKey(id))
+                .or(() -> config.get(com.devloom.common.AppConfigService.GIT_PUSH_PROTECTION))
+                .orElse("protected");
+    }
+
+    private java.util.List<String> effPatterns(String id) {
+        return config.get(patKey(id))
+                .or(() -> config.get(com.devloom.common.AppConfigService.GIT_PROTECTED_PATTERNS))
+                .map(RepoService::splitPatterns).filter(l -> !l.isEmpty())
+                .orElse(java.util.List.of("main", "master", "develop", "dev"));
+    }
+
+    private static java.util.List<String> splitPatterns(String s) {
+        return java.util.Arrays.stream(s.split("[,\\n]")).map(String::trim).filter(x -> !x.isBlank()).toList();
+    }
+
+    private static String protKey(String id) { return "git.pushProtection." + id; }
+    private static String patKey(String id) { return "git.protectedPatterns." + id; }
+
+    /** Null = allowed; otherwise the reason the push is blocked by the (repo-or-global) guardrail. */
+    private String pushBlockReason(String id, String path, boolean force) {
+        String mode = effMode(id);
+        if ("off".equals(mode)) return null;
+        String branch;
+        try { branch = str(agent.status(path), "branch"); } catch (Exception e) { return null; }
+        if (branch.isBlank()) return null;
+        if ("all".equals(mode)) {
+            return "Push blocked — this repo's guardrail blocks all pushes (Settings › General, or the repo's override).";
+        }
+        for (String p : effPatterns(id)) {
+            if (branchMatches(branch, p)) {
+                return "Push to protected branch '" + branch + "' is blocked by your push guardrail."
+                        + (force ? " Force-pushing a protected branch is disabled." : "")
+                        + " Change it in Settings › General or override it on this repo.";
+            }
+        }
+        return null;
+    }
+
+    private static boolean branchMatches(String branch, String pattern) {
+        try { return branch.matches("(?i)" + pattern); }
+        catch (Exception e) { return branch.equalsIgnoreCase(pattern); }
     }
 
     /** Abort an in-progress merge/rebase/cherry-pick/revert on the repo. */

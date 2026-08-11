@@ -146,21 +146,21 @@ const NOTIFY_STUB = {
   urgentCi: true, urgentReview: true, prWaitHours: 24,
 }
 export function fetchSettings(): Promise<import('../types').SettingsData> {
-  return delay({ terminalWorkdir: '', repoDirs: [], notify: NOTIFY_STUB, fleetWorktreesDefault: true })
+  return delay({ terminalWorkdir: '', repoDirs: [], notify: NOTIFY_STUB, fleetWorktreesDefault: true, gitPushProtection: 'protected' as const, gitProtectedPatterns: 'main, master, develop, dev' })
 }
 export function saveTerminalWorkdir(path: string): Promise<import('../types').SettingsData> {
-  return delay({ terminalWorkdir: path, repoDirs: [], notify: NOTIFY_STUB, fleetWorktreesDefault: true })
+  return delay({ terminalWorkdir: path, repoDirs: [], notify: NOTIFY_STUB, fleetWorktreesDefault: true, gitPushProtection: 'protected' as const, gitProtectedPatterns: 'main, master, develop, dev' })
 }
 export function addRepoDir(path: string): Promise<import('../types').SettingsData> {
-  return delay({ terminalWorkdir: '', repoDirs: [path], notify: NOTIFY_STUB, fleetWorktreesDefault: true })
+  return delay({ terminalWorkdir: '', repoDirs: [path], notify: NOTIFY_STUB, fleetWorktreesDefault: true, gitPushProtection: 'protected' as const, gitProtectedPatterns: 'main, master, develop, dev' })
 }
 export function removeRepoDir(): Promise<import('../types').SettingsData> {
-  return delay({ terminalWorkdir: '', repoDirs: [], notify: NOTIFY_STUB, fleetWorktreesDefault: true })
+  return delay({ terminalWorkdir: '', repoDirs: [], notify: NOTIFY_STUB, fleetWorktreesDefault: true, gitPushProtection: 'protected' as const, gitProtectedPatterns: 'main, master, develop, dev' })
 }
 export function saveNotificationSettings(
   b: Partial<import('../types').NotifySettings>,
 ): Promise<import('../types').SettingsData> {
-  return delay({ terminalWorkdir: '', repoDirs: [], notify: { ...NOTIFY_STUB, ...b }, fleetWorktreesDefault: true })
+  return delay({ terminalWorkdir: '', repoDirs: [], notify: { ...NOTIFY_STUB, ...b }, fleetWorktreesDefault: true, gitPushProtection: 'protected' as const, gitProtectedPatterns: 'main, master, develop, dev' })
 }
 export function testNotification(): Promise<{ ok: boolean; error?: string }> {
   return delay({ ok: false, error: 'offline' })
@@ -377,5 +377,14 @@ export function deleteRun() { return delay({ deleted: '' }) }
 export function applyRun() { return delay(null as unknown as import('../types').AgentRun) }
 export function discardRun() { return delay(null as unknown as import('../types').AgentRun) }
 export function saveFleetSettings() {
-  return delay({ terminalWorkdir: '', repoDirs: [], notify: NOTIFY_STUB, fleetWorktreesDefault: true })
+  return delay({ terminalWorkdir: '', repoDirs: [], notify: NOTIFY_STUB, fleetWorktreesDefault: true, gitPushProtection: 'protected' as const, gitProtectedPatterns: 'main, master, develop, dev' })
+}
+export function saveGitSettings() {
+  return delay({ terminalWorkdir: '', repoDirs: [], notify: NOTIFY_STUB, fleetWorktreesDefault: true, gitPushProtection: 'protected' as const, gitProtectedPatterns: 'main, master, develop, dev' })
+}
+export function repoPushProtection() {
+  return delay({ mode: 'protected' as const, patterns: 'main, master, develop, dev', overridden: false, globalMode: 'protected' as const })
+}
+export function setRepoPushProtection() {
+  return delay({ mode: 'protected' as const, patterns: 'main, master, develop, dev', overridden: true, globalMode: 'protected' as const })
 }

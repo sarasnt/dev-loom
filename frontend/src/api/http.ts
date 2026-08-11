@@ -197,3 +197,9 @@ export const applyRun = (id: string) => post<import('../types').AgentRun>(`/flee
 export const discardRun = (id: string) => post<import('../types').AgentRun>(`/fleet/runs/${id}/discard`, {})
 export const saveFleetSettings = (worktreesDefault: boolean) =>
   put<import('../types').SettingsData>('/settings/fleet', { worktreesDefault })
+export const saveGitSettings = (pushProtection: string, protectedPatterns: string) =>
+  put<import('../types').SettingsData>('/settings/git', { pushProtection, protectedPatterns })
+export const repoPushProtection = (id: string) =>
+  get<import('../types').PushProtection>(`/repos/${id}/push-protection`)
+export const setRepoPushProtection = (id: string, mode: string, patterns: string) =>
+  put<import('../types').PushProtection>(`/repos/${id}/push-protection`, { mode, patterns })

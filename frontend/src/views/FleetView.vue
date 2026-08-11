@@ -1,14 +1,19 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { storeToRefs } from 'pinia'
 import { useDashboardStore } from '../stores/dashboard'
 import { fleetRuns, launchRun, cancelRun, fetchRepos, fleetRunChanges, rerunRun, deleteRun, createBrainstormSession, fetchSettings, applyRun, discardRun } from '../api'
 import type { AgentRun, RepoView, RepoChanges, RunLaunch } from '../types'
 
 const router = useRouter()
 const store = useDashboardStore()
-const { models } = storeToRefs(store)
+// Background runs are `claude -p` — only Claude models are valid (a local/OpenAI model errors).
+const claudeModels: { value: string | undefined; label: string }[] = [
+  { value: undefined, label: 'Claude (default)' },
+  { value: 'sonnet', label: 'Claude Sonnet' },
+  { value: 'opus', label: 'Claude Opus' },
+  { value: 'haiku', label: 'Claude Haiku' },
+]
 
 const runs = ref<AgentRun[]>([])
 const repos = ref<RepoView[]>([])
@@ -263,10 +268,10 @@ async function openInTerminal(r: AgentRun) {
         </label>
         <label class="fld"><span class="flab mono">Model</span>
           <select v-model="form.model" class="in mono">
-            <option :value="undefined">Claude (default)</option>
-            <option v-for="m in models" :key="m" :value="m">{{ m }}</option>
+            <option v-for="m in claudeModels" :key="m.label" :value="m.value">{{ m.label }}</option>
           </select>
         </label>
+        <p class="hint2 mono">Background runs are headless Claude Code — only Claude models apply.</p>
         <div class="fld"><span class="flab mono">Permission</span>
           <div class="perm">
             <label class="pr"><input type="radio" value="readonly" v-model="form.permission" /> Read-only<span class="mono">proposes a plan; writes nothing</span></label>
@@ -335,6 +340,7 @@ button.run:hover { border-color: var(--warp); }
 .pr .mono { font-size: 11px; color: var(--faint-text); }
 .warn { font-size: 11px; color: var(--warp-hi); margin: 0 0 8px; }
 .hint { color: var(--faint-text); }
+.hint2 { font-size: 11px; color: var(--faint-text); margin: -6px 0 10px; }
 .wtnote { font-size: 11.5px; color: var(--warp-hi); margin: 0 0 8px; }
 .wtnote b { color: var(--ink); }
 .bf { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }

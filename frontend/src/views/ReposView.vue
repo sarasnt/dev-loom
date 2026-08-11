@@ -2,7 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { computed } from 'vue'
-import type { RepoView, BrowseResult, RepoChanges, SourceStatus, ConflictStatus, WorktreeInfo } from '../types'
+import type { RepoView, BrowseResult, RepoChanges, SourceStatus, ConflictStatus, WorktreeInfo, PushProtection } from '../types'
 import {
   fetchRepos,
   scanRepoFolder,
@@ -24,6 +24,8 @@ import {
   repoSource,
   setRepoSource,
   repoWorktrees,
+  repoPushProtection,
+  setRepoPushProtection,
   repoFetch,
   repoConflict,
   createBrainstormSession,
@@ -84,7 +86,27 @@ function toggleHealth(r: RepoView) {
   if (openHealth.value === r.id) {
     if (sourceStatus.value[r.id] === undefined) loadSource(r)
     if (conflict.value[r.id] === undefined) loadConflict(r)
+    if (pushProt.value[r.id] === undefined) loadPushProt(r)
   }
+}
+// Per-repo push-protection override (falls back to the global default).
+const pushProt = ref<Record<string, PushProtection | null>>({})
+const editProt = ref<string | null>(null)
+const protMode = ref<Record<string, string>>({})
+const protPatterns = ref<Record<string, string>>({})
+async function loadPushProt(r: RepoView) {
+  try { pushProt.value[r.id] = await repoPushProtection(r.id) } catch { pushProt.value[r.id] = null }
+}
+function openProtEdit(r: RepoView) {
+  const p = pushProt.value[r.id]
+  editProt.value = r.id
+  protMode.value[r.id] = p?.overridden ? p.mode : 'inherit'
+  protPatterns.value[r.id] = p?.patterns ?? 'main, master, develop, dev'
+}
+async function saveProt(r: RepoView) {
+  try {
+    pushProt.value[r.id] = await setRepoPushProtection(r.id, protMode.value[r.id] ?? 'inherit', protPatterns.value[r.id] ?? '')
+  } finally { editProt.value = null }
 }
 async function loadConflict(r: RepoView) {
   conflictLoading.value[r.id] = true
@@ -629,6 +651,29 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
             <button class="hedit mono" :disabled="!agentUp || refreshing[r.id]" @click="refreshRepo(r)">
               {{ refreshing[r.id] ? 'fetching…' : 'refresh' }}
             </button>
+          </div>
+          <div class="hrow">
+            <span class="hk mono">Push guard</span>
+            <template v-if="pushProt[r.id]">
+              <span class="hv" :class="pushProt[r.id]!.mode === 'off' ? 'ok' : 'info'">
+                {{ pushProt[r.id]!.mode === 'off' ? 'Pushes allowed' : pushProt[r.id]!.mode === 'all' ? 'All pushes blocked' : 'Protected: ' + pushProt[r.id]!.patterns }}
+              </span>
+              <span class="mono hdet">{{ pushProt[r.id]!.overridden ? 'repo override' : 'global default' }}</span>
+              <button v-if="editProt !== r.id" class="hedit mono" @click="openProtEdit(r)">change</button>
+            </template>
+            <span v-else class="hv info">…</span>
+          </div>
+          <div v-if="editProt === r.id" class="hrow srcedit">
+            <span class="hk mono"></span>
+            <select v-model="protMode[r.id]" class="srcin mono" style="flex:0 0 auto">
+              <option value="inherit">Inherit global ({{ pushProt[r.id]?.globalMode }})</option>
+              <option value="off">Off — allow all</option>
+              <option value="protected">Protected branches</option>
+              <option value="all">Block all</option>
+            </select>
+            <input v-if="protMode[r.id] === 'protected'" v-model="protPatterns[r.id]" class="srcin mono" placeholder="main, master, develop, dev" @keyup.enter="saveProt(r)" />
+            <button class="hedit mono" @click="saveProt(r)">save</button>
+            <button class="hedit mono ghost" @click="editProt = null">cancel</button>
           </div>
         </div>
 

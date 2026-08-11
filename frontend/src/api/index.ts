@@ -82,3 +82,6 @@ export const deleteRun = api.deleteRun
 export const applyRun = api.applyRun
 export const discardRun = api.discardRun
 export const saveFleetSettings = api.saveFleetSettings
+export const saveGitSettings = api.saveGitSettings
+export const repoPushProtection = api.repoPushProtection
+export const setRepoPushProtection = api.setRepoPushProtection

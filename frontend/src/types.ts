@@ -343,6 +343,16 @@ export interface SettingsData {
   repoDirs: string[] // parent directories scanned by "Sync" on the Repos page
   notify: NotifySettings // desktop-notification preferences
   fleetWorktreesDefault: boolean // default: isolate edit runs in a git worktree
+  gitPushProtection: 'off' | 'all' | 'protected' // global push guardrail
+  gitProtectedPatterns: string // comma/newline list of protected-branch regexes
+}
+
+// Effective push protection for one repo (its override, or the global default).
+export interface PushProtection {
+  mode: 'off' | 'all' | 'protected'
+  patterns: string
+  overridden: boolean
+  globalMode: 'off' | 'all' | 'protected'
 }
 
 // ---- local model management (Ollama) ----

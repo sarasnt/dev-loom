@@ -3,7 +3,7 @@ import { onMounted, onBeforeUnmount, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import type { BrowseResult } from '../types'
 import type { InstalledModel } from '../types'
-import { fetchSettings, saveTerminalWorkdir, browseFs, fetchInstalledModels, removeModel, addRepoDir, removeRepoDir, saveNotificationSettings, testNotification } from '../api'
+import { fetchSettings, saveTerminalWorkdir, browseFs, fetchInstalledModels, removeModel, addRepoDir, removeRepoDir, saveNotificationSettings, testNotification, saveGitSettings } from '../api'
 import type { NotifySettings } from '../types'
 import { useDashboardStore } from '../stores/dashboard'
 import SettingsTabs from '../components/SettingsTabs.vue'
@@ -94,16 +94,32 @@ const notify = ref<NotifySettings>({
 const notifyFlash = ref('')
 const testing = ref(false)
 
+// Push protection guardrail (global default; overridable per repo on the Repos page).
+const pushMode = ref<'off' | 'all' | 'protected'>('protected')
+const protectedPatterns = ref('main, master, develop, dev')
+const gitFlash = ref('')
+
 onMounted(async () => {
   try {
     const s = await fetchSettings()
     workdir.value = s.terminalWorkdir
     repoDirs.value = s.repoDirs ?? []
     if (s.notify) notify.value = s.notify
+    pushMode.value = s.gitPushProtection ?? 'protected'
+    protectedPatterns.value = s.gitProtectedPatterns ?? 'main, master, develop, dev'
   } catch { /* ignore */ }
   loadInstalled()
   loading.value = false
 })
+
+async function saveGit() {
+  gitFlash.value = ''
+  try {
+    const s = await saveGitSettings(pushMode.value, protectedPatterns.value)
+    pushMode.value = s.gitPushProtection; protectedPatterns.value = s.gitProtectedPatterns
+    gitFlash.value = 'Saved.'
+  } catch { gitFlash.value = 'Could not save.' }
+}
 
 async function saveNotify() {
   notifyFlash.value = ''
@@ -257,6 +273,25 @@ function useFolder() {
         <div class="row">
           <button class="btn" :disabled="testing" @click="runTest">{{ testing ? 'Sending…' : 'Test notification' }}</button>
           <span class="idnote">Pops a desktop toast via the host agent (must be running).</span>
+        </div>
+      </section>
+
+      <section class="block">
+        <div class="lab mono">Push protection</div>
+        <p class="prose">
+          Guards every push DevLoom makes (and agent runs). This is the global default — you can
+          override it per repository on the Repositories page.
+        </p>
+        <div v-if="gitFlash" class="flash mono">{{ gitFlash }}</div>
+        <div class="nchecks">
+          <label class="nrow"><input type="radio" value="off" v-model="pushMode" @change="saveGit" /><span>Off<span class="mono hint"> — allow all pushes</span></span></label>
+          <label class="nrow"><input type="radio" value="protected" v-model="pushMode" @change="saveGit" /><span>Protected branches<span class="mono hint"> — block pushes to matching branches</span></span></label>
+          <label class="nrow"><input type="radio" value="all" v-model="pushMode" @change="saveGit" /><span>Block all<span class="mono hint"> — no pushes from DevLoom</span></span></label>
+        </div>
+        <div v-if="pushMode === 'protected'" class="row">
+          <span class="mono fld">Protected (regex, comma-sep)</span>
+          <input v-model="protectedPatterns" class="in mono" placeholder="main, master, develop, dev" @keydown.enter="saveGit" />
+          <button class="btn pri" @click="saveGit">Save</button>
         </div>
       </section>
 

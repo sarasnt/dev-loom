@@ -27,6 +27,9 @@ public class AppConfigService {
     public static final String NOTIFY_PR_WAIT_HOURS = "notify.urgent.prWaitHours";
     /** Fleet: default to running edit runs in an isolated git worktree. */
     public static final String FLEET_WORKTREES_DEFAULT = "fleet.worktreesDefault";
+    /** Push protection: "off" | "all" | "protected"; and the protected-branch patterns (regex list). */
+    public static final String GIT_PUSH_PROTECTION = "git.pushProtection";
+    public static final String GIT_PROTECTED_PATTERNS = "git.protectedPatterns";
 
     private final AppConfigRepository repo;
 

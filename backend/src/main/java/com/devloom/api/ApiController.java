@@ -292,6 +292,16 @@ public class ApiController {
         return repoService.abort(id);
     }
 
+    @GetMapping("/repos/{id}/push-protection")
+    public Map<String, Object> repoPushProtection(@PathVariable String id) {
+        return repoService.pushProtection(id);
+    }
+
+    @org.springframework.web.bind.annotation.PutMapping("/repos/{id}/push-protection")
+    public Map<String, Object> repoSetPushProtection(@PathVariable String id, @RequestBody Dto.PushProtectionSet body) {
+        return repoService.setPushProtection(id, body == null ? null : body.mode(), body == null ? null : body.patterns());
+    }
+
     @PostMapping("/repos/{id}/pr")
     public Map<String, Object> repoPr(@PathVariable String id) {
         return repoService.pr(id);
