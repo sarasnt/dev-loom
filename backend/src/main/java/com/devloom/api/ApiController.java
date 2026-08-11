@@ -50,6 +50,7 @@ public class ApiController {
     private final OnboardingService onboardingService;
     private final SourcesService sourcesService;
     private final RepoService repoService;
+    private final com.devloom.briefing.BriefingService briefingService;
     private final AuditService audit;
 
     public ApiController(TodayService todayService, WorkModelService workModel,
@@ -59,7 +60,8 @@ public class ApiController {
                          IntegrationsService integrationsService, BrainstormService brainstormService,
                          ProvidersService providersService, PrivacyService privacyService,
                          OnboardingService onboardingService, SourcesService sourcesService,
-                         RepoService repoService, AuditService audit) {
+                         RepoService repoService, com.devloom.briefing.BriefingService briefingService,
+                         AuditService audit) {
         this.todayService = todayService;
         this.workModel = workModel;
         this.syncService = syncService;
@@ -74,6 +76,7 @@ public class ApiController {
         this.onboardingService = onboardingService;
         this.sourcesService = sourcesService;
         this.repoService = repoService;
+        this.briefingService = briefingService;
         this.audit = audit;
     }
 
@@ -116,6 +119,20 @@ public class ApiController {
     @PostMapping("/today/snooze/{id}")
     public Dto.Today snooze(@PathVariable String id) {
         todayService.snooze(id);
+        return todayService.today();
+    }
+
+    /** Toggle "handled" on a Today item (persists; drops it from the Briefing). {@code id} = ext id. */
+    @PostMapping("/today/{id}/handled")
+    public Dto.Today handled(@PathVariable String id) {
+        briefingService.toggleHandled(id);
+        return todayService.today();
+    }
+
+    /** Toggle membership in "Today's plan". {@code id} = ext id. */
+    @PostMapping("/today/{id}/plan")
+    public Dto.Today plan(@PathVariable String id) {
+        briefingService.togglePlan(id);
         return todayService.today();
     }
 

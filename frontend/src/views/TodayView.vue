@@ -1,11 +1,25 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { onMounted, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useDashboardStore } from '../stores/dashboard'
 import WarpList from '../components/WarpList.vue'
 
 const store = useDashboardStore()
 const { today, loading, error } = storeToRefs(store)
+
+// Today has two lenses: Briefing (the morning framing) and Triage (the full ranked list). The
+// last explicit choice wins; otherwise default to Briefing in the morning, Triage later.
+const MODE_KEY = 'devloom.todayMode'
+function defaultMode(): 'briefing' | 'triage' {
+  const saved = localStorage.getItem(MODE_KEY)
+  if (saved === 'briefing' || saved === 'triage') return saved
+  return new Date().getHours() < 12 ? 'briefing' : 'triage'
+}
+const mode = ref<'briefing' | 'triage'>(defaultMode())
+function setMode(m: 'briefing' | 'triage') {
+  mode.value = m
+  localStorage.setItem(MODE_KEY, m)
+}
 
 onMounted(() => store.load())
 </script>
@@ -33,6 +47,10 @@ onMounted(() => store.load())
     <template v-else-if="today">
       <div class="head">
         <h1>Today</h1>
+        <div class="modes" role="tablist" aria-label="Today view">
+          <button class="seg" :class="{ on: mode === 'briefing' }" role="tab" :aria-selected="mode === 'briefing'" @click="setMode('briefing')">Briefing</button>
+          <button class="seg" :class="{ on: mode === 'triage' }" role="tab" :aria-selected="mode === 'triage'" @click="setMode('triage')">Triage</button>
+        </div>
         <span class="when mono">{{ today.now }}</span>
       </div>
 
@@ -42,17 +60,49 @@ onMounted(() => store.load())
         <span class="go">{{ today.changed.since }} ›</span>
       </section>
 
-      <div class="sectlab">
-        <span class="eyebrow">Next</span>
-        <span class="r">sorted: priority ▾</span>
-      </div>
+      <!-- TRIAGE: the full ranked list -->
+      <template v-if="mode === 'triage'">
+        <div class="sectlab">
+          <span class="eyebrow">Next</span>
+          <span class="r">sorted: priority ▾</span>
+        </div>
 
-      <WarpList :items="today.next" />
+        <WarpList :items="today.next" />
 
-      <div class="more">
-        <span>▸ Everything ({{ today.everythingCount }})</span>
-        <span>▸ Snoozed ({{ today.snoozedCount }})</span>
-      </div>
+        <div class="more">
+          <span>▸ Everything ({{ today.everythingCount }})</span>
+          <span>▸ Snoozed ({{ today.snoozedCount }})</span>
+        </div>
+      </template>
+
+      <!-- BRIEFING: the morning framing — needs-you, since-yesterday, today's plan -->
+      <template v-else>
+        <template v-if="today.briefing.needsYou.length">
+          <div class="sectlab"><span class="eyebrow">Needs you now</span></div>
+          <WarpList :items="today.briefing.needsYou" />
+        </template>
+
+        <div class="sectlab"><span class="eyebrow">Since yesterday</span></div>
+        <template v-if="today.briefing.newItems.length">
+          <div class="subhead mono">New ({{ today.briefing.newItems.length }})</div>
+          <WarpList :items="today.briefing.newItems" />
+        </template>
+        <template v-if="today.briefing.resolved.length">
+          <div class="subhead mono">Resolved ({{ today.briefing.resolved.length }})</div>
+          <WarpList :items="today.briefing.resolved" />
+        </template>
+        <div v-if="!today.briefing.newItems.length && !today.briefing.resolved.length" class="subhead mono quiet">
+          nothing new since your last briefing
+        </div>
+
+        <template v-if="today.briefing.plan.length">
+          <div class="sectlab"><span class="eyebrow">Today's plan</span></div>
+          <WarpList :items="today.briefing.plan" />
+        </template>
+
+        <div v-if="!today.briefing.needsYou.length && !today.briefing.newItems.length && !today.briefing.plan.length"
+             class="mono emptybrief">Nothing needs you yet — enjoy the quiet. Add items to your plan from Triage.</div>
+      </template>
     </template>
   </main>
 </template>
@@ -73,6 +123,16 @@ onMounted(() => store.load())
 
 .sectlab { display: flex; align-items: center; gap: 10px; margin: 4px 0 12px; }
 .sectlab .r { margin-left: auto; font-size: 12px; color: var(--faint-text); }
+
+/* Briefing | Triage segmented control */
+.modes { display: inline-flex; gap: 2px; margin-left: 16px; padding: 2px; border: 1px solid var(--line); border-radius: 8px; }
+.modes .seg { font-size: 12px; padding: 4px 12px; border: 0; border-radius: 6px; background: transparent; color: var(--faint-text); cursor: pointer; }
+.modes .seg:hover { color: var(--ink); }
+.modes .seg.on { background: var(--warp-weft); color: var(--warp-hi); }
+.head { align-items: center; }
+.subhead { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint-text); margin: 6px 0 8px; }
+.subhead.quiet { color: var(--faint-text); text-transform: none; letter-spacing: 0; font-size: 12px; }
+.emptybrief { color: var(--faint-text); font-size: 13px; padding: 18px 0; }
 
 .more { display: flex; gap: 20px; margin-top: 16px; color: var(--faint-text); font-size: 13px; }
 .more span { cursor: pointer; }

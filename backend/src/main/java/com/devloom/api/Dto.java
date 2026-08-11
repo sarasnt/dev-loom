@@ -25,11 +25,16 @@ public final class Dto {
             String id, int rank, String type, String title, String source, String why,
             boolean isHypothesis, List<SignalChip> chips, Boolean lead,
             List<SignalComponent> signals, List<EvidenceRef> evidence, Double score,
-            List<String> actions, String url) {}
+            List<String> actions, String url, boolean handled, boolean planned) {}
+    // Today "Briefing" mode (spec §5): since-yesterday diff + the urgent set + today's plan.
+    public record Briefing(
+            List<Recommendation> newItems, List<Recommendation> resolved,
+            List<Recommendation> waiting, List<Recommendation> needsYou,
+            List<Recommendation> plan) {}
     public record Today(
             String workspace, String user, String now, Changed changed, Sync sync,
             Model model, Boundary boundary, List<Recommendation> next,
-            int everythingCount, int snoozedCount) {}
+            int everythingCount, int snoozedCount, Briefing briefing) {}
 
     // ---- Work ----
     public record WorkRow(

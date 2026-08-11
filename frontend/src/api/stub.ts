@@ -32,6 +32,7 @@ const TODAY: TodayData = {
   everythingCount: 0,
   snoozedCount: 0,
   next: [],
+  briefing: { newItems: [], resolved: [], waiting: [], needsYou: [], plan: [] },
 }
 
 // Generic latency wrapper so every screen exercises its loading state.
@@ -43,6 +44,12 @@ export function fetchToday(): Promise<TodayData> {
   return delay(TODAY, 300)
 }
 export function snoozeToday(_id: string): Promise<TodayData> {
+  return delay(TODAY, 150)
+}
+export function toggleHandled(_id: string): Promise<TodayData> {
+  return delay(TODAY, 150)
+}
+export function togglePlan(_id: string): Promise<TodayData> {
   return delay(TODAY, 150)
 }
 

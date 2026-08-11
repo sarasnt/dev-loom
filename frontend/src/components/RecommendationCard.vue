@@ -50,6 +50,9 @@ function runAction(item: Recommendation, action: string) {
   else if (action === 'Open') openItem(item)
   else runPrimary(item)
 }
+// Briefing memory: mark handled / toggle into today's plan.
+function toggleHandled(item: Recommendation) { store.handleItem(item.id) }
+function togglePlan(item: Recommendation) { store.planItem(item.id) }
 </script>
 
 <template>
@@ -106,6 +109,9 @@ function runAction(item: Recommendation, action: string) {
         </div>
       </div>
       <button v-for="a in restActions(item.actions)" :key="a" class="btn ghost" @click="runAction(item, a)">{{ a }}</button>
+      <span class="spacer"></span>
+      <button class="btn ghost bplan" :class="{ on: item.planned }" @click="togglePlan(item)">{{ item.planned ? '− Plan' : '+ Plan' }}</button>
+      <button class="btn ghost bhandled" :class="{ on: item.handled }" @click="toggleHandled(item)">{{ item.handled ? '↩ Unhandle' : '✓ Handled' }}</button>
     </div>
   </article>
 </template>
@@ -167,6 +173,9 @@ function runAction(item: Recommendation, action: string) {
 .btn.pri:hover { background: var(--warp-hi); }
 .btn.ghost { background: transparent; color: var(--dim); border-color: transparent; }
 .btn.ghost:hover { color: var(--ink); }
+.acts .spacer { margin-left: auto; }
+.btn.bplan.on { color: var(--warp-hi); }
+.btn.bhandled.on { color: var(--healthy); }
 .mini {
   display: flex; align-items: center; gap: 10px;
   padding: 10px 14px; border: 1px dashed var(--line); border-radius: var(--r-card);

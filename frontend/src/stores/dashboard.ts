@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import type { TodayData, ProvidersData } from '../types'
-import { fetchToday, fetchWork, fetchProviders, snoozeToday } from '../api'
+import { fetchToday, fetchWork, fetchProviders, snoozeToday, toggleHandled, togglePlan } from '../api'
 
 // Local models + remote models from any keyed provider (the router maps names → adapter).
 function unionModels(p: ProvidersData): string[] {
@@ -51,6 +51,13 @@ export const useDashboardStore = defineStore('dashboard', () => {
   // Snooze a Today card and refresh the list from the server's new state.
   async function snoozeItem(id: string) {
     try { today.value = await snoozeToday(id) } catch { /* leave list as-is */ }
+  }
+  // Mark an item handled / toggle it in today's plan; refresh Today from the server's new state.
+  async function handleItem(id: string) {
+    try { today.value = await toggleHandled(id) } catch { /* leave as-is */ }
+  }
+  async function planItem(id: string) {
+    try { today.value = await togglePlan(id) } catch { /* leave as-is */ }
   }
 
   // Brainstorm boundary-crossing preference (persisted; also editable in Settings > General).
@@ -128,7 +135,7 @@ export const useDashboardStore = defineStore('dashboard', () => {
 
   return {
     today, loading, error, buildBadge, models, agentModels, defaultModel, activeModel,
-    screenModels, modelFor, setModelFor, reflectModel, snoozeItem,
+    screenModels, modelFor, setModelFor, reflectModel, snoozeItem, handleItem, planItem,
     brainstormSwitch, setBrainstormSwitch, load, ensureLoaded,
     pendingSeed, setPendingSeed, takePendingSeed,
   }

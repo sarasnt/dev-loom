@@ -37,6 +37,17 @@ export interface Recommendation {
   score?: number
   actions: string[]
   url?: string | null // open the item in its source (GitHub/Jira/Notion)
+  handled: boolean // you dealt with it (persists; drops from the Briefing)
+  planned: boolean // in today's plan
+}
+
+// Today "Briefing" mode (spec §5): since-yesterday diff + the urgent set + today's plan.
+export interface Briefing {
+  newItems: Recommendation[]
+  resolved: Recommendation[]
+  waiting: Recommendation[]
+  needsYou: Recommendation[]
+  plan: Recommendation[]
 }
 
 export interface SyncSource {
@@ -61,6 +72,7 @@ export interface TodayData {
   next: Recommendation[]
   everythingCount: number
   snoozedCount: number
+  briefing: Briefing
 }
 
 // ---- Work browser ----

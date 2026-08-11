@@ -74,6 +74,8 @@ async function put<T>(path: string, body: unknown): Promise<T> {
 
 export const fetchToday = () => get<TodayData>('/today')
 export const snoozeToday = (id: string) => post<TodayData>(`/today/snooze/${encodeURIComponent(id)}`, {})
+export const toggleHandled = (id: string) => post<TodayData>(`/today/${encodeURIComponent(id)}/handled`, {})
+export const togglePlan = (id: string) => post<TodayData>(`/today/${encodeURIComponent(id)}/plan`, {})
 export const fetchWork = () => get<WorkRow[]>('/work')
 export const fetchBuildFailure = (id: string, model?: string) =>
   get<BuildFailure>(`/builds/${id}${model ? `?model=${encodeURIComponent(model)}` : ''}`)

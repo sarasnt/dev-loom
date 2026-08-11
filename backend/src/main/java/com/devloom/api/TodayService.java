@@ -36,12 +36,14 @@ public class TodayService {
     private final WorkItemRepository workItems;
     private final ProvidersService providers;
     private final com.devloom.common.AppConfigService appConfig;
+    private final com.devloom.briefing.BriefingService briefing;
     private final String workspace;
     private final String user;
 
     public TodayService(PriorityEngine priority, ChangesService changes,
                         WorkItemRepository workItems, ProvidersService providers,
                         com.devloom.common.AppConfigService appConfig,
+                        com.devloom.briefing.BriefingService briefing,
                         @Value("${devloom.workspace:My workspace}") String workspace,
                         @Value("${devloom.user:you}") String user) {
         this.priority = priority;
@@ -49,6 +51,7 @@ public class TodayService {
         this.workItems = workItems;
         this.providers = providers;
         this.appConfig = appConfig;
+        this.briefing = briefing;
         this.workspace = workspace;
         this.user = user;
     }
@@ -93,7 +96,7 @@ public class TodayService {
                 workspace, user, NOW.format(Instant.now()),
                 changed, syncState(all), model(),
                 new Dto.Boundary("local", "On your machine"),
-                next, all.size(), snoozedCount);
+                next, all.size(), snoozedCount, briefing.build(this::recFor));
     }
 
     // ---- signals ---------------------------------------------------------------
@@ -136,15 +139,24 @@ public class TodayService {
     private Dto.Recommendation toRecommendation(PriorityEngine.Scored<Candidate> s) {
         WorkItemEntity w = s.item().item();
         boolean lead = s.rank() == 1;
-        String type = w.getType();
+        return rec(w, s.rank(), lead ? Boolean.TRUE : null,
+                lead ? toSignalDtos(s.item().signals()) : null, s.score());
+    }
 
-        Dto.Recommendation base = new Dto.Recommendation(
-                w.getExtId(), s.rank(), type, w.getTitle(), w.getSource(),
-                whyFor(w), false, chipsFor(w),
-                lead ? Boolean.TRUE : null,
-                lead ? toSignalDtos(s.item().signals()) : null,
-                evidenceFor(w), s.score(), actionsFor(type), w.getUrl());
-        return base;
+    /** A non-ranked recommendation for the briefing (rank 0, no lead/signals/score). */
+    private Dto.Recommendation recFor(WorkItemEntity w) {
+        return rec(w, 0, null, null, null);
+    }
+
+    /** Single construction point for a Recommendation, shared by the ranked list and the briefing. */
+    private Dto.Recommendation rec(WorkItemEntity w, int rank, Boolean lead,
+                                   List<Dto.SignalComponent> signals, Double score) {
+        String type = w.getType();
+        return new Dto.Recommendation(
+                w.getExtId(), rank, type, w.getTitle(), w.getSource(),
+                whyFor(w), false, chipsFor(w), lead, signals,
+                evidenceFor(w), score, actionsFor(type), w.getUrl(),
+                briefing.isHandled(w.getExtId()), briefing.isPlanned(w.getExtId()));
     }
 
     /** Honest, deterministic rationale — no invented detail, no model reasoning. */
