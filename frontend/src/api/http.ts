@@ -85,6 +85,8 @@ export const fetchProviders = () => get<ProvidersData>('/providers')
 export const fetchMonitoring = () => get<MonitoringData>('/monitoring/models')
 export const openBrainstormTerminal = (id: string) =>
   post<TerminalInfo>(`/brainstorm/sessions/${id}/terminal`, {})
+export const fetchInstalledModels = () => get<import('../types').InstalledModel[]>('/models/installed')
+export const removeModel = (name: string) => del<{ removed: boolean }>(`/models/${encodeURIComponent(name)}`)
 export const fetchSettings = () => get<SettingsData>('/settings')
 export const saveTerminalWorkdir = (path: string) =>
   put<SettingsData>('/settings/terminal-workdir', { path })

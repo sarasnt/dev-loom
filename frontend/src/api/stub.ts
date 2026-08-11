@@ -126,6 +126,12 @@ export function fetchProviders(): Promise<ProvidersData> {
 export function openBrainstormTerminal(_id: string): Promise<import('../types').TerminalInfo> {
   return delay({ cwd: null, sessionId: 'offline-stub', resume: false })
 }
+export function fetchInstalledModels(): Promise<import('../types').InstalledModel[]> {
+  return delay([] as import('../types').InstalledModel[])
+}
+export function removeModel(_name: string): Promise<{ removed: boolean }> {
+  return delay({ removed: false })
+}
 export function fetchSettings(): Promise<import('../types').SettingsData> {
   return delay({ terminalWorkdir: '' })
 }

@@ -278,6 +278,12 @@ export interface SettingsData {
   terminalWorkdir: string // default working dir for claude-cli terminals (empty = home)
 }
 
+// ---- local model management (Ollama) ----
+export interface InstalledModel {
+  name: string
+  size: number // bytes
+}
+
 // ---- claude-cli embedded terminal ----
 export interface TerminalInfo {
   cwd: string | null // repo dir, or null → agent opens in home

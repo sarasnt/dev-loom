@@ -13,6 +13,8 @@ public class AppConfigService {
     public static final String TERMINAL_WORKDIR = "terminal.workdir";
     /** Snoozed work-item ext ids (hidden from Today), newline-separated. */
     public static final String TODAY_SNOOZED = "today.snoozed";
+    /** User-desired Ollama models (re-pulled on startup so they survive a fresh volume). */
+    public static final String OLLAMA_MODELS = "ollama.models";
 
     private final AppConfigRepository repo;
 
@@ -45,6 +47,27 @@ public class AppConfigService {
     public void unsnooze(String id) {
         java.util.Set<String> s = snoozed();
         if (s.remove(id)) set(TODAY_SNOOZED, s.isEmpty() ? null : String.join("\n", s));
+    }
+
+    /** The user-desired Ollama model set (models they installed via the UI). */
+    public java.util.Set<String> ollamaModels() {
+        return get(OLLAMA_MODELS)
+                .map(v -> new java.util.LinkedHashSet<>(java.util.Arrays.stream(v.split("\n"))
+                        .map(String::trim).filter(s -> !s.isBlank()).toList()))
+                .map(s -> (java.util.Set<String>) s)
+                .orElseGet(java.util.LinkedHashSet::new);
+    }
+
+    public void addOllamaModel(String model) {
+        if (model == null || model.isBlank()) return;
+        java.util.Set<String> s = ollamaModels();
+        s.add(model.trim());
+        set(OLLAMA_MODELS, String.join("\n", s));
+    }
+
+    public void removeOllamaModel(String model) {
+        java.util.Set<String> s = ollamaModels();
+        if (s.remove(model)) set(OLLAMA_MODELS, s.isEmpty() ? null : String.join("\n", s));
     }
 
     @Transactional
