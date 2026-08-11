@@ -270,13 +270,41 @@ public class RepoService {
                 intOf(info.get("staged")), intOf(info.get("unstaged")), intOf(info.get("untracked")),
                 Boolean.TRUE.equals(info.get("hasUpstream")),
                 info.get("upstream") == null ? null : String.valueOf(info.get("upstream")),
-                op == null ? null : String.valueOf(op));
+                op == null ? null : String.valueOf(op),
+                info.get("commonDir") == null ? "" : String.valueOf(info.get("commonDir")),
+                Boolean.TRUE.equals(info.get("isLinkedWorktree")));
     }
 
     private Dto.RepoView stored(GitRepoEntity r) {
         return new Dto.RepoView(String.valueOf(r.getId()), r.getPath(), r.getName(),
                 r.getHost(), "", "", "", false, 0, 0, "", "", false, r.isLocalOnly(),
-                0, 0, 0, false, null, null);
+                0, 0, 0, false, null, null, "", false);
+    }
+
+    /** All worktrees of a repo, flagged with whether DevLoom already tracks each one. */
+    public List<Dto.WorktreeInfo> worktrees(String id) {
+        String path = pathOf(id);
+        Map<String, Object> res = agent.worktrees(path);
+        List<GitRepoEntity> all = repos.findAll();
+        List<Dto.WorktreeInfo> out = new ArrayList<>();
+        Object list = res.get("worktrees");
+        if (list instanceof List<?> items) {
+            for (Object o : items) {
+                if (!(o instanceof Map)) continue;
+                @SuppressWarnings("unchecked")
+                Map<String, Object> w = (Map<String, Object>) o;
+                String wp = str(w, "path");
+                GitRepoEntity tracked = all.stream()
+                        .filter(r -> r.getPath().equalsIgnoreCase(wp)).findFirst().orElse(null);
+                out.add(new Dto.WorktreeInfo(wp,
+                        w.get("branch") == null ? null : String.valueOf(w.get("branch")),
+                        w.get("head") == null ? null : String.valueOf(w.get("head")),
+                        Boolean.TRUE.equals(w.get("bare")), Boolean.TRUE.equals(w.get("detached")),
+                        Boolean.TRUE.equals(w.get("locked")), tracked != null,
+                        tracked == null ? null : String.valueOf(tracked.getId())));
+            }
+        }
+        return out;
     }
 
     private String pathOf(String id) {

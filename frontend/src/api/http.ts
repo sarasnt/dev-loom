@@ -174,6 +174,8 @@ export const repoCheckout = (id: string, branch: string, create: boolean) =>
   post<{ ok: boolean; branch: string; output: string }>(`/repos/${id}/checkout`, { branch, create })
 export const repoSource = (id: string, branch: string) =>
   get<import('../types').SourceStatus>(`/repos/${id}/source?branch=${encodeURIComponent(branch)}`)
+export const repoWorktrees = (id: string) =>
+  get<import('../types').WorktreeInfo[]>(`/repos/${id}/worktrees`)
 export const setRepoSource = (id: string, branch: string, source: string | null) =>
   put<import('../types').SourceStatus>(`/repos/${id}/source`, { branch, source })
 export const repoFetch = (id: string) =>

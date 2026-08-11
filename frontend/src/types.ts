@@ -195,6 +195,20 @@ export interface RepoView {
   hasUpstream: boolean
   upstream: string | null // e.g. "origin/feature/login", or null if no tracking
   operation: string | null // 'merge' | 'rebase' | 'cherry-pick' | 'revert' | null
+  commonDir: string // shared git dir — worktrees of one repo share this
+  isLinkedWorktree: boolean // true = a linked worktree (not the main checkout)
+}
+
+// A git worktree of a repo (repos spec §9).
+export interface WorktreeInfo {
+  path: string
+  branch: string | null
+  head: string | null
+  bare: boolean
+  detached: boolean
+  locked: boolean
+  tracked: boolean // DevLoom already tracks this worktree dir as its own repo
+  repoId: string | null
 }
 
 // Where the current branch forks from + how far HEAD has drifted (repos spec §6/§7.3).

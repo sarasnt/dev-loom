@@ -189,6 +189,11 @@ public class HostAgentClient {
         return post("/repos/source", Map.of("path", path, "source", source == null ? "" : source));
     }
 
+    /** All worktrees of a repo (path, branch, HEAD, flags). */
+    public Map<String, Object> worktrees(String path) {
+        return post("/repos/worktrees", Map.of("path", path));
+    }
+
     /** Fetch remote-tracking refs (updates refs/remotes only — no worktree changes). */
     public Map<String, Object> fetch(String path) {
         return post("/repos/fetch", Map.of("path", path));

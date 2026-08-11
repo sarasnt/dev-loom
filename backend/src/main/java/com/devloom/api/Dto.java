@@ -108,7 +108,12 @@ public final class Dto {
             String remote, boolean dirty, int ahead, int behind, String userName, String userEmail,
             boolean live, boolean localOnly,
             int staged, int unstaged, int untracked, boolean hasUpstream, String upstream,
-            String operation) {}
+            String operation, String commonDir, boolean isLinkedWorktree) {}
+    // A git worktree of a repo (repos spec §9). `tracked`/`repoId` = whether DevLoom already
+    // tracks this worktree dir as its own repo.
+    public record WorktreeInfo(
+            String path, String branch, String head, boolean bare, boolean detached,
+            boolean locked, boolean tracked, String repoId) {}
     public record RepoLocalOnly(boolean value) {}
     public record RepoAdd(String path, String root) {}
     public record RepoIdentity(String name, String email) {}

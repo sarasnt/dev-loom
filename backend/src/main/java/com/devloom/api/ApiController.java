@@ -333,6 +333,11 @@ public class ApiController {
         return repoService.checkout(id, body.branch(), body.create());
     }
 
+    @GetMapping("/repos/{id}/worktrees")
+    public List<Dto.WorktreeInfo> repoWorktrees(@PathVariable String id) {
+        return repoService.worktrees(id);
+    }
+
     @GetMapping("/repos/{id}/source")
     public Dto.SourceStatus repoSource(@PathVariable String id,
                                        @org.springframework.web.bind.annotation.RequestParam(required = false) String branch) {

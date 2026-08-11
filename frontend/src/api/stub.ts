@@ -349,6 +349,9 @@ export function repoSource() {
     hasSource: true, missing: false, sourceAhead: 3, sourceBehind: 0,
   })
 }
+export function repoWorktrees() {
+  return delay([] as import('../types').WorktreeInfo[])
+}
 export function setRepoSource(_id: string, _branch: string, source: string | null) {
   return delay({
     source, defaultBranch: 'main', origin: (source ? 'override' : 'default') as 'override' | 'default',

@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import type { RepoView, BrowseResult, RepoChanges, SourceStatus, ConflictStatus } from '../types'
+import { computed } from 'vue'
+import type { RepoView, BrowseResult, RepoChanges, SourceStatus, ConflictStatus, WorktreeInfo } from '../types'
 import {
   fetchRepos,
   scanRepoFolder,
@@ -22,6 +23,7 @@ import {
   repoCheckout,
   repoSource,
   setRepoSource,
+  repoWorktrees,
   repoFetch,
   repoConflict,
   createBrainstormSession,
@@ -187,6 +189,59 @@ const repos = ref<RepoView[]>([])
 const agentUp = ref(false)
 const loading = ref(true)
 const busy = ref('')
+
+// ---- worktree grouping (repos spec §9) ----
+// Worktrees of one repo share a git common-dir; when grouping is on we show the main checkout as
+// the primary card and nest its linked worktrees under it. Toggle persists locally.
+const groupWorktrees = ref(localStorage.getItem('devloom.groupWorktrees') !== 'off')
+function toggleGrouping() {
+  groupWorktrees.value = !groupWorktrees.value
+  localStorage.setItem('devloom.groupWorktrees', groupWorktrees.value ? 'on' : 'off')
+}
+const norm = (p: string) => (p || '').replace(/\\/g, '/').toLowerCase()
+function sameRepo(a: RepoView, b: RepoView) {
+  return !!a.commonDir && norm(a.commonDir) === norm(b.commonDir)
+}
+// A repo is nested (hidden from the top level) when grouping is on, it's a linked worktree, and a
+// primary (main checkout) for the same repo is present in the list.
+function isNested(r: RepoView) {
+  return groupWorktrees.value && r.isLinkedWorktree
+    && repos.value.some((x) => x.id !== r.id && !x.isLinkedWorktree && sameRepo(x, r))
+}
+const visibleRepos = computed(() => repos.value.filter((r) => !isNested(r)))
+// Tracked linked worktrees of a primary repo.
+function trackedChildren(primary: RepoView): RepoView[] {
+  if (!groupWorktrees.value || primary.isLinkedWorktree) return []
+  return repos.value.filter((r) => r.id !== primary.id && r.isLinkedWorktree && sameRepo(r, primary))
+}
+// Expander state + lazily-loaded on-disk worktree list (includes untracked worktrees).
+const openWt = ref('')
+const wtList = ref<Record<string, WorktreeInfo[]>>({})
+async function toggleWorktrees(r: RepoView) {
+  openWt.value = openWt.value === r.id ? '' : r.id
+  if (openWt.value === r.id && wtList.value[r.id] === undefined) {
+    try { wtList.value[r.id] = await repoWorktrees(r.id) } catch { wtList.value[r.id] = [] }
+  }
+}
+// On-disk worktrees that DevLoom doesn't yet track (offer to add them).
+function untrackedWorktrees(r: RepoView): WorktreeInfo[] {
+  return (wtList.value[r.id] ?? []).filter((w) => !w.tracked && norm(w.path) !== norm(r.path))
+}
+async function addWorktree(path: string) {
+  if (busy.value) return
+  busy.value = 'add'; flash.value = ''
+  try { repos.value = await addRepoPath(path); flash.value = `Added ${path}.` }
+  catch { flash.value = 'Could not add worktree.' }
+  finally { busy.value = '' }
+}
+function worktreeCount(r: RepoView): number {
+  const disk = wtList.value[r.id]
+  if (disk) return disk.filter((w) => norm(w.path) !== norm(r.path)).length
+  return trackedChildren(r).length
+}
+function isRunWorktree(branch: string | null): boolean {
+  return !!branch && branch.startsWith('devloom/run-')
+}
 const flash = ref('')
 const pathInput = ref('')
 const editing = ref<string | null>(null)
@@ -439,7 +494,13 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
   <main class="main">
     <div class="head">
       <h1>Repositories</h1>
-      <span class="when mono">{{ repos.length }} repos · {{ agentUp ? 'agent connected' : 'agent offline' }}</span>
+      <button
+        class="wtoggle mono"
+        :class="{ on: groupWorktrees }"
+        title="Group a repo's worktrees under one card"
+        @click="toggleGrouping"
+      >⑂ Group worktrees {{ groupWorktrees ? 'on' : 'off' }}</button>
+      <span class="when mono">{{ visibleRepos.length }} repos · {{ agentUp ? 'agent connected' : 'agent offline' }}</span>
     </div>
 
     <div v-if="!agentUp" class="warnbar mono">
@@ -465,7 +526,7 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
     <div v-else-if="!repos.length" class="mono empty">No repositories yet — browse or scan a folder.</div>
 
     <template v-else>
-      <section v-for="r in repos" :key="r.id" class="repo">
+      <section v-for="r in visibleRepos" :key="r.id" class="repo">
         <div class="rh">
           <span class="hostpill mono" :class="r.host">{{ r.host }}</span>
           <h3>{{ r.name }}</h3>
@@ -477,7 +538,35 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
           <button class="hmore mono" :aria-expanded="openHealth === r.id" @click="toggleHealth(r)">
             health {{ openHealth === r.id ? '▴' : '▾' }}
           </button>
+          <button
+            v-if="groupWorktrees && !r.isLinkedWorktree && agentUp"
+            class="hmore mono wt"
+            :aria-expanded="openWt === r.id"
+            title="Worktrees of this repository"
+            @click="toggleWorktrees(r)"
+          >⑂ worktrees<span v-if="worktreeCount(r)"> ({{ worktreeCount(r) }})</span> {{ openWt === r.id ? '▴' : '▾' }}</button>
           <span class="path mono">{{ r.path }}</span>
+        </div>
+
+        <!-- nested worktrees (repos spec §9): tracked children + on-disk worktrees to add -->
+        <div v-if="groupWorktrees && openWt === r.id" class="wtbox">
+          <div v-for="c in trackedChildren(r)" :key="c.id" class="wtrow">
+            <span class="wtbranch mono">⎇ {{ c.branch || '—' }}</span>
+            <span v-if="isRunWorktree(c.branch)" class="wtrun mono">run</span>
+            <span class="hchip mono" :class="workTree(c).tone">{{ workTree(c).label }}</span>
+            <span class="hchip mono" :class="upstreamState(c).tone">{{ upstreamState(c).label }}</span>
+            <span class="wtpath mono">{{ c.path }}</span>
+            <span class="wttag mono">tracked</span>
+          </div>
+          <div v-for="w in untrackedWorktrees(r)" :key="w.path" class="wtrow untracked">
+            <span class="wtbranch mono">⎇ {{ w.branch || (w.detached ? 'detached' : '—') }}</span>
+            <span v-if="isRunWorktree(w.branch)" class="wtrun mono">run</span>
+            <span class="wtpath mono">{{ w.path }}</span>
+            <button class="btn tiny" :disabled="busy === 'add'" @click="addWorktree(w.path)">Add</button>
+          </div>
+          <div v-if="!trackedChildren(r).length && !untrackedWorktrees(r).length" class="wtempty mono">
+            no additional worktrees — create one with <b>git worktree add</b>
+          </div>
         </div>
 
         <!-- metadata: Git identity lives here (repo config), NOT in the action row -->
@@ -801,6 +890,21 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
 .hchip.warn { color: var(--chip-fail, #d88); border-color: var(--failed, #a55); }
 .hmore { font-size: 10px; color: var(--dim); background: transparent; border: 1px solid var(--line); border-radius: 5px; padding: 2px 7px; cursor: pointer; }
 .hmore:hover { border-color: var(--warp); color: var(--ink); }
+.hmore.wt { color: var(--warp-hi); }
+/* group-worktrees toggle */
+.wtoggle { margin-left: 16px; font-size: 11px; color: var(--faint-text); background: transparent; border: 1px solid var(--line); border-radius: 6px; padding: 3px 9px; cursor: pointer; }
+.wtoggle:hover { color: var(--ink); border-color: var(--warp); }
+.wtoggle.on { color: var(--warp-hi); border-color: var(--warp); }
+/* nested worktrees */
+.wtbox { margin: 6px 0 2px; padding: 6px 10px; border: 1px solid var(--line); border-left: 2px solid var(--warp); border-radius: 8px; background: var(--bg); }
+.wtrow { display: flex; align-items: center; gap: 10px; padding: 4px 0; font-size: 12px; }
+.wtrow.untracked { opacity: 0.85; }
+.wtbranch { color: var(--warp-hi); }
+.wtrun { font-size: 9px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--on-warp); background: var(--warp); border-radius: 4px; padding: 1px 5px; }
+.wtpath { margin-left: auto; color: var(--faint-text); font-size: 11px; }
+.wttag { font-size: 9px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--faint-text); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; }
+.wtempty { color: var(--faint-text); font-size: 11.5px; padding: 4px 0; }
+.btn.tiny { font-size: 11px; padding: 2px 9px; }
 .metarow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 8px 0 2px; font-size: 11.5px; color: var(--faint-text); }
 .metarow .slug { color: var(--dim); }
 .metarow .idsep { color: var(--line-hi, var(--line)); }
