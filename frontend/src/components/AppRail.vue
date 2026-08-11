@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { SyncSource, Boundary } from '../types'
-import BoundaryToken from './BoundaryToken.vue'
 import { isRemoteModel } from '../utils/models'
 
 const props = defineProps<{
@@ -21,13 +20,7 @@ function onModelChange(e: Event) {
   emit('select-model', (e.target as HTMLSelectElement).value)
 }
 
-// The rail's boundary token reflects the CURRENT screen's model (screens set activeModel).
 const modelRemote = computed(() => isRemoteModel(props.activeModel))
-const modelBoundary = computed<Boundary>(() =>
-  modelRemote.value
-    ? { mode: 'remote', label: 'Leaves your machine' }
-    : { mode: 'local', label: 'On your machine' },
-)
 
 const nav = [
   { to: '/today', label: 'Today', ic: '◉' },
@@ -80,10 +73,6 @@ const nav = [
       <div v-else class="mval">{{ model.name }} <span class="mono tag" :class="{ remote: modelRemote }">· {{ modelRemote ? 'remote' : 'local' }}</span></div>
     </div>
     </template>
-    <div class="meta bmeta">
-      <div class="eyebrow">Boundary</div>
-      <BoundaryToken :boundary="modelBoundary" />
-    </div>
 
     <div class="spring"></div>
     <div class="foot">

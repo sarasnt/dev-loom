@@ -21,6 +21,8 @@ import LoomLoader from '../components/LoomLoader.vue'
 import TerminalPane from '../components/TerminalPane.vue'
 import ModelSelect from '../components/ModelSelect.vue'
 import { renderMarkdown } from '../utils/markdown'
+import { isRemoteModel } from '../utils/models'
+import type { Boundary } from '../types'
 
 const thinkingSteps = [
   'reading your sources…',
@@ -94,6 +96,13 @@ const effectiveModel = computed(() =>
 )
 const isCliMode = computed(() => effectiveModel.value === 'claude-cli')
 
+// Boundary reflects the SELECTED model, shown right by the model selector (single source).
+const modelBoundary = computed<Boundary>(() =>
+  isRemoteModel(effectiveModel.value)
+    ? { mode: 'remote', label: 'Leaves your machine' }
+    : { mode: 'local', label: 'On your machine' },
+)
+
 // Previous claude-cli sessions (to resume from within interactive mode).
 const cliSessions = computed(() =>
   (data.value?.sessions ?? []).filter((s) => s.cliMode && s.id !== data.value?.active.id),
@@ -120,6 +129,13 @@ function requestModel(target: string) {
     return
   }
   const dir: 'toCli' | 'fromCli' = target === 'claude-cli' ? 'toCli' : 'fromCli'
+  // Switching TO claude-cli on a session with no conversation yet loses nothing — just turn
+  // this (empty) session into the terminal in place, no warning. terminalInfo persists cli_mode.
+  if (dir === 'toCli' && (data.value?.active.messages?.length ?? 0) === 0) {
+    sessionModel.value = 'claude-cli'
+    store.reflectModel('claude-cli')
+    return
+  }
   const pref = store.brainstormSwitch[dir]
   if (pref === 'new') openNewWith(target)
   else if (pref === 'cancel') { /* keep current session/model */ }
@@ -308,10 +324,11 @@ const pickWork = ref('')
 const freeInput = ref('')
 
 async function openAddContext() {
-  addingCtx.value = !addingCtx.value
-  if (addingCtx.value && !workItems.value.length) {
+  // Load work items BEFORE showing the panel, so the dropdown is never opened empty (race).
+  if (!addingCtx.value && !workItems.value.length) {
     try { workItems.value = await fetchWork() } catch { workItems.value = [] }
   }
+  addingCtx.value = !addingCtx.value
 }
 async function addContext(kind: string, ref: string, label: string) {
   if (!data.value || !label) return
@@ -485,7 +502,7 @@ async function redoLast() {
         :model-value="effectiveModel"
         @change="requestModel"
       />
-      <BoundaryToken class="bt" :boundary="data.active.boundary" />
+      <BoundaryToken class="bt" :boundary="modelBoundary" />
     </aside>
 
     <!-- boundary-crossing confirmation (chat ⇄ claude-cli) -->
