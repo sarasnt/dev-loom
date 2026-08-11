@@ -17,6 +17,14 @@ public class AppConfigService {
     public static final String OLLAMA_MODELS = "ollama.models";
     /** Parent directories scanned by "Sync" to auto-add git repos, newline-separated. */
     public static final String REPO_DIRS = "repo.dirs";
+    /** Desktop-notification settings (spec: Daily Briefing + notifications). */
+    public static final String NOTIFY_ENABLED = "notify.enabled";
+    public static final String NOTIFY_DIGEST_TIME = "notify.digestTime";
+    public static final String NOTIFY_QUIET_START = "notify.quietStart";
+    public static final String NOTIFY_QUIET_END = "notify.quietEnd";
+    public static final String NOTIFY_URGENT_CI = "notify.urgent.ci";
+    public static final String NOTIFY_URGENT_REVIEW = "notify.urgent.review";
+    public static final String NOTIFY_PR_WAIT_HOURS = "notify.urgent.prWaitHours";
 
     private final AppConfigRepository repo;
 

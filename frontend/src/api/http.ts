@@ -98,6 +98,10 @@ export const removeRepoDir = (path: string) =>
   put<SettingsData>('/settings/repo-dirs/remove', { path })
 export const syncRepos = () =>
   post<{ added: number; dirs: string[]; agentUp: boolean; repos: RepoView[] }>('/repos/sync', {})
+export const saveNotificationSettings = (b: Partial<SettingsData['notify']>) =>
+  put<SettingsData>('/settings/notifications', b)
+export const testNotification = () =>
+  post<{ ok: boolean; error?: string }>('/settings/notifications/test', {})
 export const setActiveModel = (name: string) => post<ProvidersData>('/providers/model', { name })
 export const setProviderKey = (provider: string, key: string) =>
   post<ProvidersData>('/providers/keys', { provider, key })

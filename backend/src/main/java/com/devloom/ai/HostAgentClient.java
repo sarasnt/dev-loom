@@ -194,6 +194,12 @@ public class HostAgentClient {
         return post("/repos/fetch", Map.of("path", path));
     }
 
+    /** Pop a native desktop notification on the host (best-effort; requires the agent running). */
+    public Map<String, Object> notify(String title, String body, String urgency) {
+        return post("/notify", Map.of("title", title == null ? "" : title,
+                "body", body == null ? "" : body, "urgency", urgency == null ? "normal" : urgency));
+    }
+
     /** Predict conflicts from integrating the source branch into HEAD (read-only merge-tree). */
     public Map<String, Object> conflict(String path, String source) {
         return post("/repos/conflict", Map.of("path", path, "source", source == null ? "" : source));

@@ -3,7 +3,8 @@ import { onMounted, onBeforeUnmount, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import type { BrowseResult } from '../types'
 import type { InstalledModel } from '../types'
-import { fetchSettings, saveTerminalWorkdir, browseFs, fetchInstalledModels, removeModel, addRepoDir, removeRepoDir } from '../api'
+import { fetchSettings, saveTerminalWorkdir, browseFs, fetchInstalledModels, removeModel, addRepoDir, removeRepoDir, saveNotificationSettings, testNotification } from '../api'
+import type { NotifySettings } from '../types'
 import { useDashboardStore } from '../stores/dashboard'
 import SettingsTabs from '../components/SettingsTabs.vue'
 import ModelSelect from '../components/ModelSelect.vue'
@@ -85,11 +86,40 @@ const browse = ref<{ open: boolean; data: BrowseResult | null; loading: boolean 
   loading: false,
 })
 
+// Desktop-notification preferences (spec: Daily Briefing + notifications).
+const notify = ref<NotifySettings>({
+  enabled: false, digestTime: '08:30', quietStart: '22:00', quietEnd: '08:00',
+  urgentCi: true, urgentReview: true, prWaitHours: 24,
+})
+const notifyFlash = ref('')
+const testing = ref(false)
+
 onMounted(async () => {
-  try { const s = await fetchSettings(); workdir.value = s.terminalWorkdir; repoDirs.value = s.repoDirs ?? [] } catch { /* ignore */ }
+  try {
+    const s = await fetchSettings()
+    workdir.value = s.terminalWorkdir
+    repoDirs.value = s.repoDirs ?? []
+    if (s.notify) notify.value = s.notify
+  } catch { /* ignore */ }
   loadInstalled()
   loading.value = false
 })
+
+async function saveNotify() {
+  notifyFlash.value = ''
+  try { notify.value = (await saveNotificationSettings(notify.value)).notify; notifyFlash.value = 'Saved.' }
+  catch { notifyFlash.value = 'Could not save.' }
+}
+async function runTest() {
+  if (testing.value) return
+  testing.value = true; notifyFlash.value = ''
+  try {
+    const r = await testNotification()
+    notifyFlash.value = r.ok ? 'Sent — check your desktop.' : `Failed: ${r.error ?? 'is the host agent running?'}`
+  } catch {
+    notifyFlash.value = 'Failed — is the host agent running?'
+  } finally { testing.value = false }
+}
 
 async function addDir(path: string) {
   const p = (path || '').trim()
@@ -199,6 +229,38 @@ function useFolder() {
       </section>
 
       <section class="block">
+        <div class="lab mono">Notifications</div>
+        <p class="prose">
+          A morning briefing plus real-time alerts for urgent events, delivered as native desktop
+          notifications through the host agent. Nothing is sent during quiet hours (overnight urgent
+          items fold into the morning digest). Requires the host agent running.
+        </p>
+        <div v-if="notifyFlash" class="flash mono">{{ notifyFlash }}</div>
+        <label class="nrow">
+          <input type="checkbox" v-model="notify.enabled" @change="saveNotify" />
+          <span>Enable desktop notifications</span>
+        </label>
+        <div class="ngrid">
+          <label class="nfield"><span class="mono fld">Morning digest</span>
+            <input type="time" v-model="notify.digestTime" class="in mono nin" @change="saveNotify" /></label>
+          <label class="nfield"><span class="mono fld">Quiet from</span>
+            <input type="time" v-model="notify.quietStart" class="in mono nin" @change="saveNotify" /></label>
+          <label class="nfield"><span class="mono fld">Quiet until</span>
+            <input type="time" v-model="notify.quietEnd" class="in mono nin" @change="saveNotify" /></label>
+          <label class="nfield"><span class="mono fld">PR-wait alert (hours)</span>
+            <input type="number" min="1" v-model.number="notify.prWaitHours" class="in mono nin" @change="saveNotify" /></label>
+        </div>
+        <div class="nchecks">
+          <label class="nrow"><input type="checkbox" v-model="notify.urgentCi" @change="saveNotify" /><span>Alert on new CI failures</span></label>
+          <label class="nrow"><input type="checkbox" v-model="notify.urgentReview" @change="saveNotify" /><span>Alert when a review is requested of you</span></label>
+        </div>
+        <div class="row">
+          <button class="btn" :disabled="testing" @click="runTest">{{ testing ? 'Sending…' : 'Test notification' }}</button>
+          <span class="idnote">Pops a desktop toast via the host agent (must be running).</span>
+        </div>
+      </section>
+
+      <section class="block">
         <div class="lab mono">Local models (Ollama)</div>
         <p class="prose">
           Install or remove local models. Your set is remembered and re-pulled on startup, so it
@@ -304,6 +366,12 @@ function useFolder() {
 .in:focus { outline: none; border-color: var(--warp); }
 .in.narrow { flex: 0 0 auto; max-width: 220px; cursor: pointer; }
 .fld { font-size: 12px; color: var(--dim); min-width: 190px; }
+.nrow { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink); margin: 6px 0; cursor: pointer; }
+.ngrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px 20px; margin: 10px 0; }
+.nfield { display: flex; align-items: center; gap: 10px; }
+.nfield .fld { min-width: 130px; }
+.nin { max-width: 140px; }
+.nchecks { margin: 8px 0 12px; }
 .prose code { font-family: var(--mono); font-size: 11.5px; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; color: var(--warp-hi); }
 .mlist { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
 .mrow { display: flex; align-items: center; gap: 12px; font-size: 12.5px; border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; background: var(--bg); }

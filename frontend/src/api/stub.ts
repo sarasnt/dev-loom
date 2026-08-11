@@ -141,17 +141,29 @@ export function fetchInstalledModels(): Promise<import('../types').InstalledMode
 export function removeModel(_name: string): Promise<{ removed: boolean }> {
   return delay({ removed: false })
 }
+const NOTIFY_STUB = {
+  enabled: false, digestTime: '08:30', quietStart: '22:00', quietEnd: '08:00',
+  urgentCi: true, urgentReview: true, prWaitHours: 24,
+}
 export function fetchSettings(): Promise<import('../types').SettingsData> {
-  return delay({ terminalWorkdir: '', repoDirs: [] })
+  return delay({ terminalWorkdir: '', repoDirs: [], notify: NOTIFY_STUB })
 }
 export function saveTerminalWorkdir(path: string): Promise<import('../types').SettingsData> {
-  return delay({ terminalWorkdir: path, repoDirs: [] })
+  return delay({ terminalWorkdir: path, repoDirs: [], notify: NOTIFY_STUB })
 }
 export function addRepoDir(path: string): Promise<import('../types').SettingsData> {
-  return delay({ terminalWorkdir: '', repoDirs: [path] })
+  return delay({ terminalWorkdir: '', repoDirs: [path], notify: NOTIFY_STUB })
 }
 export function removeRepoDir(): Promise<import('../types').SettingsData> {
-  return delay({ terminalWorkdir: '', repoDirs: [] })
+  return delay({ terminalWorkdir: '', repoDirs: [], notify: NOTIFY_STUB })
+}
+export function saveNotificationSettings(
+  b: Partial<import('../types').NotifySettings>,
+): Promise<import('../types').SettingsData> {
+  return delay({ terminalWorkdir: '', repoDirs: [], notify: { ...NOTIFY_STUB, ...b } })
+}
+export function testNotification(): Promise<{ ok: boolean; error?: string }> {
+  return delay({ ok: false, error: 'offline' })
 }
 export function syncRepos() {
   return delay({ added: 0, dirs: [] as string[], agentUp: false, repos: [] as import('../types').RepoView[] })

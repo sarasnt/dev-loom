@@ -101,6 +101,45 @@ function git(cwd, args) {
   return run('git', args, { cwd, timeoutMs: 120000 })
 }
 
+/**
+ * Native desktop toast — no npm deps; shells out to the OS notifier. Windows uses a PowerShell
+ * toast (built into Win10/11), macOS uses osascript, Linux uses notify-send. Best-effort: returns
+ * { ok:false, error } rather than throwing so the backend can log-and-continue.
+ */
+async function osNotify(title, body) {
+  const t = String(title || 'DevLoom')
+  const b = String(body || '')
+  try {
+    if (IS_WIN) {
+      // Single-quoted PS literals (escape ' as '') so title/body can't inject code. The whole
+      // script is passed as base64 -EncodedCommand so the Windows shell can't mangle the quotes.
+      const q = (s) => "'" + String(s).replace(/'/g, "''") + "'"
+      const script = [
+        '[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null;',
+        '[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] > $null;',
+        '$xml = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02);',
+        '$t = $xml.GetElementsByTagName("text");',
+        `$t.Item(0).AppendChild($xml.CreateTextNode(${q(t)})) > $null;`,
+        `$t.Item(1).AppendChild($xml.CreateTextNode(${q(b)})) > $null;`,
+        '$toast = [Windows.UI.Notifications.ToastNotification]::new($xml);',
+        '[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("DevLoom").Show($toast);',
+      ].join(' ')
+      const encoded = Buffer.from(script, 'utf16le').toString('base64')
+      const r = await run('powershell', ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded], { timeoutMs: 10000 })
+      return r.code === 0 ? { ok: true } : { ok: false, error: (r.err || 'powershell toast failed').trim().slice(0, 300) }
+    }
+    if (process.platform === 'darwin') {
+      const esc = (s) => s.replace(/"/g, '\\"')
+      const r = await run('osascript', ['-e', `display notification "${esc(b)}" with title "${esc(t)}"`], { timeoutMs: 8000 })
+      return r.code === 0 ? { ok: true } : { ok: false, error: (r.err || 'osascript failed').trim().slice(0, 300) }
+    }
+    const r = await run('notify-send', [t, b], { timeoutMs: 8000 })
+    return r.code === 0 ? { ok: true } : { ok: false, error: (r.err || 'notify-send failed (is libnotify installed?)').trim().slice(0, 300) }
+  } catch (e) {
+    return { ok: false, error: String(e).slice(0, 300) }
+  }
+}
+
 function hostOf(remoteUrl) {
   const u = (remoteUrl || '').toLowerCase()
   if (u.includes('github.com')) return 'github'
@@ -394,6 +433,10 @@ const server = http.createServer(async (req, res) => {
         ok: true, platform: process.platform,
         claude: claudeV, git: gitV, gh: ghV, glab: glabV,
       })
+    }
+    if (req.method === 'POST' && url.pathname === '/notify') {
+      const { title, body } = await readBody(req)
+      return json(res, 200, await osNotify(title, body))
     }
     if (req.method === 'POST' && url.pathname === '/claude') {
       const body = await readBody(req)

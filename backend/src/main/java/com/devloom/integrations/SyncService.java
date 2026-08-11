@@ -26,14 +26,22 @@ public class SyncService {
     private final SourceCredentialStore credentials;
     private final WorkItemRepository repo;
     private final AuditService audit;
+    private final com.devloom.briefing.NotificationService notifications;
 
     public SyncService(SourceRegistry registry, SourceInstanceRepository instances,
-                       SourceCredentialStore credentials, WorkItemRepository repo, AuditService audit) {
+                       SourceCredentialStore credentials, WorkItemRepository repo, AuditService audit,
+                       com.devloom.briefing.NotificationService notifications) {
         this.registry = registry;
         this.instances = instances;
         this.credentials = credentials;
         this.repo = repo;
         this.audit = audit;
+        this.notifications = notifications;
+    }
+
+    /** After a sync completes, fire urgent alerts for newly-urgent items (best-effort). */
+    private void afterSync() {
+        try { notifications.onSync(); } catch (Exception e) { /* never let notify break a sync */ }
     }
 
     /** Sync one instance; returns items ingested. */
@@ -71,12 +79,15 @@ public class SyncService {
     public int sync(String nameOrType) {
         SourceInstanceEntity byName = instances.findByNameIgnoreCase(nameOrType).orElse(null);
         if (byName != null) {
-            return syncInstance(byName);
+            int n = syncInstance(byName);
+            afterSync();
+            return n;
         }
         int total = 0;
         for (SourceInstanceEntity inst : instances.findByType(nameOrType.toLowerCase())) {
             total += syncInstance(inst);
         }
+        afterSync();
         return total;
     }
 
@@ -87,6 +98,7 @@ public class SyncService {
         for (SourceInstanceEntity inst : instances.findByEnabledTrue()) {
             total += syncInstance(inst);
         }
+        afterSync();
         return total;
     }
 }
