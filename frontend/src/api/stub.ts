@@ -284,7 +284,10 @@ export function repoPull() {
   return delay({ ok: false, output: 'offline' })
 }
 export function repoPush() {
-  return delay({ ok: false, output: 'offline' })
+  return delay({ ok: false, output: 'offline', rejected: false, forced: false })
+}
+export function repoAbort() {
+  return delay({ ok: false, operation: null as string | null, output: 'offline' })
 }
 export function repoPr() {
   return delay({ ok: false, error: 'offline' })

@@ -110,6 +110,7 @@ public final class Dto {
     public record FsBrowse(String path) {}
     public record RepoFiles(List<String> files) {}
     public record RepoCommit(String message) {}
+    public record RepoPush(boolean force) {}
     public record RepoCheckout(String branch, boolean create) {}
     // Source-branch comparison for the current branch (spec repos §6/§7.3): which branch this
     // work forks from, and how far HEAD has drifted from it. `origin` = "default" | "pr" |

@@ -10,6 +10,7 @@ import {
   setRepoIdentity,
   repoPull,
   repoPush,
+  repoAbort,
   repoPr,
   browseFs,
   repoChanges,
@@ -316,6 +317,89 @@ async function commit(r: RepoView) {
 }
 function stagedCount(id: string) { return changes.value[id]?.staged.length ?? 0 }
 
+// ---- commit / push split button ----
+// One control that adapts: commit (+optionally push) when there are changes, plain push when the
+// branch is only ahead, blocked when there is nothing to do. The dropdown exposes each sub-action
+// explicitly plus a lease-protected force push.
+const pushMenu = ref('')                                    // which repo's push dropdown is open
+const commitPrompt = ref<{ id: string; push: boolean } | null>(null) // inline commit-message popover
+function changeCount(r: RepoView) { return (r.staged || 0) + (r.unstaged || 0) + (r.untracked || 0) }
+function canCommit(r: RepoView) { return changeCount(r) > 0 && !r.operation }
+function canPush(r: RepoView) { return (r.ahead || 0) > 0 }
+function pushBlocked(r: RepoView) { return !canCommit(r) && !canPush(r) }
+function primaryPushLabel(r: RepoView) {
+  if (canCommit(r)) return 'Commit & Push'
+  return canPush(r) ? `Push ↑${r.ahead}` : 'Push'
+}
+// Primary click: commit+push when dirty, else a plain push.
+function primaryPush(r: RepoView) {
+  if (canCommit(r)) startCommit(r, true)
+  else if (canPush(r)) pushOnly(r)
+}
+function startCommit(r: RepoView, push: boolean) {
+  pushMenu.value = ''
+  commitPrompt.value = { id: r.id, push }
+  if (!commitMsg.value[r.id]) commitMsg.value[r.id] = ''
+}
+// Stage everything (git add -A), commit, then optionally push. Surfaces a push rejection as an
+// actionable warning (offer force) rather than a silent failure.
+async function commitAndPush(r: RepoView, push: boolean) {
+  const m = (commitMsg.value[r.id] || '').trim()
+  if (!m || busy.value) return
+  busy.value = r.id; flash.value = ''
+  try {
+    await repoStage(r.id, [])
+    const c = await repoCommit(r.id, m)
+    if (!c.ok) { flash.value = `${r.name}: commit ✗ ${c.output || ''}`; return }
+    commitMsg.value[r.id] = ''
+    commitPrompt.value = null
+    if (push) {
+      const p = await repoPush(r.id)
+      if (!p.ok && p.rejected) pushReject.value = r.id
+      flash.value = `${r.name}: commit ✓ · push ${p.ok ? '✓' : '✗ ' + (p.output || '')}`
+    } else {
+      flash.value = `${r.name}: commit ✓`
+    }
+    await load()
+    if (openChanges.value === r.id) await refreshChanges(r.id)
+  } finally { busy.value = '' }
+}
+// Which repo had its push rejected (non-fast-forward) → show a force-push hint.
+const pushReject = ref('')
+async function pushOnly(r: RepoView) {
+  pushMenu.value = ''
+  busy.value = r.id; flash.value = ''
+  try {
+    const p = await repoPush(r.id)
+    pushReject.value = !p.ok && p.rejected ? r.id : ''
+    flash.value = `${r.name}: push ${p.ok ? '✓' : '✗ ' + (p.output || '')}`
+    await load()
+  } finally { busy.value = '' }
+}
+// Force push uses --force-with-lease (backend never does a bare --force). Guarded by a confirm
+// because it rewrites the remote branch (repo-spec §9.5).
+async function forcePush(r: RepoView) {
+  pushMenu.value = ''
+  if (!confirm(`Force-push ${r.branch} to its remote using --force-with-lease?\n\nThis rewrites the remote branch. It is refused if the remote moved since your last fetch.`)) return
+  busy.value = r.id; flash.value = ''
+  try {
+    const p = await repoPush(r.id, true)
+    pushReject.value = ''
+    flash.value = `${r.name}: force-push ${p.ok ? '✓' : '✗ ' + (p.output || '')}`
+    await load()
+  } finally { busy.value = '' }
+}
+// Back out of a merge/rebase/cherry-pick/revert we can't resolve in-app (restores prior state).
+async function abortOp(r: RepoView) {
+  if (!confirm(`Abort the in-progress ${r.operation} in ${r.name}? This restores the branch to its state before the ${r.operation} started.`)) return
+  busy.value = r.id; flash.value = ''
+  try {
+    const a = await repoAbort(r.id)
+    flash.value = `${r.name}: ${a.operation ?? 'operation'} abort ${a.ok ? '✓' : '✗ ' + (a.output || '')}`
+    await load()
+  } finally { busy.value = '' }
+}
+
 // ---- branches ----
 async function toggleBranches(r: RepoView) {
   if (openBranch.value === r.id) { openBranch.value = null; return }
@@ -477,7 +561,35 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
             {{ openChanges === r.id ? 'Hide changes' : 'Changes' }}
           </button>
           <button class="btn" :disabled="busy === r.id || !agentUp" @click="act(r, () => repoPull(r.id), 'pull')">Pull</button>
-          <button class="btn" :disabled="busy === r.id || !agentUp" @click="act(r, () => repoPush(r.id), 'push')">Push</button>
+          <!-- Commit/Push split button: adapts to repo state; dropdown exposes each sub-action -->
+          <div class="splitwrap">
+            <button
+              class="btn split"
+              :disabled="busy === r.id || !agentUp || pushBlocked(r)"
+              :title="pushBlocked(r) ? 'Nothing to commit or push' : primaryPushLabel(r)"
+              @click="primaryPush(r)"
+            >{{ primaryPushLabel(r) }}</button>
+            <button
+              class="btn caret"
+              :disabled="busy === r.id || !agentUp"
+              title="More push options"
+              @click="pushMenu = pushMenu === r.id ? '' : r.id"
+            >▾</button>
+            <div v-if="pushMenu === r.id" class="bmenu" @click.self="pushMenu = ''">
+              <button class="bmi" :disabled="!canCommit(r)" @click="startCommit(r, false)">
+                Commit only…<span class="mono">stage all + commit, no push</span>
+              </button>
+              <button class="bmi" :disabled="!canCommit(r)" @click="startCommit(r, true)">
+                Commit &amp; Push…<span class="mono">stage all, commit, then push</span>
+              </button>
+              <button class="bmi" :disabled="!canPush(r)" @click="pushOnly(r)">
+                Push only<span class="mono">{{ canPush(r) ? `push ${r.ahead} commit${r.ahead > 1 ? 's' : ''}` : 'nothing to push' }}</span>
+              </button>
+              <button class="bmi danger" :disabled="!canPush(r) && pushReject !== r.id" @click="forcePush(r)">
+                Force push<span class="mono">--force-with-lease · rewrites remote</span>
+              </button>
+            </div>
+          </div>
           <button class="btn" :disabled="busy === r.id || !agentUp || r.host === 'none'" @click="act(r, () => repoPr(r.id), 'open PR/MR')">
             {{ r.host === 'gitlab' ? 'Open MR' : 'Open PR' }}
           </button>
@@ -506,6 +618,45 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
             </div>
           </div>
           <button class="btn ghost" :disabled="busy === r.id" @click="remove(r)">Remove</button>
+        </div>
+
+        <!-- inline commit-message popover for the split button -->
+        <div v-if="commitPrompt?.id === r.id" class="commitprompt">
+          <input
+            v-model="commitMsg[r.id]"
+            class="in mono"
+            placeholder="Commit message…"
+            :disabled="busy === r.id"
+            @keydown.enter="commitAndPush(r, commitPrompt!.push)"
+            @keydown.esc="commitPrompt = null"
+          />
+          <button class="btn pri" :disabled="busy === r.id || !(commitMsg[r.id] || '').trim()" @click="commitAndPush(r, commitPrompt!.push)">
+            {{ commitPrompt.push ? 'Commit & Push' : 'Commit' }}
+          </button>
+          <button class="btn ghost" :disabled="busy === r.id" @click="commitPrompt = null">Cancel</button>
+          <span class="cphint mono">stages all changes ({{ changeCount(r) }}) then commits{{ commitPrompt.push ? ' and pushes' : '' }}</span>
+        </div>
+
+        <!-- operation-in-progress warning: an unsupported state we can only let the user back out of -->
+        <div v-if="r.operation" class="opwarn">
+          <span class="owicon">⚠</span>
+          <span class="owtext">
+            A <b>{{ r.operation }}</b> is in progress{{ workTree(r).label.includes('conflict') ? ' with conflicts' : '' }}.
+            DevLoom doesn't resolve conflicts here — finish it in your editor/terminal, or abort to restore the previous state.
+          </span>
+          <button class="btn danger" :disabled="busy === r.id" @click="abortOp(r)">Abort {{ r.operation }}</button>
+        </div>
+
+        <!-- push rejected (non-fast-forward): the remote moved; offer a lease-protected force push -->
+        <div v-else-if="pushReject === r.id" class="opwarn">
+          <span class="owicon">⚠</span>
+          <span class="owtext">
+            Push was rejected — the remote branch has commits you don't. Pull/rebase first, or force-push
+            (<span class="mono">--force-with-lease</span>) if you intend to overwrite the remote branch.
+          </span>
+          <button class="btn" :disabled="busy === r.id" @click="act(r, () => repoPull(r.id), 'pull')">Pull</button>
+          <button class="btn danger" :disabled="busy === r.id" @click="forcePush(r)">Force push</button>
+          <button class="btn ghost" :disabled="busy === r.id" @click="pushReject = ''">Dismiss</button>
         </div>
 
         <div v-if="sessionsFor(r.path).length" class="rsessions">
@@ -668,6 +819,18 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
 .bmi.empty:hover { background: transparent; }
 .bmlab { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint-text); padding: 4px 10px 6px; }
 .btn.localon { border-color: var(--healthy); color: var(--healthy); }
+.btn.danger { border-color: var(--failed, #a55); color: var(--chip-fail, #d88); }
+.btn.danger:hover { border-color: var(--chip-fail, #d88); background: color-mix(in srgb, var(--chip-fail, #d88) 12%, transparent); }
+.bmi.danger { color: var(--chip-fail, #d88); }
+.bmi:disabled { opacity: 0.45; cursor: not-allowed; }
+.bmi:disabled:hover { background: transparent; }
+/* commit-message popover + operation warnings */
+.commitprompt { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 8px 0 0; }
+.cphint { color: var(--faint-text); font-size: 11px; }
+.opwarn { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 10px 0 0; padding: 8px 12px; border: 1px solid var(--failed, #a55); border-radius: 8px; background: color-mix(in srgb, var(--chip-fail, #d88) 8%, var(--bg)); }
+.opwarn .owicon { color: var(--chip-fail, #d88); font-size: 14px; }
+.opwarn .owtext { flex: 1; min-width: 240px; font-size: 12px; color: var(--ink); }
+.opwarn .owtext b { color: var(--chip-fail, #d88); text-transform: capitalize; }
 /* changes */
 .changes { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 12px; }
 .cgroup { margin-bottom: 10px; }

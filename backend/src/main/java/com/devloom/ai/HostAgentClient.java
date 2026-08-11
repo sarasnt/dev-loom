@@ -211,8 +211,13 @@ public class HostAgentClient {
         return post("/repos/pull", Map.of("path", path));
     }
 
-    public Map<String, Object> push(String path) {
-        return post("/repos/push", Map.of("path", path));
+    public Map<String, Object> push(String path, boolean force) {
+        return post("/repos/push", Map.of("path", path, "force", force));
+    }
+
+    /** Abort an in-progress merge/rebase/cherry-pick/revert (restores pre-operation state). */
+    public Map<String, Object> abort(String path) {
+        return post("/repos/abort", Map.of("path", path));
     }
 
     public Map<String, Object> pr(String path) {

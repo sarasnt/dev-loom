@@ -260,8 +260,13 @@ public class ApiController {
     }
 
     @PostMapping("/repos/{id}/push")
-    public Map<String, Object> repoPush(@PathVariable String id) {
-        return repoService.push(id);
+    public Map<String, Object> repoPush(@PathVariable String id, @RequestBody(required = false) Dto.RepoPush body) {
+        return repoService.push(id, body != null && body.force());
+    }
+
+    @PostMapping("/repos/{id}/abort")
+    public Map<String, Object> repoAbort(@PathVariable String id) {
+        return repoService.abort(id);
     }
 
     @PostMapping("/repos/{id}/pr")

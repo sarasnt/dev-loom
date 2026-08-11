@@ -84,8 +84,17 @@ public class RepoService {
         return agent.pull(pathOf(id));
     }
 
-    public Map<String, Object> push(String id) {
-        return agent.push(pathOf(id));
+    public Map<String, Object> push(String id, boolean force) {
+        Map<String, Object> r = agent.push(pathOf(id), force);
+        audit.record(force ? "repo_push_force" : "repo_push", pathOf(id), null);
+        return r;
+    }
+
+    /** Abort an in-progress merge/rebase/cherry-pick/revert on the repo. */
+    public Map<String, Object> abort(String id) {
+        Map<String, Object> r = agent.abort(pathOf(id));
+        audit.record("repo_abort", pathOf(id), String.valueOf(r.get("operation")));
+        return r;
     }
 
     public Map<String, Object> pr(String id) {

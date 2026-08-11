@@ -231,6 +231,23 @@ async function conflictCheck(dir, override) {
     reason: tooOld ? 'git version does not support conflict prediction' : (r.err || 'merge-tree failed').trim().slice(0, 200) }
 }
 
+/**
+ * Abort an in-progress merge/rebase/cherry-pick/revert (repo-spec: when an operation we don't
+ * manage leaves the repo mid-conflict, let the user back out). Restores HEAD/index/worktree to
+ * the pre-operation state via git's own `--abort`; no-op with a clear message if none is active.
+ */
+async function abortOperation(dir) {
+  const gd = await git(dir, ['rev-parse', '--git-dir'])
+  const op = gd.code === 0 ? detectGitOperation(dir, gd.out.trim()) : null
+  if (!op) return { ok: false, operation: null, output: 'no merge, rebase, cherry-pick, or revert in progress' }
+  const cmd = op === 'rebase' ? ['rebase', '--abort']
+    : op === 'cherry-pick' ? ['cherry-pick', '--abort']
+    : op === 'revert' ? ['revert', '--abort']
+    : ['merge', '--abort']
+  const r = await git(dir, cmd)
+  return { ok: r.code === 0, operation: op, output: (r.out + r.err).trim().slice(0, 2000) }
+}
+
 /** Detect an in-progress git operation (merge/rebase/cherry-pick/revert) from the git dir. */
 function detectGitOperation(dir, gitDir) {
   try {
@@ -425,9 +442,19 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok: r.code === 0, output: (r.out + r.err).trim().slice(0, 2000) })
     }
     if (req.method === 'POST' && url.pathname === '/repos/push') {
+      const { path: p, force } = await readBody(req)
+      // Force uses --force-with-lease (never a bare --force): refuses if the remote moved
+      // since our last fetch, so we can't clobber a teammate's push (repo-spec §9.5).
+      const args = force ? ['push', '--force-with-lease'] : ['push']
+      const r = await git(p, args)
+      const output = (r.out + r.err).trim()
+      // Signal a rejected non-fast-forward so the UI can offer force-with-lease.
+      const rejected = r.code !== 0 && /\b(non-fast-forward|fetch first|rejected|force)\b/i.test(output)
+      return json(res, 200, { ok: r.code === 0, output: output.slice(0, 2000), rejected, forced: !!force })
+    }
+    if (req.method === 'POST' && url.pathname === '/repos/abort') {
       const { path: p } = await readBody(req)
-      const r = await git(p, ['push'])
-      return json(res, 200, { ok: r.code === 0, output: (r.out + r.err).trim().slice(0, 2000) })
+      return json(res, 200, await abortOperation(p))
     }
     if (req.method === 'POST' && url.pathname === '/repos/pr') {
       const { path: p } = await readBody(req)

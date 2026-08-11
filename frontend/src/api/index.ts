@@ -51,6 +51,7 @@ export const setRepoIdentity = api.setRepoIdentity
 export const setRepoLocalOnly = api.setRepoLocalOnly
 export const repoPull = api.repoPull
 export const repoPush = api.repoPush
+export const repoAbort = api.repoAbort
 export const repoPr = api.repoPr
 export const browseFs = api.browseFs
 export const repoChanges = api.repoChanges

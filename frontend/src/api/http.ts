@@ -142,7 +142,10 @@ export const setRepoIdentity = (id: string, name: string, email: string) =>
 export const setRepoLocalOnly = (id: string, value: boolean) =>
   put<RepoView>(`/repos/${id}/local-only`, { value })
 export const repoPull = (id: string) => post<{ ok: boolean; output: string }>(`/repos/${id}/pull`, {})
-export const repoPush = (id: string) => post<{ ok: boolean; output: string }>(`/repos/${id}/push`, {})
+export const repoPush = (id: string, force = false) =>
+  post<{ ok: boolean; output: string; rejected?: boolean; forced?: boolean }>(`/repos/${id}/push`, { force })
+export const repoAbort = (id: string) =>
+  post<{ ok: boolean; operation: string | null; output: string }>(`/repos/${id}/abort`, {})
 export const repoPr = (id: string) =>
   post<{ ok: boolean; url?: string; web?: boolean; error?: string }>(`/repos/${id}/pr`, {})
 export const browseFs = (path: string) => post<BrowseResult>('/fs/browse', { path })
