@@ -63,7 +63,14 @@ public class BriefingService {
     @Transactional
     public void toggleHandled(String extId) {
         WorkItemFlagEntity f = flags.findById(extId).orElseGet(() -> WorkItemFlagEntity.of(extId));
-        f.setHandledAt(f.getHandledAt() == null ? Instant.now() : null);
+        if (f.getHandledAt() == null) {
+            f.setHandledAt(Instant.now());
+            // Remember the status at handle-time so the reopen-guard clears only on a real change.
+            f.setHandledStatus(work.findFirstByExtId(extId).map(WorkItemEntity::getStatus).orElse(null));
+        } else {
+            f.setHandledAt(null);
+            f.setHandledStatus(null);
+        }
         flags.save(f);
     }
 
@@ -137,7 +144,11 @@ public class BriefingService {
                 || s.contains("passed") || s.contains("success");
     }
 
-    /** Re-open guard: clear a handled flag when its item is present and NOT in a done status. */
+    /**
+     * Re-open guard: clear a handled flag only when the item's status has <em>changed</em> since it
+     * was handled (e.g. a PR you handled got reopened, or a build failed again). Merely being open
+     * is not a reopen — otherwise nothing would ever stay handled.
+     */
     @Transactional
     public void clearHandledOnReopen() {
         Map<String, WorkItemEntity> byId = work.findAll().stream()
@@ -145,8 +156,11 @@ public class BriefingService {
         for (WorkItemFlagEntity f : flags.findAll()) {
             if (f.getHandledAt() == null) continue;
             WorkItemEntity w = byId.get(f.getExtId());
-            if (w != null && !isDoneStatus(w.getStatus())) {
+            if (w == null) continue; // gone — the flag is inert, leave it for pruning
+            String at = f.getHandledStatus();
+            if (at != null && !at.equals(w.getStatus())) {
                 f.setHandledAt(null);
+                f.setHandledStatus(null);
                 flags.save(f);
             }
         }

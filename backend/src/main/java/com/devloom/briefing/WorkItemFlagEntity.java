@@ -23,6 +23,9 @@ public class WorkItemFlagEntity {
     @Column(name = "handled_at")
     private Instant handledAt;
 
+    @Column(name = "handled_status")
+    private String handledStatus;
+
     @Column(name = "planned_at")
     private Instant plannedAt;
 
@@ -37,6 +40,8 @@ public class WorkItemFlagEntity {
     public String getExtId() { return extId; }
     public Instant getHandledAt() { return handledAt; }
     public void setHandledAt(Instant t) { this.handledAt = t; }
+    public String getHandledStatus() { return handledStatus; }
+    public void setHandledStatus(String s) { this.handledStatus = s; }
     public Instant getPlannedAt() { return plannedAt; }
     public void setPlannedAt(Instant t) { this.plannedAt = t; }
 }
