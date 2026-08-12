@@ -383,22 +383,59 @@ public class FleetService {
 
     /** Mark an interactive run ended (e.g. its brainstorm session was deleted). */
     @Transactional
+    /**
+     * End every run belonging to a brainstorm session that's going away. Previously this only
+     * matched kind=interactive in status=active, so a terminal in "running" and any chat run
+     * survived their own session — sitting on the board as live work you could click, which
+     * then opened an empty new terminal because the session it pointed at was gone.
+     */
     public void endInteractive(Long brainstormSessionId) {
         for (AgentRunEntity r : runs.findAll()) {
-            if ("interactive".equals(r.getKind()) && brainstormSessionId.equals(r.getBrainstormSessionId())
-                    && "active".equals(r.getStatus())) {
-                r.setStatus("ended");
-                r.setFinishedAt(Instant.now());
-                runs.save(r);
+            if (brainstormSessionId.equals(r.getBrainstormSessionId()) && !isFinished(r.getStatus())) {
+                endOrphan(r);
             }
         }
     }
 
+    private static boolean isFinished(String status) {
+        return "ended".equals(status) || "failed".equals(status) || "done".equals(status);
+    }
+
+    private void endOrphan(AgentRunEntity r) {
+        r.setStatus("ended");
+        r.setFinishedAt(Instant.now());
+        // Drop the dangling link, so nothing tries to route back into a session that isn't there.
+        r.setBrainstormSessionId(null);
+        runs.save(r);
+    }
+
+
+    /**
+     * A run pointing at a brainstorm session that no longer exists has nothing left to show and
+     * nowhere to open. Deletion is the one path that creates these, but reaping them here also
+     * clears rows orphaned before that path was fixed, rather than leaving the user to clean up.
+     */
+    private void reapOrphans() {
+        for (AgentRunEntity r : runs.findAll()) {
+            Long sid = r.getBrainstormSessionId();
+            if (sid == null || brainstormSessions.existsById(sid)) continue;
+            if (isFinished(r.getStatus())) {
+                // Already finished, so nothing to end — but the dead link still has to go, or
+                // clicking the row in Recent navigates to a session that isn't there.
+                r.setBrainstormSessionId(null);
+                runs.save(r);
+                continue;
+            }
+            log.info("Fleet run {} points at deleted brainstorm session {} — ending it", r.getId(), sid);
+            endOrphan(r);
+        }
+    }
 
     /** Poll running background runs and transition them as the host agent's process finishes. */
     @Scheduled(fixedRate = 10_000)
     @Transactional
     public void poll() {
+        reapOrphans();
         for (AgentRunEntity run : runs.findByStatus("running")) {
             if (run.getAgentRunId() == null) continue;
             Map<String, Object> st;

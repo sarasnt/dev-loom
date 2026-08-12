@@ -154,6 +154,9 @@ async function openInTerminal(r: AgentRun) {
     router.push({ path: '/brainstorm', query: { session: r.brainstormSessionId } })
     return
   }
+  // A chat run whose session is gone has nothing to reopen and nothing a terminal could continue;
+  // spawning an empty one just looks like the click did something. Show the run instead.
+  if (r.kind === 'chat') { openDetail(r); return }
   await continueWith(r, 'claude-cli')
 }
 

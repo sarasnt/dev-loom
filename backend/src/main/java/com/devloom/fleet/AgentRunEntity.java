@@ -141,6 +141,7 @@ public class AgentRunEntity {
     public String getClaudeSessionId() { return claudeSessionId; }
     public void setClaudeSessionId(String v) { this.claudeSessionId = v; }
     public Long getBrainstormSessionId() { return brainstormSessionId; }
+    public void setBrainstormSessionId(Long v) { this.brainstormSessionId = v; }
     public String getResultSummary() { return resultSummary; }
     public void setResultSummary(String v) { this.resultSummary = v; }
     public String getError() { return error; }
