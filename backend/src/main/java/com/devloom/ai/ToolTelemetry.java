@@ -22,6 +22,7 @@ public final class ToolTelemetry {
     private boolean hitStepCap;
     private boolean stoppedSpinning;
     private boolean gathered;
+    private int writes;
     private final Set<String> toolsUsed = new LinkedHashSet<>();
 
     void step() { steps++; }
@@ -40,6 +41,9 @@ public final class ToolTelemetry {
     /** A tool returned real content — the model has something grounded to answer from. */
     void gatheredSomething() { gathered = true; }
 
+    /** A file was actually written. The point of an edit run, and the thing to check it did. */
+    void wroteFile() { writes++; }
+
     void hitStepCap() { hitStepCap = true; }
 
     void stoppedSpinning() { stoppedSpinning = true; }
@@ -52,6 +56,7 @@ public final class ToolTelemetry {
     public boolean didHitStepCap() { return hitStepCap; }
     public boolean didStopSpinning() { return stoppedSpinning; }
     public boolean gathered() { return gathered; }
+    public int writes() { return writes; }
     public Set<String> toolsUsed() { return Set.copyOf(toolsUsed); }
 
     /** Whether tools were available and offered at all — scoring means something different if not. */
@@ -63,6 +68,7 @@ public final class ToolTelemetry {
     public String toString() {
         return "steps=" + steps + " calls=" + toolCalls + " repeats=" + repeatedCalls
                 + " unknown=" + unknownTools + " errors=" + toolErrors
-                + " capped=" + hitStepCap + " spun=" + stoppedSpinning + " gathered=" + gathered;
+                + " capped=" + hitStepCap + " spun=" + stoppedSpinning + " gathered=" + gathered
+                + " writes=" + writes;
     }
 }

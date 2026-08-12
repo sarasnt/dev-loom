@@ -104,7 +104,7 @@ public class OllamaLlm implements LlmPort {
         // Through the tool loop so the model can actually call any MCP tools the user enabled;
         // with none enabled this is a plain one-shot chat.
         ToolLoop.Reply reply = toolLoop.run(ToolLoop.blocking(chat), messages, request.repoPath(),
-                StreamSink.NONE);
+                request.repoWritable(), StreamSink.NONE);
         String text = reply.text() == null ? "" : reply.text();
         log.info("Ollama generate: model={} chars={} {}", model, text.length(), reply.telemetry());
         return new LlmResult(text, model, provider(), true, reply.telemetry());
@@ -167,7 +167,7 @@ public class OllamaLlm implements LlmPort {
             messages.add(SystemMessage.from(request.system()));
         }
         messages.add(UserMessage.from(request.prompt()));
-        ToolLoop.Reply reply = toolLoop.run(turn, messages, request.repoPath(), sink);
+        ToolLoop.Reply reply = toolLoop.run(turn, messages, request.repoPath(), request.repoWritable(), sink);
         String text = reply.text() == null ? "" : reply.text();
         log.info("Ollama stream: model={} chars={} {}", model, text.length(), reply.telemetry());
         return new LlmResult(text, model, provider(), true, reply.telemetry());

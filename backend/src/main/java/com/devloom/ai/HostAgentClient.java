@@ -211,6 +211,15 @@ public class HostAgentClient {
         return post("/repos/read", body);
     }
 
+    /** Write one file inside a repo (edit runs only — the agent refuses paths outside it). */
+    public Map<String, Object> writeFile(String path, String file, String content) {
+        Map<String, Object> body = new java.util.HashMap<>();
+        body.put("path", path);
+        body.put("file", file);
+        body.put("content", content);
+        return post("/repos/write", body);
+    }
+
     /** Literal search across the repo's tracked files (git grep). */
     public Map<String, Object> grep(String path, String query, String glob, int max) {
         Map<String, Object> body = new java.util.HashMap<>();

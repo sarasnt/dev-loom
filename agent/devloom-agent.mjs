@@ -843,6 +843,30 @@ async function repoRead(dir, { file, maxBytes } = {}) {
 }
 
 /**
+ * Write one file inside a repo. The only mutating tool a model gets, and deliberately the dumbest
+ * one that works: whole-file contents, one path, inside the repo. No deletes, no renames, no shell.
+ *
+ * The caller decides whether writing is allowed at all — this endpoint is only reachable for an
+ * edit run, which by construction happens in its own worktree, so the worst case is a bad commit
+ * on a throwaway branch you discard rather than damage to a checkout you were using.
+ */
+async function repoWrite(dir, { file, content } = {}) {
+  if (typeof content !== 'string') return { error: 'content must be a string' }
+  if (content.length > 400_000) return { error: 'refused: content is too large (400KB limit)' }
+  let where
+  try { where = insideRepo(dir, file) } catch { return { error: 'repo not found' } }
+  if (!where.ok) return { error: `refused: '${file}' is ${where.why}` }
+  try {
+    fs.mkdirSync(path.dirname(where.full), { recursive: true })
+    const existed = fs.existsSync(where.full)
+    fs.writeFileSync(where.full, content, 'utf8')
+    return { ok: true, file, bytes: Buffer.byteLength(content), created: !existed }
+  } catch (e) {
+    return { error: String(e.message || e).slice(0, 200) }
+  }
+}
+
+/**
  * Search the repo's tracked files. `git grep` rather than a directory walk for the same reason
  * `ls-files` is used above: it never descends into `.git` or ignored directories.
  */
@@ -1346,6 +1370,10 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/repos/read') {
       const { path: p, file, maxBytes } = await readBody(req)
       return json(res, 200, await repoRead(p, { file, maxBytes }))
+    }
+    if (req.method === 'POST' && url.pathname === '/repos/write') {
+      const { path: p, file, content } = await readBody(req)
+      return json(res, 200, await repoWrite(p, { file, content }))
     }
     if (req.method === 'POST' && url.pathname === '/repos/grep') {
       const { path: p, query, glob, max } = await readBody(req)

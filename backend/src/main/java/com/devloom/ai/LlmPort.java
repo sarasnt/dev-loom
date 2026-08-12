@@ -56,11 +56,17 @@ public interface LlmPort {
      *                 built-in repo tools ({@link RepoTools}) for the turn — which is what lets a
      *                 model actually read the code it is being asked about.
      */
-    record LlmRequest(String feature, String system, String prompt, String model, String repoPath) {
+    record LlmRequest(String feature, String system, String prompt, String model, String repoPath,
+                      boolean repoWritable) {
 
         /** For features with no repository in play (brainstorming a topic, a build log). */
         public LlmRequest(String feature, String system, String prompt, String model) {
-            this(feature, system, prompt, model, null);
+            this(feature, system, prompt, model, null, false);
+        }
+
+        /** Repo-scoped and read-only — the default for anything that only needs to understand code. */
+        public LlmRequest(String feature, String system, String prompt, String model, String repoPath) {
+            this(feature, system, prompt, model, repoPath, false);
         }
     }
 

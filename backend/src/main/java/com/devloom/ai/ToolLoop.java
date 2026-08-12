@@ -74,12 +74,17 @@ public class ToolLoop {
     }
 
     public String chat(ChatModel model, List<ChatMessage> messages, String repoPath) {
-        return run(blocking(model), messages, repoPath, LlmPort.StreamSink.NONE).text();
+        return run(blocking(model), messages, repoPath, false, LlmPort.StreamSink.NONE).text();
     }
 
     public Reply run(Turn turn, List<ChatMessage> messages, String repoPath, LlmPort.StreamSink sink) {
+        return run(turn, messages, repoPath, false, sink);
+    }
+
+    public Reply run(Turn turn, List<ChatMessage> messages, String repoPath, boolean writable,
+                     LlmPort.StreamSink sink) {
         ToolTelemetry tel = new ToolTelemetry();
-        String text = chat(turn, messages, repoPath, sink, tel);
+        String text = chat(turn, messages, repoPath, writable, sink, tel);
         return new Reply(text, tel);
     }
 
@@ -90,9 +95,9 @@ public class ToolLoop {
      *                 tools are added to whatever MCP tools the user has enabled
      * @return the model's final text, or {@code null} if it never produced any
      */
-    private String chat(Turn turn, List<ChatMessage> messages, String repoPath,
+    private String chat(Turn turn, List<ChatMessage> messages, String repoPath, boolean writable,
                         LlmPort.StreamSink sink, ToolTelemetry tel) {
-        List<McpTools.Tool> tools = new ArrayList<>(repoTools.tools(repoPath));
+        List<McpTools.Tool> tools = new ArrayList<>(repoTools.tools(repoPath, writable));
         tools.addAll(mcp.tools());
         List<ToolSpecification> specs = tools.stream().map(McpTools.Tool::spec).toList();
         if (specs.isEmpty()) {
@@ -192,6 +197,7 @@ public class ToolLoop {
             case RepoTools.LIST -> "listing the repository";
             case RepoTools.READ -> detail == null ? "reading a file" : "reading " + detail;
             case RepoTools.SEARCH -> detail == null ? "searching the repository" : "searching for \"" + detail + "\"";
+            case RepoTools.WRITE -> detail == null ? "writing a file" : "writing " + detail;
             default -> detail == null ? req.name() : req.name() + " · " + detail;
         };
     }
@@ -213,6 +219,7 @@ public class ToolLoop {
      * result they never got. Naming the tools and stating the rules plainly fixes most of that.
      */
     private void withToolGuidance(List<ChatMessage> messages, List<McpTools.Tool> tools) {
+        boolean canWrite = tools.stream().anyMatch(t -> RepoTools.WRITE.equals(t.name()));
         StringBuilder g = new StringBuilder("""
 
                 ## Tools
@@ -227,6 +234,18 @@ public class ToolLoop {
 
                 Available tools:
                 """);
+        if (canWrite) {
+            // Without this the rules above actively mislead a writing run: "otherwise just answer"
+            // is exactly what a model does when asked to create a file, and it produces the code in
+            // its reply, where nothing saves it. Asked to add a Dart file, one wrote a complete and
+            // correct file into its answer and touched nothing on disk.
+            g.insert(g.indexOf("Available tools:"), """
+                    This task changes files. Code you write in your reply is NOT saved anywhere and
+                    does not count as doing the work — only repo_write_file changes the repository.
+                    Read before you write, then write the file.
+
+                    """);
+        }
         for (McpTools.Tool t : tools) {
             g.append("- ").append(t.name());
             String d = t.spec().description();
@@ -276,13 +295,14 @@ public class ToolLoop {
             }
         }
         seen.put(signature, result);
-        if (result.startsWith("Tool error:") || result.startsWith("Could not read")) tel.toolError();
+        if (result.startsWith("Tool error:") || result.startsWith("Could not ")) tel.toolError();
+        else if (RepoTools.WRITE.equals(req.name())) tel.wroteFile();
         else tel.gatheredSomething();
         return new Outcome(result, false);
     }
 
     private List<String> availableNames(String repoPath) {
-        List<String> names = new ArrayList<>(repoTools.tools(repoPath).stream().map(McpTools.Tool::name).toList());
+        List<String> names = new ArrayList<>(repoTools.tools(repoPath, true).stream().map(McpTools.Tool::name).toList());
         names.addAll(mcp.tools().stream().map(McpTools.Tool::name).toList());
         return names;
     }

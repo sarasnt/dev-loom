@@ -26,9 +26,15 @@ import dev.langchain4j.model.chat.request.json.JsonStringSchema;
  * local models this app is meant to be built around. No amount of prompt wording fixes a missing
  * capability — the model needed the tools.
  *
- * <p>Deliberately three, and deliberately narrow: list, read, search. They are read-only, scoped
- * to the one repository the run is about (the host agent re-checks every path against it), and
- * they never expose {@code .git}. Anything wider belongs in an MCP server the user chose to add.
+ * <p>Deliberately few, and deliberately narrow: list, read, search — and, only for an edit run,
+ * write. All are scoped to the one repository the run is about (the host agent re-checks every
+ * path against it) and none can see {@code .git}. Anything wider belongs in an MCP server the user
+ * chose to add.
+ *
+ * <p>The write tool is withheld entirely from read-only runs rather than described and forbidden:
+ * a tool a model can see is a tool it will eventually try, and "don't use this" is a weaker
+ * guarantee than not offering it. An edit run gets it, and an edit run lives in its own worktree,
+ * so the blast radius of a bad one is a branch you discard.
  */
 @Service
 public class RepoTools {
@@ -39,6 +45,7 @@ public class RepoTools {
     public static final String LIST = "repo_list_files";
     public static final String READ = "repo_read_file";
     public static final String SEARCH = "repo_search";
+    public static final String WRITE = "repo_write_file";
 
     private final HostAgentClient agent;
 
@@ -46,8 +53,18 @@ public class RepoTools {
         this.agent = agent;
     }
 
-    /** Tool specs for a run scoped to {@code repoPath}; empty when the request isn't about a repo. */
     public List<McpTools.Tool> tools(String repoPath) {
+        return tools(repoPath, false);
+    }
+
+    /**
+     * Tool specs for a run scoped to {@code repoPath}; empty when the request isn't about a repo.
+     *
+     * @param writable whether this run may change files. Read-only runs never see the write tool
+     *                 at all rather than being told not to use it — a tool a model can see is a
+     *                 tool it will eventually try.
+     */
+    public List<McpTools.Tool> tools(String repoPath, boolean writable) {
         if (repoPath == null || repoPath.isBlank()) return List.of();
         List<McpTools.Tool> out = new ArrayList<>();
 
@@ -78,11 +95,26 @@ public class RepoTools {
                                 .description("Maximum matches to return (default 60)").build())
                         .required("query")
                         .build()));
+
+        if (writable) {
+            out.add(spec(WRITE, """
+                    Write a file in this repository, creating it if needed. Give the COMPLETE new \
+                    contents of the file — this replaces it entirely, it is not a patch. Read a \
+                    file before rewriting it so you don't drop what was already there.""",
+                    JsonObjectSchema.builder()
+                            .addProperty("file", JsonStringSchema.builder()
+                                    .description("Repository-relative path, e.g. lib/foo/bar.dart").build())
+                            .addProperty("content", JsonStringSchema.builder()
+                                    .description("The complete new contents of the file").build())
+                            .required("file", "content")
+                            .build()));
+        }
         return out;
     }
 
     public boolean handles(String toolName) {
-        return LIST.equals(toolName) || READ.equals(toolName) || SEARCH.equals(toolName);
+        return LIST.equals(toolName) || READ.equals(toolName) || SEARCH.equals(toolName)
+                || WRITE.equals(toolName);
     }
 
     /** Execute one repo tool. Returns text for the model — including failures, phrased as guidance. */
@@ -94,6 +126,7 @@ public class RepoTools {
                 case LIST -> list(repoPath);
                 case READ -> read(repoPath, text(args, "file"));
                 case SEARCH -> search(repoPath, text(args, "query"), text(args, "glob"), args.path("max").asInt(60));
+                case WRITE -> write(repoPath, text(args, "file"), text(args, "content"));
                 default -> "Tool error: " + toolName + " is not a repository tool.";
             };
         } catch (Exception e) {
@@ -154,6 +187,17 @@ public class RepoTools {
             return sb.toString().stripTrailing();
         }
         return "Search failed: " + r.getOrDefault("error", "unknown error");
+    }
+
+    private String write(String repoPath, String file, String content) {
+        if (file == null || file.isBlank()) return "Tool error: 'file' is required.";
+        if (content == null) return "Tool error: 'content' is required — the complete new file contents.";
+        Map<String, Object> r = agent.writeFile(repoPath, file, content);
+        Object err = r.get("error");
+        if (err != null) return "Could not write " + file + ": " + err;
+        log.info("Repo write: {} ({} bytes, created={})", file, r.get("bytes"), r.get("created"));
+        return (Boolean.TRUE.equals(r.get("created")) ? "Created " : "Updated ") + file
+                + " (" + r.get("bytes") + " bytes).";
     }
 
     private static McpTools.Tool spec(String name, String description, JsonObjectSchema params) {

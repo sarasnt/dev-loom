@@ -54,7 +54,8 @@ public class LlmRouter {
             // A Fleet run is unattended; a brainstorm turn has someone reading it, so ending on a
             // question there is conversation rather than a failure to answer.
             boolean unattended = "fleet".equals(request.feature()) || "build-failure".equals(request.feature());
-            RunQuality.Score score = RunQuality.score(result.telemetry(), result.text(), unattended);
+            RunQuality.Score score = RunQuality.score(result.telemetry(), result.text(), unattended,
+                    request.repoWritable());
             log.info("run-quality feature={} model={} score={} [{}] {}",
                     request.feature(), result.model(), score.value(), score.summary(), result.telemetry());
             tracer.exportScore(request.feature(), result.provider(), result.model(),
@@ -150,7 +151,7 @@ public class LlmRouter {
                     ? request.system()
                     : skills.applyTo(request.system(), request.prompt());
             LlmPort.LlmRequest req = new LlmPort.LlmRequest(
-                    request.feature(), system, request.prompt(), model, request.repoPath());
+                    request.feature(), system, request.prompt(), model, request.repoPath(), request.repoWritable());
             long t0 = System.currentTimeMillis();
             try {
                 LlmPort.LlmResult result = port.generate(req, sink);

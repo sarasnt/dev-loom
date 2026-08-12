@@ -46,13 +46,30 @@ public final class RunQuality {
     private static final double REPEAT = 0.10;       // asked for something it already had
     private static final double TOOL_ERROR = 0.05;   // bad arguments, missing file
     private static final double ASKED_BACK = 0.25;   // ended by asking a question nobody will read
+    private static final double NO_CHANGES = 0.60;   // an edit run that edited nothing
 
     /**
      * @param unattended true for runs with no human on the other end (a Fleet analysis), where
      *                   ending on a question is a non-answer however good the prose is
      */
     public static Score score(ToolTelemetry tel, String answer, boolean unattended) {
+        return score(tel, answer, unattended, false);
+    }
+
+    /**
+     * @param expectedWrites true for an edit run. Without this the worst possible outcome scored
+     *                       best: a run asked to add a file wrote the whole file into its reply,
+     *                       touched nothing on disk, and came back 1.00 "clean" because it had
+     *                       committed none of the faults the rubric knew about. Not doing the task
+     *                       has to cost more than doing it clumsily.
+     */
+    public static Score score(ToolTelemetry tel, String answer, boolean unattended, boolean expectedWrites) {
         List<Penalty> penalties = new ArrayList<>();
+
+        if (expectedWrites && tel.writes() == 0) {
+            penalties.add(new Penalty("no-changes", NO_CHANGES,
+                    "an edit run that wrote no files — the work, if any, is only in the reply"));
+        }
 
         // Only when it TRIED and failed. Calling no tools at all is not a fault: the run's context
         // already carries the branch, the file list and recent commits, and plenty of real

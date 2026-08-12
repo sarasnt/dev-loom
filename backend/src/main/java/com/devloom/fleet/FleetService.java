@@ -27,6 +27,45 @@ public class FleetService {
 
     private static final Logger log = LoggerFactory.getLogger(FleetService.class);
 
+    private static final String ANALYSIS_SYSTEM = """
+            You are a background analysis agent inspecting a git repository for an engineer.
+
+            The summary below is only a starting point. You can read the repository: list
+            its files, read any file, and search across them. Read what the question is
+            actually about before answering it — an answer you inferred without reading the
+            file is the failure mode here. Never state a version, name or value you have not
+            seen; if the repository does not contain the answer, say so plainly.
+
+            Be concrete and technical, and quote the code you rely on.
+
+            This runs unattended: nobody will read a follow-up question. Never end by
+            offering choices or asking how to proceed — do the work and give the answer.""";
+
+    /**
+     * The edit prompt is mostly about the two ways these runs go wrong: writing a file without
+     * having read the code around it, and writing something plausible for a language the project
+     * doesn't use. Both are failures of looking before acting, so the instruction is sequenced —
+     * look, then match, then write — rather than phrased as a list of qualities.
+     */
+    private static final String EDIT_SYSTEM = """
+            You are a background coding agent working in a git worktree of an engineer's repository.
+
+            You can list the repository's files, read any of them, search across them, and write
+            files. Work in this order and do not skip ahead:
+
+            1. Look first. Find the files nearest to the task and read them. Do not write anything
+               until you have read the code you are about to sit beside.
+            2. Match what is there. Use the language, layout, naming and testing style of the files
+               you just read — not the conventions of whatever language you know best.
+            3. Then write. repo_write_file replaces a file entirely, so give complete contents; to
+               change an existing file, read it first and write it back whole.
+
+            Write real, complete code — no placeholders, no "TODO: implement", no stubs that
+            pretend to work. If the project has tests, write one for what you added.
+
+            This runs unattended: nobody will answer a question. When you are finished, say which
+            files you wrote and why, in a few sentences.""";
+
     private final AgentRunRepository runs;
     private final GitRepoRepository repos;
     private final HostAgentClient agent;
@@ -150,54 +189,85 @@ public class FleetService {
      * the board shows it running and flips it to review when the model answers.
      */
     private Dto.AgentRun launchLocal(GitRepoEntity repo, Dto.RunLaunch body, String permission) {
-        if ("edit".equals(permission)) {
+        boolean edit = "edit".equals(permission);
+        // A local model editing the checkout you are working in is not a risk worth taking for the
+        // convenience: it gets a worktree, always, so a bad run is a branch you delete. The Claude
+        // path allows an un-isolated edit run on a clean tree; this one doesn't offer the choice.
+        if (edit && !body.isolate()) {
             throw new IllegalStateException(
-                    "This model can only run read-only analysis — it has no tool loop to edit files. "
-                            + "Pick a Claude model for an edit run, or switch this run to read-only.");
+                    "An edit run on a local model needs worktree isolation — it gets its own branch "
+                            + "so a bad run can be discarded. Turn isolation on, or use a read-only run.");
         }
         String title = titleFrom(body.prompt(), repo.getName());
-        AgentRunEntity run = AgentRunEntity.background(title, repo.getPath(), body.model(), "readonly", false);
+        AgentRunEntity run = AgentRunEntity.background(title, repo.getPath(), body.model(),
+                edit ? "edit" : "readonly", false);
         run = runs.save(run);
+
+        String cwd = repo.getPath();
+        if (edit) {
+            String branch = "devloom/run-" + run.getId();
+            try {
+                Map<String, Object> wt = agent.worktreeAdd(repo.getPath(), branch);
+                if (!Boolean.TRUE.equals(wt.get("ok")) || wt.get("path") == null) {
+                    run.setStatus("failed");
+                    run.setError("could not create worktree: " + str(wt.get("error")));
+                    run.setFinishedAt(Instant.now());
+                    return toDto(runs.save(run));
+                }
+                cwd = String.valueOf(wt.get("path"));
+                run.setIsolated(true);
+                run.setBranch(branch);
+                run.setRunDir(cwd);
+                run = runs.save(run);
+            } catch (Exception e) {
+                run.setStatus("failed");
+                run.setError("could not create worktree: " + e.getMessage());
+                run.setFinishedAt(Instant.now());
+                return toDto(runs.save(run));
+            }
+        }
+
         final Long id = run.getId();
         final String prompt = body.prompt();
         final String model = body.model();
-        final String path = repo.getPath();
-        pool.submit(() -> runLocal(id, path, prompt, model));
-        audit.record("fleet_launch", path, "local · " + model + " · " + title);
+        final String dir = cwd;
+        pool.submit(() -> runLocal(id, dir, prompt, model, edit));
+        audit.record("fleet_launch", repo.getPath(),
+                "local · " + model + " · " + (edit ? "edit · isolated · " : "readonly · ") + title);
         return toDto(run);
     }
 
     /** Executes a local/API analysis run off-request and records its outcome. */
     private void runLocal(Long id, String path, String prompt, String model) {
+        runLocal(id, path, prompt, model, false);
+    }
+
+    private void runLocal(Long id, String path, String prompt, String model, boolean edit) {
         try {
             // No needs-input marker here on purpose: a one-shot analysis has no channel to answer
             // through, so flagging it would offer the user an action they can't take. If the model
             // lacks context it says so in the result and the user re-runs with more.
             // Every analysis run can read its repository now (RepoTools is always available), so
             // there is one prompt rather than one per tool availability.
-            String system = """
-                    You are a background analysis agent inspecting a git repository for an engineer.
-
-                    The summary below is only a starting point. You can read the repository: list
-                    its files, read any file, and search across them. Read what the question is
-                    actually about before answering it — an answer you inferred without reading the
-                    file is the failure mode here. Never state a version, name or value you have not
-                    seen; if the repository does not contain the answer, say so plainly.
-
-                    Be concrete and technical, and quote the code you rely on.
-
-                    This runs unattended: nobody will read a follow-up question. Never end by
-                    offering choices or asking how to proceed — do the work and give the answer.""";
+            String system = edit ? EDIT_SYSTEM : ANALYSIS_SYSTEM;
             // The closing instruction sits at the very end of the user turn, not in the system
             // message: small local models weight recency heavily, and from mid-prompt the same
             // sentence loses to their chat-assistant habit of ending on "would you like me to…".
-            String full = repoContext(path) + "\n\nTask:\n" + (prompt == null ? "" : prompt)
-                    + "\n\nAnswer the task above directly. Do not end with questions or offers of help.";
-            com.devloom.ai.LlmPort.LlmResult r =
-                    llm.generate(new com.devloom.ai.LlmPort.LlmRequest("fleet", system, full, model, path));
+            // The closing line sits at the very end of the user turn, where recency gives it the
+            // most weight. For an edit run it has to say what "done" means: told to create a file,
+            // a model will happily write a complete correct file into its reply and call that
+            // finished, because from its side it did produce the code.
+            String close = edit
+                    ? "\n\nDo not reply with the code. Call repo_read_file on the nearby files first,"
+                      + " then call repo_write_file once per file you are adding or changing."
+                      + " Your reply should only say which files you wrote."
+                    : "\n\nAnswer the task above directly. Do not end with questions or offers of help.";
+            String full = repoContext(path) + "\n\nTask:\n" + (prompt == null ? "" : prompt) + close;
+            com.devloom.ai.LlmPort.LlmResult r = llm.generate(
+                    new com.devloom.ai.LlmPort.LlmRequest("fleet", system, full, model, path, edit));
             String text = r.text() == null ? "" : r.text();
             finishLocal(id, text.replace("[DEVLOOM:INPUT]", "").stripTrailing(), null, false,
-                    r.telemetry(), com.devloom.ai.RunQuality.score(r.telemetry(), text, true));
+                    r.telemetry(), com.devloom.ai.RunQuality.score(r.telemetry(), text, true, edit));
         } catch (Exception e) {
             finishLocal(id, null, e.getMessage() == null ? "run failed" : e.getMessage(), false);
         }

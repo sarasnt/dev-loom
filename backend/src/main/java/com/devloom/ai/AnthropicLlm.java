@@ -81,7 +81,7 @@ public class AnthropicLlm implements LlmPort {
         // Through the tool loop, like the local adapter: a paid model that cannot read the repo
         // it was asked about is no more useful than a local one that cannot.
         ToolLoop.Reply reply = toolLoop.run(ToolLoop.blocking(chat), messages, request.repoPath(),
-                StreamSink.NONE);
+                request.repoWritable(), StreamSink.NONE);
         String text = reply.text() == null ? "" : reply.text();
         log.info("Anthropic generate: model={} chars={}", model, text.length());
         return new LlmResult(text, model, provider(), true, reply.telemetry());
