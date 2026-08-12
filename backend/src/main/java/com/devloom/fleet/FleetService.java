@@ -168,18 +168,19 @@ public class FleetService {
     /** Executes a local/API analysis run off-request and records its outcome. */
     private void runLocal(Long id, String path, String prompt, String model) {
         try {
+            // No needs-input marker here on purpose: a one-shot analysis has no channel to answer
+            // through, so flagging it would offer the user an action they can't take. If the model
+            // lacks context it says so in the result and the user re-runs with more.
             String system = """
                     You are a background analysis agent inspecting a git repository for an engineer.
                     You cannot edit files or run commands — you read the context you are given and
                     answer. Be concrete and technical; say plainly when the context is insufficient
-                    rather than guessing. If you are blocked on a decision only the user can make,
-                    end your reply with the literal marker [DEVLOOM:INPUT].""";
+                    rather than guessing.""";
             String full = repoContext(path) + "\n\nTask:\n" + (prompt == null ? "" : prompt);
             com.devloom.ai.LlmPort.LlmResult r =
                     llm.generate(new com.devloom.ai.LlmPort.LlmRequest("fleet", system, full, model));
             String text = r.text() == null ? "" : r.text();
-            boolean needsInput = text.contains("[DEVLOOM:INPUT]");
-            finishLocal(id, text.replace("[DEVLOOM:INPUT]", "").stripTrailing(), null, needsInput);
+            finishLocal(id, text.replace("[DEVLOOM:INPUT]", "").stripTrailing(), null, false);
         } catch (Exception e) {
             finishLocal(id, null, e.getMessage() == null ? "run failed" : e.getMessage(), false);
         }

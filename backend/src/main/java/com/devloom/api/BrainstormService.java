@@ -57,8 +57,14 @@ public class BrainstormService {
     /** Explicit "I'm blocked on you" signal a model can emit; stripped before the reply is shown. */
     static final String INPUT_MARKER = "[DEVLOOM:INPUT]";
 
+    /**
+     * True only when the marker closes the reply, as instructed. Smaller models sometimes echo the
+     * instruction mid-answer; requiring it at the tail keeps "needs input" from crying wolf.
+     */
     private static boolean wantsInput(String text) {
-        return text != null && text.contains(INPUT_MARKER);
+        if (text == null) return false;
+        String tail = text.stripTrailing();
+        return tail.endsWith(INPUT_MARKER);
     }
 
     private static String stripMarker(String text) {
