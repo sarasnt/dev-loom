@@ -349,6 +349,13 @@ async function backupSave({ dir, remote, files, includeSkills, push, message }) 
       const init = await git(dir, ['init'])
       if (init.code !== 0) return { ok: false, error: (init.err || 'git init failed').trim().slice(0, 300) }
     }
+    // A fresh repo inherits nothing when the machine has no global git identity (common when
+    // every repo sets its own), and `git commit` then fails. Give the backup repo a local one.
+    const who = await git(dir, ['config', 'user.email'])
+    if (who.code !== 0 || !who.out.trim()) {
+      await git(dir, ['config', 'user.name', 'DevLoom Backup'])
+      await git(dir, ['config', 'user.email', 'devloom-backup@localhost'])
+    }
     if (remote) {
       const has = await git(dir, ['remote', 'get-url', 'origin'])
       if (has.code !== 0) await git(dir, ['remote', 'add', 'origin', remote])

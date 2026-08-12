@@ -70,9 +70,10 @@ public class BackupService {
 
     /** The exportable, secret-free snapshot of DevLoom's configuration. */
     public Map<String, Object> export() {
+        // Deliberately no timestamp in here: git already records when each backup happened, and a
+        // changing field would make every run a commit even when the configuration is identical.
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("version", 1);
-        out.put("exportedAt", Instant.now().toString());
 
         Map<String, String> settings = new LinkedHashMap<>();
         for (AppConfigEntity e : configRepo.findAll()) {
