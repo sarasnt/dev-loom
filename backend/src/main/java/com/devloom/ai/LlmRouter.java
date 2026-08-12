@@ -42,6 +42,28 @@ public class LlmRouter {
         return provider != null && !provider.equals("stub") && !provider.equals("ollama");
     }
 
+    /**
+     * Score how the run went and record it. Scored here rather than in each adapter because this
+     * is the one place that sees every routed call, whichever provider served it.
+     *
+     * <p>Kept off the answer path entirely: a scoring or export problem must never affect a reply.
+     */
+    private void scoreRun(LlmPort.LlmRequest request, LlmPort.LlmResult result, long startedMs) {
+        try {
+            if (result.telemetry() == null) return;
+            // A Fleet run is unattended; a brainstorm turn has someone reading it, so ending on a
+            // question there is conversation rather than a failure to answer.
+            boolean unattended = "fleet".equals(request.feature()) || "build-failure".equals(request.feature());
+            RunQuality.Score score = RunQuality.score(result.telemetry(), result.text(), unattended);
+            log.info("run-quality feature={} model={} score={} [{}] {}",
+                    request.feature(), result.model(), score.value(), score.summary(), result.telemetry());
+            tracer.exportScore(request.feature(), result.provider(), result.model(),
+                    startedMs, System.currentTimeMillis(), score, result.telemetry());
+        } catch (Exception e) {
+            log.debug("Run scoring skipped: {}", e.toString());
+        }
+    }
+
     /** Which provider serves a model name. "claude-code" = CLI subscription; "gpt-oss" = local. */
     public static String providerForModel(String model) {
         if (model == null) return null;
@@ -135,6 +157,7 @@ public class LlmRouter {
                 if (result.text() != null && !result.text().isBlank()) {
                     tracer.trace(request.feature(), result.provider(), result.model(),
                             System.currentTimeMillis() - t0, result.hypothesis());
+                    scoreRun(request, result, t0);
                     if (isRemote(result.provider())) {
                         audit.record("llm-egress", result.provider(),
                                 "feature=" + request.feature() + " model=" + result.model());

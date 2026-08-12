@@ -144,6 +144,10 @@ async function discardIsolated(r: AgentRun) {
   catch { flash.value = 'Discard failed — is the host agent running?' }
   finally { detailBusy.value = false }
 }
+// Bands, not a gradient: a run either did the job cleanly, wobbled, or went wrong.
+function qualityClass(score: number): string {
+  return score >= 0.9 ? 'good' : score >= 0.6 ? 'ok' : 'bad'
+}
 const isolatedReview = computed(() => !!detail.value && detail.value.isolated && detail.value.status === 'review')
 // Reopen a run where its work actually lives. Anything born in Brainstorm — a cli terminal or a
 // local-model chat alike — goes back to that session; keying off the session id rather than the
@@ -283,6 +287,17 @@ const continueModel = computed(() => {
         </div>
         <div v-else-if="detail.permission === 'edit'" class="dsec mono muted">No file changes were produced.</div>
 
+        <!-- How it went about the work, distinct from whether the answer is right — which only you
+             can judge. A clean run is unremarkable, so only the imperfect ones say why. -->
+        <div v-if="detail.qualityScore !== null && detail.qualityScore !== undefined" class="quality mono">
+          <span class="qval" :class="qualityClass(detail.qualityScore)">{{ detail.qualityScore.toFixed(2) }}</span>
+          <span class="qlab">run quality</span>
+          <span v-if="detail.toolCalls" class="qsep">·</span>
+          <span v-if="detail.toolCalls">{{ detail.toolCalls }} tool call{{ detail.toolCalls === 1 ? '' : 's' }}</span>
+          <span v-if="detail.qualityNotes && detail.qualityNotes !== 'clean'" class="qsep">·</span>
+          <span v-if="detail.qualityNotes && detail.qualityNotes !== 'clean'" class="qpen">{{ detail.qualityNotes }}</span>
+        </div>
+
         <div class="dsec">
           <div class="dlab mono">{{ detail.error ? 'Error' : 'Result' }}</div>
           <!-- Errors stay verbatim (stack traces and JSON must not be reflowed); a model's answer
@@ -410,6 +425,14 @@ button.run:hover { border-color: var(--warp); }
 .md :deep(.md-table) { border-collapse: collapse; font-size: 12px; }
 .md :deep(.md-table th), .md :deep(.md-table td) { border: 1px solid var(--line); padding: 5px 9px; text-align: left; vertical-align: top; }
 .md :deep(.md-table th) { background: var(--chip-bg); color: var(--ink); font-weight: 600; }
+.quality { display: flex; align-items: center; gap: 8px; margin: 10px 0 0; font-size: 11px; color: var(--dim); }
+.qval { font-size: 13px; font-weight: 600; }
+.qval.good { color: var(--ok, #6ea87f); }
+.qval.ok { color: var(--warp-hi); }
+.qval.bad { color: var(--danger, #c96a5b); }
+.qlab { letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint-text); }
+.qsep { color: var(--faint-text); }
+.qpen { color: var(--warp-hi); }
 .spin { width: 8px; height: 8px; border-radius: 50%; border: 2px solid var(--warp); border-top-color: transparent; display: inline-block; animation: sp 0.7s linear infinite; }
 @keyframes sp { to { transform: rotate(360deg); } }
 /* dialog */

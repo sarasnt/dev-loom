@@ -1,0 +1,207 @@
+{
+  "at": "2026-08-12T17:18:25.119Z",
+  "args": {
+    "models": [
+      "qwen2.5-coder:7b"
+    ],
+    "reps": 3,
+    "tasks": null,
+    "save": "eval/scored-7b.json",
+    "compare": null
+  },
+  "results": {
+    "qwen2.5-coder:7b": {
+      "version": {
+        "pass": 3,
+        "n": 3,
+        "ms": [
+          8078,
+          2030,
+          2038
+        ],
+        "quality": [
+          1,
+          1,
+          1
+        ],
+        "calls": [
+          1,
+          1,
+          1
+        ],
+        "repeats": [
+          0,
+          0,
+          0
+        ],
+        "penalties": {},
+        "signals": {
+          "endsWithQuestion": 0,
+          "offersMenu": 0,
+          "empty": 0
+        },
+        "samples": []
+      },
+      "export": {
+        "pass": 3,
+        "n": 3,
+        "ms": [
+          2021,
+          2031,
+          2028
+        ],
+        "quality": [
+          1,
+          1,
+          1
+        ],
+        "calls": [
+          1,
+          1,
+          1
+        ],
+        "repeats": [
+          0,
+          0,
+          0
+        ],
+        "penalties": {},
+        "signals": {
+          "endsWithQuestion": 0,
+          "offersMenu": 0,
+          "empty": 0
+        },
+        "samples": []
+      },
+      "count": {
+        "pass": 3,
+        "n": 3,
+        "ms": [
+          2032,
+          2023,
+          2033
+        ],
+        "quality": [
+          0.6,
+          0.6,
+          0.6
+        ],
+        "calls": [
+          0,
+          0,
+          0
+        ],
+        "repeats": [
+          0,
+          0,
+          0
+        ],
+        "penalties": {
+          "ungrounded": 3
+        },
+        "signals": {
+          "endsWithQuestion": 0,
+          "offersMenu": 0,
+          "empty": 0
+        },
+        "samples": []
+      },
+      "crossfile": {
+        "pass": 0,
+        "n": 3,
+        "ms": [
+          2027,
+          2039,
+          2029
+        ],
+        "quality": [
+          1,
+          1,
+          1
+        ],
+        "calls": [
+          1,
+          1,
+          1
+        ],
+        "repeats": [
+          0,
+          0,
+          0
+        ],
+        "penalties": {},
+        "signals": {
+          "endsWithQuestion": 0,
+          "offersMenu": 0,
+          "empty": 0
+        },
+        "samples": [
+          "No file imports `add` from `math.js`.",
+          "No file imports `add` from `math.js`."
+        ]
+      },
+      "bug": {
+        "pass": 3,
+        "n": 3,
+        "ms": [
+          4026,
+          4030,
+          4027
+        ],
+        "quality": [
+          1,
+          1,
+          1
+        ],
+        "calls": [
+          1,
+          1,
+          1
+        ],
+        "repeats": [
+          0,
+          0,
+          0
+        ],
+        "penalties": {},
+        "signals": {
+          "endsWithQuestion": 0,
+          "offersMenu": 0,
+          "empty": 0
+        },
+        "samples": []
+      },
+      "refusal": {
+        "pass": 3,
+        "n": 3,
+        "ms": [
+          2026,
+          2046,
+          4031
+        ],
+        "quality": [
+          1,
+          1,
+          1
+        ],
+        "calls": [
+          1,
+          1,
+          2
+        ],
+        "repeats": [
+          0,
+          0,
+          0
+        ],
+        "penalties": {},
+        "signals": {
+          "endsWithQuestion": 0,
+          "offersMenu": 0,
+          "empty": 0
+        },
+        "samples": []
+      }
+    }
+  }
+}

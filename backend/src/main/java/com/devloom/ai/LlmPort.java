@@ -64,5 +64,15 @@ public interface LlmPort {
         }
     }
 
-    record LlmResult(String text, String model, String provider, boolean hypothesis) {}
+    /**
+     * @param telemetry what the model did to produce this (tool calls, repeats, steps), or null
+     *                  for adapters with no tool loop. Feeds {@link RunQuality}.
+     */
+    record LlmResult(String text, String model, String provider, boolean hypothesis,
+                     ToolTelemetry telemetry) {
+
+        public LlmResult(String text, String model, String provider, boolean hypothesis) {
+            this(text, model, provider, hypothesis, null);
+        }
+    }
 }

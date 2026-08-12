@@ -61,6 +61,16 @@ const TASKS = [
     why: 'reasoning over code that was read, not recall',
   },
   {
+    id: 'survey',
+    // Deliberately the expensive one: it can't be done in a single read, so it exercises the
+    // multi-step path where weak models start repeating themselves or run out of budget. The
+    // check is loose on purpose — this task exists to stress the loop, and the penalties in the
+    // report say more about it than pass/fail does.
+    prompt: 'Read every JavaScript file in src/ and list, for each one, the names it exports.',
+    check: (a) => /\bPI\b/.test(a) && /\badd\b/.test(a) && /\btotal\b/.test(a) && /averagePrice/.test(a),
+    why: 'multi-step gathering — where loops and step-cap failures actually happen',
+  },
+  {
     id: 'refusal',
     // Nothing in the fixture mentions deployment, AWS or a region. The only correct answer is
     // "that isn't here" — inventing one is the failure this catches.
@@ -124,7 +134,17 @@ async function runOnce(repoId, model, prompt) {
     if (r.status !== 'running') {
       // Tidy up: the eval must not leave dozens of rows on the user's Fleet board.
       await api(`/fleet/runs/${run.id}`, { method: 'DELETE' }).catch(() => {})
-      return { text: r.resultSummary ?? '', error: r.error ?? null, ms: Date.now() - started }
+      return {
+        text: r.resultSummary ?? '',
+        error: r.error ?? null,
+        ms: Date.now() - started,
+        // How it went about the work, scored by the backend (RunQuality) — correctness below is
+        // about the answer, this is about the process that produced it.
+        quality: r.qualityScore ?? null,
+        notes: r.qualityNotes ?? '',
+        toolCalls: r.toolCalls ?? 0,
+        toolRepeats: r.toolRepeats ?? 0,
+      }
     }
     await sleep(2000)
   }
@@ -147,6 +167,7 @@ function parseArgs(argv) {
 }
 
 function pct(n, d) { return d === 0 ? '—' : `${Math.round((n / d) * 100)}%` }
+function avg(xs) { return xs.length ? Math.round((xs.reduce((a, b) => a + b, 0) / xs.length) * 10) / 10 : 0 }
 
 // ---- main -----------------------------------------------------------------------------------
 
@@ -167,7 +188,8 @@ const results = {}
 for (const model of args.models) {
   results[model] = {}
   for (const task of tasks) {
-    const row = { pass: 0, n: 0, ms: [], signals: { endsWithQuestion: 0, offersMenu: 0, empty: 0 }, samples: [] }
+    const row = { pass: 0, n: 0, ms: [], quality: [], calls: [], repeats: [], penalties: {},
+                  signals: { endsWithQuestion: 0, offersMenu: 0, empty: 0 }, samples: [] }
     for (let i = 0; i < args.reps; i++) {
       let out
       try {
@@ -180,6 +202,14 @@ for (const model of args.models) {
       row.n++
       if (ok) row.pass++
       row.ms.push(out.ms)
+      if (typeof out.quality === 'number') row.quality.push(out.quality)
+      row.calls.push(out.toolCalls ?? 0)
+      row.repeats.push(out.toolRepeats ?? 0)
+      // "ungrounded -0.40, repeat -0.10" → count each penalty by name.
+      for (const part of String(out.notes ?? '').split(',')) {
+        const m = part.trim().match(/^([a-z-]+)\s+-/)
+        if (m) row.penalties[m[1]] = (row.penalties[m[1]] ?? 0) + 1
+      }
       for (const [name, fn] of Object.entries(SIGNALS)) if (fn(text)) row.signals[name]++
       if (!ok && row.samples.length < 2) row.samples.push((out.error ?? text).slice(0, 200))
       process.stdout.write(`  ${model} ${task.id} ${i + 1}/${args.reps} ${ok ? 'pass' : 'FAIL'}\n`)
@@ -193,16 +223,27 @@ for (const model of args.models) {
 console.log('\n' + '='.repeat(78))
 for (const model of args.models) {
   console.log(`\n${model}`)
-  console.log('  task        pass      med ms   ends-with-?  notes')
+  console.log('  task        correct   quality  calls  rpt   penalties')
   let totalPass = 0, totalN = 0
+  const allQuality = []
+  const allPenalties = {}
   for (const task of tasks) {
     const r = results[model][task.id]
-    const med = r.ms.slice().sort((a, b) => a - b)[Math.floor(r.ms.length / 2)] ?? 0
     totalPass += r.pass; totalN += r.n
-    console.log(`  ${task.id.padEnd(11)} ${`${r.pass}/${r.n}`.padEnd(9)} ${String(med).padStart(6)}`
-      + `   ${pct(r.signals.endsWithQuestion, r.n).padStart(10)}   ${r.samples[0] ? JSON.stringify(r.samples[0].slice(0, 60)) : ''}`)
+    allQuality.push(...r.quality)
+    for (const [k, v] of Object.entries(r.penalties)) allPenalties[k] = (allPenalties[k] ?? 0) + v
+    const q = r.quality.length ? (r.quality.reduce((a, b) => a + b, 0) / r.quality.length) : null
+    const pen = Object.entries(r.penalties).map(([k, v]) => `${k}x${v}`).join(' ')
+    console.log(`  ${task.id.padEnd(11)} ${`${r.pass}/${r.n}`.padEnd(9)} ${(q === null ? '—' : q.toFixed(2)).padStart(6)}`
+      + `  ${String(avg(r.calls)).padStart(5)}  ${String(avg(r.repeats)).padStart(3)}   ${pen}`)
   }
-  console.log(`  ${'OVERALL'.padEnd(11)} ${`${totalPass}/${totalN}`.padEnd(9)} ${pct(totalPass, totalN)}`)
+  const q = allQuality.length ? (allQuality.reduce((a, b) => a + b, 0) / allQuality.length) : null
+  console.log(`  ${'OVERALL'.padEnd(11)} ${`${totalPass}/${totalN}`.padEnd(9)} ${(q === null ? '—' : q.toFixed(2)).padStart(6)}`
+    + `   (correct ${pct(totalPass, totalN)})`)
+  if (Object.keys(allPenalties).length) {
+    console.log('  penalties:  ' + Object.entries(allPenalties).sort((a, b) => b[1] - a[1])
+      .map(([k, v]) => `${k} x${v}`).join('  ·  '))
+  }
 }
 
 if (args.save) {

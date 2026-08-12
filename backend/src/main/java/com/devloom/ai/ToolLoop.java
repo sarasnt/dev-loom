@@ -66,12 +66,21 @@ public class ToolLoop {
                 : ChatRequest.builder().messages(messages).toolSpecifications(specs).build());
     }
 
+    /** The answer, plus what the model did to arrive at it. */
+    public record Reply(String text, ToolTelemetry telemetry) {}
+
     public String chat(ChatModel model, List<ChatMessage> messages) {
         return chat(model, messages, null);
     }
 
     public String chat(ChatModel model, List<ChatMessage> messages, String repoPath) {
-        return chat(blocking(model), messages, repoPath, LlmPort.StreamSink.NONE);
+        return run(blocking(model), messages, repoPath, LlmPort.StreamSink.NONE).text();
+    }
+
+    public Reply run(Turn turn, List<ChatMessage> messages, String repoPath, LlmPort.StreamSink sink) {
+        ToolTelemetry tel = new ToolTelemetry();
+        String text = chat(turn, messages, repoPath, sink, tel);
+        return new Reply(text, tel);
     }
 
     /**
@@ -81,19 +90,22 @@ public class ToolLoop {
      *                 tools are added to whatever MCP tools the user has enabled
      * @return the model's final text, or {@code null} if it never produced any
      */
-    public String chat(Turn turn, List<ChatMessage> messages, String repoPath, LlmPort.StreamSink sink) {
+    private String chat(Turn turn, List<ChatMessage> messages, String repoPath,
+                        LlmPort.StreamSink sink, ToolTelemetry tel) {
         List<McpTools.Tool> tools = new ArrayList<>(repoTools.tools(repoPath));
         tools.addAll(mcp.tools());
         List<ToolSpecification> specs = tools.stream().map(McpTools.Tool::spec).toList();
         if (specs.isEmpty()) {
             return text(turn.run(messages, List.of()));
         }
+        tel.toolsOffered();
         withToolGuidance(messages, tools);
         // Smaller models get stuck re-calling the same tool with the same arguments; remember what
         // we've already run so the loop can say "you have this already" instead of burning steps.
         java.util.Map<String, String> seen = new java.util.LinkedHashMap<>();
         int spinning = 0; // consecutive steps that asked only for things already fetched
         for (int step = 0; step < MAX_STEPS; step++) {
+            tel.step();
             ChatResponse resp;
             try {
                 resp = turn.run(messages, specs);
@@ -121,7 +133,7 @@ public class ToolLoop {
                 allRepeats = true;
                 for (ToolExecutionRequest req : parsed) {
                     sink.status(activity(req));
-                    Outcome o = runTool(req, repoPath, seen);
+                    Outcome o = runTool(req, repoPath, seen, tel);
                     allRepeats &= o.repeat();
                     // Fed back as a plain message: a tool-result message without a matching
                     // structured call confuses some chat templates.
@@ -133,7 +145,7 @@ public class ToolLoop {
                 allRepeats = true;
                 for (ToolExecutionRequest req : ai.toolExecutionRequests()) {
                     sink.status(activity(req));
-                    Outcome o = runTool(req, repoPath, seen);
+                    Outcome o = runTool(req, repoPath, seen, tel);
                     allRepeats &= o.repeat();
                     messages.add(ToolExecutionResultMessage.from(req, withBudget(o.text(), stepsLeft)));
                 }
@@ -145,6 +157,7 @@ public class ToolLoop {
             spinning = allRepeats ? spinning + 1 : 0;
             if (spinning >= 2) {
                 log.info("Tool loop stopped early — {} repeated tool steps with nothing new", spinning);
+                tel.stoppedSpinning();
                 return finalAnswer(turn, messages,
                         "You are repeating tool calls you have already made, which returns nothing new."
                                 + " Stop calling tools and answer now from the results above.");
@@ -153,6 +166,7 @@ public class ToolLoop {
         // Out of steps. Answering without tools invites confabulation, so say plainly that the
         // budget ran out — a truthful "I couldn't finish" beats an invented answer.
         log.info("Tool loop hit the {}-step cap", MAX_STEPS);
+        tel.hitStepCap();
         return finalAnswer(turn, messages,
                 "You have used all available tool steps. Answer now using only the tool results above.");
     }
@@ -233,10 +247,13 @@ public class ToolLoop {
     private record Outcome(String text, boolean repeat) {}
 
     /** Execute one tool request, short-circuiting a repeat of something already run this turn. */
-    private Outcome runTool(ToolExecutionRequest req, String repoPath, java.util.Map<String, String> seen) {
+    private Outcome runTool(ToolExecutionRequest req, String repoPath,
+                            java.util.Map<String, String> seen, ToolTelemetry tel) {
+        tel.call(req.name());
         String signature = req.name() + "(" + normalizeArgs(req.arguments()) + ")";
         if (seen.containsKey(signature)) {
             log.info("Tool call repeated, short-circuited: {}", signature);
+            tel.repeated();
             return new Outcome("You already called " + signature + " and it returned:\n" + seen.get(signature)
                     + "\n\nDo not call it again — use this result, or answer with what you have.", true);
         }
@@ -252,12 +269,15 @@ public class ToolLoop {
                 result = "Tool error: there is no tool named '" + req.name() + "'. The tools you can call are: "
                         + String.join(", ", availableNames(repoPath)) + ".";
                 log.info("Unknown tool requested: {}", req.name());
+                tel.unknownTool();
             } else {
                 result = mcp.call(server, req.name(), req.arguments());
                 log.info("MCP tool call: {}/{} -> {} chars", server, req.name(), result.length());
             }
         }
         seen.put(signature, result);
+        if (result.startsWith("Tool error:") || result.startsWith("Could not read")) tel.toolError();
+        else tel.gatheredSomething();
         return new Outcome(result, false);
     }
 

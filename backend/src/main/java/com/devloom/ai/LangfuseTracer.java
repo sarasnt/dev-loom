@@ -122,6 +122,85 @@ public class LangfuseTracer {
         }
     }
 
+    /**
+     * Export one scored run: a trace for the run as a whole, plus Langfuse scores on it — the
+     * overall quality, and one per penalty so a bad behaviour can be filtered and counted rather
+     * than only showing up as a lower number.
+     *
+     * <p>This is a trace of the RUN, distinct from the per-call generations {@link #export} sends.
+     * A run with four tool steps makes four model calls, and the thing worth scoring is the run.
+     */
+    public void exportScore(String feature, String provider, String model,
+                            long startMs, long endMs, RunQuality.Score score, ToolTelemetry tel) {
+        if (!exporting()) return;
+        try {
+            String traceId = UUID.randomUUID().toString();
+            String name = (feature == null || feature.isBlank() ? "devloom" : feature) + "-run";
+            StringBuilder events = new StringBuilder();
+
+            events.append("{")
+                    .append("\"id\":\"").append(UUID.randomUUID()).append("\",")
+                    .append("\"type\":\"trace-create\",")
+                    .append("\"timestamp\":\"").append(Instant.ofEpochMilli(endMs)).append("\",")
+                    .append("\"body\":{")
+                    .append("\"id\":\"").append(traceId).append("\",")
+                    .append("\"name\":\"").append(esc(name)).append("\",")
+                    .append("\"timestamp\":\"").append(Instant.ofEpochMilli(startMs)).append("\",")
+                    .append("\"metadata\":{")
+                    .append("\"provider\":\"").append(esc(provider)).append("\",")
+                    .append("\"model\":\"").append(esc(model)).append("\",")
+                    .append("\"steps\":").append(tel.steps()).append(',')
+                    .append("\"toolCalls\":").append(tel.toolCalls()).append(',')
+                    .append("\"repeatedCalls\":").append(tel.repeatedCalls()).append(',')
+                    .append("\"unknownTools\":").append(tel.unknownTools()).append(',')
+                    .append("\"toolErrors\":").append(tel.toolErrors()).append(',')
+                    .append("\"hitStepCap\":").append(tel.didHitStepCap()).append(',')
+                    .append("\"stoppedSpinning\":").append(tel.didStopSpinning()).append(',')
+                    .append("\"grounded\":").append(tel.gathered())
+                    .append("}}}");
+
+            events.append(',').append(scoreEvent(traceId, "quality", score.value(), score.summary(), endMs));
+            for (RunQuality.Penalty p : score.penalties()) {
+                // Negative, so a Langfuse chart of a penalty reads as the cost it imposed.
+                events.append(',').append(scoreEvent(traceId, "penalty." + p.name(), -p.cost(), p.detail(), endMs));
+            }
+
+            post("{\"batch\":[" + events + "]}");
+        } catch (Exception e) {
+            log.warn("Langfuse score export error: {}", e.getMessage());
+        }
+    }
+
+    private static String scoreEvent(String traceId, String name, double value, String comment, long atMs) {
+        return "{"
+                + "\"id\":\"" + UUID.randomUUID() + "\","
+                + "\"type\":\"score-create\","
+                + "\"timestamp\":\"" + Instant.ofEpochMilli(atMs) + "\","
+                + "\"body\":{"
+                + "\"id\":\"" + UUID.randomUUID() + "\","
+                + "\"traceId\":\"" + traceId + "\","
+                + "\"name\":\"" + esc(name) + "\","
+                + "\"value\":" + value + ","
+                + "\"dataType\":\"NUMERIC\","
+                + "\"comment\":\"" + esc(comment == null ? "" : comment) + "\""
+                + "}}";
+    }
+
+    /** Fire-and-forget POST to the ingestion endpoint. */
+    private void post(String body) {
+        HttpRequest req = HttpRequest.newBuilder(URI.create(ingestUrl))
+                .timeout(Duration.ofSeconds(5))
+                .header("Authorization", authHeader)
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
+                .build();
+        http.sendAsync(req, HttpResponse.BodyHandlers.ofString())
+                .whenComplete((resp, ex) -> {
+                    if (ex != null) log.warn("Langfuse export failed: {}", ex.getMessage());
+                    else if (resp.statusCode() >= 300) log.warn("Langfuse export HTTP {}: {}", resp.statusCode(), resp.body());
+                });
+    }
+
     /** Batched ingestion payload: a trace-create + a generation-create referencing it. */
     private static String buildBatch(String traceId, String traceName, String provider, String model,
                                      String start, String end, long in, long out, boolean ok, String error) {

@@ -68,6 +68,13 @@ answers through the real `/fleet/runs` path and scores them; `--compare x.json` 
 Change anything in `ai/` (prompts, tools, sampling) and re-run it — a claim of improvement without
 a moved pass rate is a guess.
 
+Two different numbers, and they measure different things. **Correctness** is the eval's own regex
+check on the answer. **Run quality** (`RunQuality`) scores the *process* — repeated calls, invented
+tool names, hitting the step cap, a Fleet run ending on a question — and is computed for every real
+run, not just eval ones, then shown on the run and exported to Langfuse as `quality` plus a
+`penalty.<name>` score per fault. A run can be 1.00 quality and still wrong (it went about it
+properly and got the answer wrong), which is the point of keeping them apart.
+
 ## Architecture
 
 ### Unified work model
@@ -114,7 +121,7 @@ branch or lands a patch, Discard removes both.
   from `api/index.ts`. Views import from `../api` only.
 - **Jackson**: use `com.fasterxml.jackson` (Jackson 2). Boot 4 also ships `tools.jackson`
   (Jackson 3) — mixing them breaks the build.
-- **Migrations**: Flyway, `backend/src/main/resources/db/migration/`. Next is **V19**.
+- **Migrations**: Flyway, `backend/src/main/resources/db/migration/`. Next is **V20**.
 - **Secrets**: encrypted via `SecretCipher`/`DEVLOOM_SECRET`, stored apart from config
   (`source_credential`, `provider_credential`). They must never enter exports, backups or logs.
 - **Windows/agent**: run `git` with `shell: false` — going through cmd.exe re-splits arguments

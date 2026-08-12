@@ -60,6 +60,19 @@ public class AgentRunEntity {
     @Column(columnDefinition = "text")
     private String error;
 
+    /** How the run went about its work (see RunQuality) — null for runs with no tool loop. */
+    @Column(name = "quality_score")
+    private java.math.BigDecimal qualityScore;
+
+    @Column(name = "quality_notes")
+    private String qualityNotes;
+
+    @Column(name = "tool_calls")
+    private Integer toolCalls;
+
+    @Column(name = "tool_repeats")
+    private Integer toolRepeats;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt = Instant.now();
 
@@ -146,6 +159,14 @@ public class AgentRunEntity {
     public void setResultSummary(String v) { this.resultSummary = v; }
     public String getError() { return error; }
     public void setError(String v) { this.error = v; }
+    public java.math.BigDecimal getQualityScore() { return qualityScore; }
+    public void setQualityScore(java.math.BigDecimal v) { this.qualityScore = v; }
+    public String getQualityNotes() { return qualityNotes; }
+    public void setQualityNotes(String v) { this.qualityNotes = v; }
+    public Integer getToolCalls() { return toolCalls; }
+    public void setToolCalls(Integer v) { this.toolCalls = v; }
+    public Integer getToolRepeats() { return toolRepeats; }
+    public void setToolRepeats(Integer v) { this.toolRepeats = v; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getStartedAt() { return startedAt; }
     public Instant getFinishedAt() { return finishedAt; }

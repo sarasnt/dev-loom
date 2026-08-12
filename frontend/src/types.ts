@@ -462,6 +462,10 @@ export interface AgentRun {
   finishedAt: string | null
   claudeSessionId: string | null
   brainstormSessionId: string | null
+  qualityScore: number | null   // how it went about the work, 1.00 clean (see RunQuality)
+  qualityNotes: string | null   // the penalties, named
+  toolCalls: number | null
+  toolRepeats: number | null
 }
 export interface RunLaunch {
   repoId: string

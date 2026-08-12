@@ -103,10 +103,11 @@ public class OllamaLlm implements LlmPort {
         messages.add(UserMessage.from(request.prompt()));
         // Through the tool loop so the model can actually call any MCP tools the user enabled;
         // with none enabled this is a plain one-shot chat.
-        String answer = toolLoop.chat(chat, messages, request.repoPath());
-        String text = answer == null ? "" : answer;
-        log.info("Ollama generate: model={} chars={}", model, text.length());
-        return new LlmResult(text, model, provider(), true);
+        ToolLoop.Reply reply = toolLoop.run(ToolLoop.blocking(chat), messages, request.repoPath(),
+                StreamSink.NONE);
+        String text = reply.text() == null ? "" : reply.text();
+        log.info("Ollama generate: model={} chars={} {}", model, text.length(), reply.telemetry());
+        return new LlmResult(text, model, provider(), true, reply.telemetry());
     }
 
     /**
@@ -166,10 +167,10 @@ public class OllamaLlm implements LlmPort {
             messages.add(SystemMessage.from(request.system()));
         }
         messages.add(UserMessage.from(request.prompt()));
-        String answer = toolLoop.chat(turn, messages, request.repoPath(), sink);
-        String text = answer == null ? "" : answer;
-        log.info("Ollama stream: model={} chars={}", model, text.length());
-        return new LlmResult(text, model, provider(), true);
+        ToolLoop.Reply reply = toolLoop.run(turn, messages, request.repoPath(), sink);
+        String text = reply.text() == null ? "" : reply.text();
+        log.info("Ollama stream: model={} chars={} {}", model, text.length(), reply.telemetry());
+        return new LlmResult(text, model, provider(), true, reply.telemetry());
     }
 
     /** Names of models pulled into this Ollama instance (empty if unreachable). */

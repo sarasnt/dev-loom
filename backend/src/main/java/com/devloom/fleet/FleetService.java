@@ -196,7 +196,8 @@ public class FleetService {
             com.devloom.ai.LlmPort.LlmResult r =
                     llm.generate(new com.devloom.ai.LlmPort.LlmRequest("fleet", system, full, model, path));
             String text = r.text() == null ? "" : r.text();
-            finishLocal(id, text.replace("[DEVLOOM:INPUT]", "").stripTrailing(), null, false);
+            finishLocal(id, text.replace("[DEVLOOM:INPUT]", "").stripTrailing(), null, false,
+                    r.telemetry(), com.devloom.ai.RunQuality.score(r.telemetry(), text, true));
         } catch (Exception e) {
             finishLocal(id, null, e.getMessage() == null ? "run failed" : e.getMessage(), false);
         }
@@ -204,10 +205,25 @@ public class FleetService {
 
     /** Persist a local run's outcome (runs on a pool thread — the repository save opens its own tx). */
     private void finishLocal(Long id, String result, String error, boolean needsInput) {
+        finishLocal(id, result, error, needsInput, null, null);
+    }
+
+    private void finishLocal(Long id, String result, String error, boolean needsInput,
+                             com.devloom.ai.ToolTelemetry tel, com.devloom.ai.RunQuality.Score score) {
         AgentRunEntity run = runs.findById(id).orElse(null);
         if (run == null) return;
         if ("canceled".equals(run.getStatus())) return; // the user let go of it while it ran
         run.setFinishedAt(Instant.now());
+        // How it went about the work, kept next to the answer so the board can show that a run
+        // answered without opening a file.
+        if (tel != null) {
+            run.setToolCalls(tel.toolCalls());
+            run.setToolRepeats(tel.repeatedCalls());
+        }
+        if (score != null) {
+            run.setQualityScore(java.math.BigDecimal.valueOf(score.value()));
+            run.setQualityNotes(score.summary());
+        }
         if (error != null) {
             run.setStatus("failed");
             run.setError(error);
@@ -666,7 +682,9 @@ public class FleetService {
                 r.getStatus(), r.getResultSummary(), r.getError(),
                 iso(r.getCreatedAt()), iso(r.getStartedAt()), iso(r.getFinishedAt()),
                 r.getClaudeSessionId(),
-                r.getBrainstormSessionId() == null ? null : String.valueOf(r.getBrainstormSessionId()));
+                r.getBrainstormSessionId() == null ? null : String.valueOf(r.getBrainstormSessionId()),
+                r.getQualityScore() == null ? null : r.getQualityScore().doubleValue(),
+                r.getQualityNotes(), r.getToolCalls(), r.getToolRepeats());
     }
 
     private static String iso(Instant t) { return t == null ? null : t.toString(); }

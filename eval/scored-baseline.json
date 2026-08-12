@@ -1,0 +1,202 @@
+{
+  "at": "2026-08-12T17:17:02.854Z",
+  "args": {
+    "models": [
+      "qwen3-coder:30b"
+    ],
+    "reps": 3,
+    "tasks": null,
+    "save": "eval/scored-baseline.json",
+    "compare": null
+  },
+  "results": {
+    "qwen3-coder:30b": {
+      "version": {
+        "pass": 3,
+        "n": 3,
+        "ms": [
+          36347,
+          2022,
+          2033
+        ],
+        "quality": [
+          1,
+          1,
+          1
+        ],
+        "calls": [
+          1,
+          1,
+          1
+        ],
+        "repeats": [
+          0,
+          0,
+          0
+        ],
+        "penalties": {},
+        "signals": {
+          "endsWithQuestion": 0,
+          "offersMenu": 0,
+          "empty": 0
+        },
+        "samples": []
+      },
+      "export": {
+        "pass": 3,
+        "n": 3,
+        "ms": [
+          2038,
+          6063,
+          2029
+        ],
+        "quality": [
+          1,
+          1,
+          1
+        ],
+        "calls": [
+          1,
+          1,
+          1
+        ],
+        "repeats": [
+          0,
+          0,
+          0
+        ],
+        "penalties": {},
+        "signals": {
+          "endsWithQuestion": 0,
+          "offersMenu": 0,
+          "empty": 0
+        },
+        "samples": []
+      },
+      "count": {
+        "pass": 3,
+        "n": 3,
+        "ms": [
+          2023,
+          2037,
+          4042
+        ],
+        "quality": [
+          1,
+          1,
+          1
+        ],
+        "calls": [
+          1,
+          1,
+          1
+        ],
+        "repeats": [
+          0,
+          0,
+          0
+        ],
+        "penalties": {},
+        "signals": {
+          "endsWithQuestion": 0,
+          "offersMenu": 0,
+          "empty": 0
+        },
+        "samples": []
+      },
+      "crossfile": {
+        "pass": 3,
+        "n": 3,
+        "ms": [
+          4045,
+          4035,
+          10094
+        ],
+        "quality": [
+          1,
+          1,
+          1
+        ],
+        "calls": [
+          2,
+          3,
+          3
+        ],
+        "repeats": [
+          0,
+          0,
+          0
+        ],
+        "penalties": {},
+        "signals": {
+          "endsWithQuestion": 0,
+          "offersMenu": 0,
+          "empty": 0
+        },
+        "samples": []
+      },
+      "bug": {
+        "pass": 3,
+        "n": 3,
+        "ms": [
+          6049,
+          6066,
+          10088
+        ],
+        "quality": [
+          1,
+          1,
+          1
+        ],
+        "calls": [
+          1,
+          1,
+          1
+        ],
+        "repeats": [
+          0,
+          0,
+          0
+        ],
+        "penalties": {},
+        "signals": {
+          "endsWithQuestion": 0,
+          "offersMenu": 0,
+          "empty": 0
+        },
+        "samples": []
+      },
+      "refusal": {
+        "pass": 3,
+        "n": 3,
+        "ms": [
+          6077,
+          6074,
+          6050
+        ],
+        "quality": [
+          1,
+          1,
+          1
+        ],
+        "calls": [
+          3,
+          3,
+          3
+        ],
+        "repeats": [
+          0,
+          0,
+          0
+        ],
+        "penalties": {},
+        "signals": {
+          "endsWithQuestion": 0,
+          "offersMenu": 0,
+          "empty": 0
+        },
+        "samples": []
+      }
+    }
+  }
+}
