@@ -397,3 +397,17 @@ export function repoCommitDetail(): Promise<import('../types').CommitDetail> {
 export function repoSquash(): Promise<import('../types').SquashResult> {
   return delay({ ok: false, error: 'offline' })
 }
+export function fetchCapabilities(): Promise<import('../types').Capabilities> {
+  return delay({ mcp: [], skills: [], plugins: [], agentUp: false, error: 'offline' })
+}
+export function addMcpServer() { return delay({ ok: false, error: 'offline' }) }
+export function removeMcpServer() { return delay({ ok: false, error: 'offline' }) }
+export function togglePlugin() { return delay({ ok: false }) }
+export function saveSkill() { return delay({ ok: false, error: 'offline' }) }
+export function fetchSkill(): Promise<import('../types').SkillDetail> {
+  return delay({ ok: false, dir: '', name: '', description: '', body: '', error: 'offline' })
+}
+export function removeSkill() { return delay({ ok: false, error: 'offline' }) }
+export function installSkillRepo() {
+  return delay({ ok: false, dir: undefined as string | undefined, error: 'offline' })
+}

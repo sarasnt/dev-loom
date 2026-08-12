@@ -3,6 +3,7 @@
 const tabs = [
   { to: '/settings/integrations', label: 'Sources' },
   { to: '/settings/models', label: 'Models' },
+  { to: '/settings/capabilities', label: 'Capabilities' },
   { to: '/settings/general', label: 'General' },
   { to: '/settings/monitoring', label: 'Monitoring' },
 ]

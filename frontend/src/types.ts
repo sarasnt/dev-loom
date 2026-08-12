@@ -470,6 +470,46 @@ export interface RunLaunch {
   isolate: boolean
 }
 
+// ---- Model capabilities (skills / MCP servers / plugins) ----
+export interface McpServer {
+  name: string
+  transport: string // 'stdio' | 'http' | 'sse'
+  command: string // command (stdio) or URL (http/sse)
+  args: string[]
+  env: string[] // key names only — values are never sent back to the UI
+}
+export interface SkillInfo {
+  dir: string
+  name: string
+  description: string
+  path: string
+  managed: 'git' | 'local'
+}
+export interface PluginInfo {
+  id: string
+  name: string
+  marketplace: string
+  version: string
+  enabled: boolean
+  missing?: boolean
+}
+export interface Capabilities {
+  mcp: McpServer[]
+  skills: SkillInfo[]
+  plugins: PluginInfo[]
+  skillsDir?: string
+  agentUp?: boolean
+  error?: string
+}
+export interface SkillDetail {
+  ok: boolean
+  dir: string
+  name: string
+  description: string
+  body: string
+  error?: string
+}
+
 // ---- Onboarding ----
 export interface OnboardStep {
   n: number | string

@@ -325,6 +325,48 @@ public class HostAgentClient {
         return get("/pty/sessions");
     }
 
+    // ---- model capabilities (skills / MCP servers / plugins) ----
+
+    public Map<String, Object> capabilities() {
+        return get("/caps");
+    }
+
+    public Map<String, Object> addMcpServer(String name, Map<String, Object> spec) {
+        Map<String, Object> body = new java.util.HashMap<>();
+        body.put("name", name);
+        body.put("spec", spec);
+        return post("/caps/mcp", body);
+    }
+
+    public Map<String, Object> removeMcpServer(String name) {
+        return post("/caps/mcp/remove", Map.of("name", name));
+    }
+
+    public Map<String, Object> setPluginEnabled(String id, boolean enabled) {
+        return post("/caps/plugin", Map.of("id", id, "enabled", enabled));
+    }
+
+    public Map<String, Object> saveSkill(String dir, String name, String description, String body) {
+        Map<String, Object> b = new java.util.HashMap<>();
+        b.put("dir", dir == null ? "" : dir);
+        b.put("name", name == null ? "" : name);
+        b.put("description", description == null ? "" : description);
+        b.put("body", body == null ? "" : body);
+        return post("/caps/skill", b);
+    }
+
+    public Map<String, Object> getSkill(String dir) {
+        return post("/caps/skill/get", Map.of("dir", dir));
+    }
+
+    public Map<String, Object> removeSkill(String dir) {
+        return post("/caps/skill/remove", Map.of("dir", dir));
+    }
+
+    public Map<String, Object> installSkillRepo(String repo) {
+        return post("/caps/skill/install", Map.of("repo", repo));
+    }
+
     private Map<String, Object> get(String path) {
         Map<String, Object> resp = http.get().uri(path).retrieve().body(MAP);
         if (resp == null) throw new IllegalStateException("no response from host agent");

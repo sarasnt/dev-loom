@@ -210,3 +210,20 @@ export const repoCommitDetail = (id: string, hash: string) =>
   get<import('../types').CommitDetail>(`/repos/${id}/commits/${encodeURIComponent(hash)}`)
 export const repoSquash = (id: string, count: number, message: string, confirmPublished: boolean) =>
   post<import('../types').SquashResult>(`/repos/${id}/squash`, { count, message, confirmPublished })
+
+// ---- model capabilities (skills / MCP / plugins) ----
+export const fetchCapabilities = () => get<import('../types').Capabilities>('/capabilities')
+export const addMcpServer = (b: { name: string; transport: string; command: string; args: string[]; env: Record<string, string> }) =>
+  post<{ ok: boolean; error?: string }>('/capabilities/mcp', b)
+export const removeMcpServer = (name: string) =>
+  del<{ ok: boolean; error?: string }>(`/capabilities/mcp/${encodeURIComponent(name)}`)
+export const togglePlugin = (id: string, enabled: boolean) =>
+  put<{ ok: boolean }>(`/capabilities/plugins/${encodeURIComponent(id)}`, { enabled })
+export const saveSkill = (b: { dir?: string; name: string; description: string; body: string }) =>
+  post<{ ok: boolean; dir?: string; error?: string }>('/capabilities/skills', b)
+export const fetchSkill = (dir: string) =>
+  get<import('../types').SkillDetail>(`/capabilities/skills/${encodeURIComponent(dir)}`)
+export const removeSkill = (dir: string) =>
+  del<{ ok: boolean; error?: string }>(`/capabilities/skills/${encodeURIComponent(dir)}`)
+export const installSkillRepo = (repo: string) =>
+  post<{ ok: boolean; dir?: string; error?: string }>('/capabilities/skills/install', { repo })

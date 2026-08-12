@@ -179,6 +179,157 @@ function cancelRun(id) {
   return { ok: true }
 }
 
+// ---- model capabilities: skills, MCP servers, plugins ----
+// Claude Code reads these from the user's own config, so DevLoom edits the same files rather than
+// keeping a parallel copy: MCP servers + per-project config live in ~/.claude.json, plugin
+// enablement in ~/.claude/settings.json, and personal skills are ~/.claude/skills/<name>/SKILL.md.
+const CLAUDE_JSON = () => path.join(os.homedir(), '.claude.json')
+const CLAUDE_SETTINGS = () => path.join(os.homedir(), '.claude', 'settings.json')
+const SKILLS_DIR = () => path.join(os.homedir(), '.claude', 'skills')
+
+function readJson(file, fallback) {
+  try { return JSON.parse(fs.readFileSync(file, 'utf8')) } catch { return fallback }
+}
+/** Write JSON atomically (tmp + rename) so a crash can't truncate the user's config. */
+function writeJson(file, data) {
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  const tmp = file + '.devloom.tmp'
+  fs.writeFileSync(tmp, JSON.stringify(data, null, 2))
+  fs.renameSync(tmp, file)
+}
+
+/** Parse `name:`/`description:` out of a SKILL.md frontmatter block. */
+function skillMeta(md) {
+  const m = /^---\r?\n([\s\S]*?)\r?\n---/.exec(md || '')
+  const out = { name: null, description: null }
+  if (!m) return out
+  for (const line of m[1].split(/\r?\n/)) {
+    const kv = /^(\w[\w-]*):\s*(.*)$/.exec(line.trim())
+    if (kv && kv[1] === 'name') out.name = kv[2].trim()
+    if (kv && kv[1] === 'description') out.description = kv[2].trim()
+  }
+  return out
+}
+
+function listSkills() {
+  const dir = SKILLS_DIR()
+  if (!fs.existsSync(dir)) return []
+  const out = []
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (!e.isDirectory()) continue
+    const file = path.join(dir, e.name, 'SKILL.md')
+    if (!fs.existsSync(file)) continue
+    let md = ''
+    try { md = fs.readFileSync(file, 'utf8') } catch { /* unreadable */ }
+    const meta = skillMeta(md)
+    out.push({
+      dir: e.name,
+      name: meta.name || e.name,
+      description: meta.description || '',
+      path: path.join(dir, e.name),
+      managed: fs.existsSync(path.join(dir, e.name, '.git')) ? 'git' : 'local',
+    })
+  }
+  return out
+}
+
+/** Everything DevLoom can show/manage about what the models can do. */
+function capabilities() {
+  const cfg = readJson(CLAUDE_JSON(), {})
+  const settings = readJson(CLAUDE_SETTINGS(), {})
+  const installed = readJson(path.join(os.homedir(), '.claude', 'plugins', 'installed_plugins.json'), {})
+  const enabled = settings.enabledPlugins || {}
+  const plugins = Object.keys(installed.plugins || {}).map((id) => {
+    const entry = (installed.plugins[id] || [])[0] || {}
+    const [name, marketplace] = id.split('@')
+    return { id, name, marketplace: marketplace || '', version: entry.version || '', enabled: enabled[id] === true }
+  })
+  // Enabled-but-not-installed entries still matter (they show as unavailable rather than vanishing).
+  for (const id of Object.keys(enabled)) {
+    if (!plugins.some((p) => p.id === id)) {
+      const [name, marketplace] = id.split('@')
+      plugins.push({ id, name, marketplace: marketplace || '', version: '', enabled: enabled[id] === true, missing: true })
+    }
+  }
+  const mcp = Object.entries(cfg.mcpServers || {}).map(([name, s]) => ({
+    name,
+    transport: s && s.type ? s.type : (s && s.url ? 'http' : 'stdio'),
+    command: s ? (s.command || s.url || '') : '',
+    args: (s && s.args) || [],
+    env: Object.keys((s && s.env) || {}),
+  }))
+  return { mcp, skills: listSkills(), plugins, skillsDir: SKILLS_DIR() }
+}
+
+function addMcpServer(name, spec) {
+  if (!name || !/^[\w.-]+$/.test(name)) return { ok: false, error: 'name must be letters, numbers, . _ or -' }
+  const cfg = readJson(CLAUDE_JSON(), {})
+  cfg.mcpServers = cfg.mcpServers || {}
+  cfg.mcpServers[name] = spec
+  writeJson(CLAUDE_JSON(), cfg)
+  return { ok: true }
+}
+
+function removeMcpServer(name) {
+  const cfg = readJson(CLAUDE_JSON(), {})
+  if (cfg.mcpServers && cfg.mcpServers[name]) {
+    delete cfg.mcpServers[name]
+    writeJson(CLAUDE_JSON(), cfg)
+    return { ok: true }
+  }
+  return { ok: false, error: 'no such server' }
+}
+
+function setPluginEnabled(id, enabled) {
+  const settings = readJson(CLAUDE_SETTINGS(), {})
+  settings.enabledPlugins = settings.enabledPlugins || {}
+  if (enabled) settings.enabledPlugins[id] = true
+  else delete settings.enabledPlugins[id]
+  writeJson(CLAUDE_SETTINGS(), settings)
+  return { ok: true }
+}
+
+function writeSkill(dirName, name, description, body) {
+  const safe = String(dirName || name || '').trim().toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-|-$/g, '')
+  if (!safe) return { ok: false, error: 'a skill needs a name' }
+  const dir = path.join(SKILLS_DIR(), safe)
+  fs.mkdirSync(dir, { recursive: true })
+  const md = `---\nname: ${name || safe}\ndescription: ${(description || '').replace(/\n/g, ' ')}\n---\n\n${body || ''}\n`
+  fs.writeFileSync(path.join(dir, 'SKILL.md'), md)
+  return { ok: true, dir: safe }
+}
+
+function readSkill(dirName) {
+  const file = path.join(SKILLS_DIR(), String(dirName || ''), 'SKILL.md')
+  if (!fs.existsSync(file)) return { ok: false, error: 'no such skill' }
+  const md = fs.readFileSync(file, 'utf8')
+  const meta = skillMeta(md)
+  const body = md.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '').trim()
+  return { ok: true, dir: dirName, name: meta.name || dirName, description: meta.description || '', body }
+}
+
+function removeSkill(dirName) {
+  const safe = String(dirName || '')
+  if (!safe || safe.includes('..') || path.isAbsolute(safe)) return { ok: false, error: 'bad skill name' }
+  const dir = path.join(SKILLS_DIR(), safe)
+  if (!fs.existsSync(dir)) return { ok: false, error: 'no such skill' }
+  fs.rmSync(dir, { recursive: true, force: true })
+  return { ok: true }
+}
+
+/** Install a skill (or a pack of skills) by cloning a git repo into ~/.claude/skills. */
+async function installSkillRepo(repo) {
+  if (!repo || !/^(https?:\/\/|git@)/.test(repo)) return { ok: false, error: 'expected an https:// or git@ repo URL' }
+  const dirName = repo.replace(/\.git$/, '').split(/[\/:]/).pop().toLowerCase().replace(/[^a-z0-9-]+/g, '-')
+  const dir = path.join(SKILLS_DIR(), dirName)
+  if (fs.existsSync(dir)) return { ok: false, error: `${dirName} already exists` }
+  fs.mkdirSync(SKILLS_DIR(), { recursive: true })
+  const r = await git(SKILLS_DIR(), ['clone', '--depth', '1', repo, dirName])
+  if (r.code !== 0) return { ok: false, error: (r.err || 'clone failed').trim().slice(0, 300) }
+  // A repo that is a skill pack (skills in subfolders) is kept as-is; Claude reads nested SKILL.md.
+  return { ok: true, dir: dirName, hasSkillMd: fs.existsSync(path.join(dir, 'SKILL.md')) }
+}
+
 // ---- git / repositories ----
 // shell:false — git is a real .exe, and running it through cmd.exe would re-split args that
 // contain spaces (e.g. commit messages, quoted paths).
@@ -722,6 +873,37 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'GET' && url.pathname === '/pty/sessions') {
       return json(res, 200, { sessions: ptySessionList() })
+    }
+    if (req.method === 'GET' && url.pathname === '/caps') {
+      return json(res, 200, capabilities())
+    }
+    if (req.method === 'POST' && url.pathname === '/caps/mcp') {
+      const { name, spec } = await readBody(req)
+      return json(res, 200, addMcpServer(name, spec))
+    }
+    if (req.method === 'POST' && url.pathname === '/caps/mcp/remove') {
+      const { name } = await readBody(req)
+      return json(res, 200, removeMcpServer(name))
+    }
+    if (req.method === 'POST' && url.pathname === '/caps/plugin') {
+      const { id, enabled } = await readBody(req)
+      return json(res, 200, setPluginEnabled(id, !!enabled))
+    }
+    if (req.method === 'POST' && url.pathname === '/caps/skill') {
+      const { dir, name, description, body } = await readBody(req)
+      return json(res, 200, writeSkill(dir, name, description, body))
+    }
+    if (req.method === 'POST' && url.pathname === '/caps/skill/get') {
+      const { dir } = await readBody(req)
+      return json(res, 200, readSkill(dir))
+    }
+    if (req.method === 'POST' && url.pathname === '/caps/skill/remove') {
+      const { dir } = await readBody(req)
+      return json(res, 200, removeSkill(dir))
+    }
+    if (req.method === 'POST' && url.pathname === '/caps/skill/install') {
+      const { repo } = await readBody(req)
+      return json(res, 200, await installSkillRepo(repo))
     }
     if (req.method === 'POST' && url.pathname === '/agent/worktree/add') {
       const { repoPath, branch } = await readBody(req)
