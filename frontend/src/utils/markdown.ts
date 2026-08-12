@@ -46,7 +46,10 @@ export function renderMarkdown(src: string): string {
   s = s.replace(/```[^\n]*\n?([\s\S]*?)```/g, (_m, code: string) => {
     const i = blocks.length
     blocks.push(`<pre class="md-pre"><code>${code.replace(/\n$/, '')}</code></pre>`)
-    return ` CB${i} `
+    // NUL-delimited so the placeholder can't be confused with real text, and so trimming the
+    // line can't strip its delimiters — the old ` CB0 ` form was matched against an
+    // already-trimmed line, so its spaces were gone and every code block rendered as "CB0".
+    return `\u0000CB${i}\u0000`
   })
 
   const out: string[] = []
@@ -76,7 +79,7 @@ export function renderMarkdown(src: string): string {
       continue
     }
 
-    const cb = t.match(/^ CB(\d+) $/)
+    const cb = t.match(/^\u0000CB(\d+)\u0000$/)
     if (cb) { flushPara(); closeList(); out.push(blocks[Number(cb[1])]); continue }
 
     const h = t.match(/^(#{1,6})\s+(.*)$/)

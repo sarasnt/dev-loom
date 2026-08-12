@@ -56,7 +56,20 @@ public final class Dto {
     public record Safety(List<String> allow, List<String> forbid) {}
     public record Handoff(
             String id, String title, String target, int version, Boundary boundary,
-            String rendered, Safety safety, List<EvidenceRef> sources, String repo, String branch) {}
+            String rendered, Safety safety, List<EvidenceRef> sources, String repo, String branch,
+            String savedAt) {
+
+        /** A freshly assembled artifact, not yet saved. */
+        public Handoff(String id, String title, String target, int version, Boundary boundary,
+                       String rendered, Safety safety, List<EvidenceRef> sources,
+                       String repo, String branch) {
+            this(id, title, target, version, boundary, rendered, safety, sources, repo, branch, null);
+        }
+    }
+
+    /** A row in the handoff history — enough to list and pick, without the whole artifact. */
+    public record HandoffSummary(String id, String title, String repo, String branch,
+                                 String buildId, String savedAt) {}
 
     // ---- Integrations ----
     public record Integration(

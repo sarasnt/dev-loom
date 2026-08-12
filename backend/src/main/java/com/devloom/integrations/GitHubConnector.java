@@ -79,13 +79,32 @@ public class GitHubConnector implements SourceConnector {
                     .retrieve()
                     .body(MAP);
 
+            // Reviews waiting on you are a separate GitHub query — `involves:` finds PRs you are
+            // merely part of, and says nothing about who is blocking whom. Without this the review
+            // features had no data path at all: nothing the connector wrote was ever a review, so
+            // the urgency rule that looks for one could never fire.
+            Map<String, Object> reviews = http.get()
+                    .uri(uri -> uri.path("/search/issues")
+                            .queryParam("q", "review-requested:" + login + " is:open is:pr")
+                            .queryParam("sort", "updated")
+                            .queryParam("order", "desc")
+                            .queryParam("per_page", maxIssues)
+                            .build())
+                    .retrieve()
+                    .body(MAP);
+            java.util.Set<Integer> awaitingMe = new java.util.HashSet<>();
+            for (Object o : (reviews == null ? List.of() : asList(reviews.get("items")))) {
+                Object id = asMap(o).get("id");
+                if (id instanceof Number n) awaitingMe.add(n.intValue());
+            }
+
             List<WorkItemEntity> out = new ArrayList<>();
             List<?> items = search == null ? List.of() : asList(search.get("items"));
             int order = 10;
             java.util.LinkedHashSet<String> repos = new java.util.LinkedHashSet<>();
             for (Object o : items) {
                 Map<String, Object> item = asMap(o);
-                out.add(map(item, login, source, order++));
+                out.add(map(item, login, source, order++, awaitingMe));
                 String repo = repoShortName(str(item, "repository_url"));
                 if (!repo.isBlank()) repos.add(repo);
             }
@@ -134,7 +153,8 @@ public class GitHubConnector implements SourceConnector {
         }
     }
 
-    private WorkItemEntity map(Map<String, Object> item, String login, String source, int order) {
+    private WorkItemEntity map(Map<String, Object> item, String login, String source, int order,
+                               java.util.Set<Integer> awaitingMe) {
         int number = ((Number) item.getOrDefault("number", 0)).intValue();
         String title = str(item, "title");
         String state = str(item, "state"); // open | closed
@@ -142,9 +162,14 @@ public class GitHubConnector implements SourceConnector {
         String repo = repoShortName(str(item, "repository_url"));
         boolean mine = str(asMap(item.get("user")), "login").equalsIgnoreCase(login);
 
-        String type = isPr ? "pr" : "task";
-        String tone = "closed".equals(state) ? "healthy" : "info";
-        String status = isPr ? (mine ? "PR · mine" : "PR") : "issue";
+        Object rawId = item.get("id");
+        boolean myReview = rawId instanceof Number n && awaitingMe.contains(n.intValue());
+
+        // A PR waiting on your review is a different job from a PR you happen to be on: it is
+        // blocked until you act, so it gets its own type and the urgency rules can find it.
+        String type = myReview ? "review" : (isPr ? "pr" : "task");
+        String tone = "closed".equals(state) ? "healthy" : (myReview ? "warn" : "info");
+        String status = myReview ? "review requested of you" : (isPr ? (mine ? "PR · mine" : "PR") : "issue");
         String extId = (repo + "#" + number);
         if (extId.length() > 60) {
             extId = extId.substring(extId.length() - 60);

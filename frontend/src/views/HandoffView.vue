@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import type { Handoff, RepoView } from '../types'
-import { fetchHandoff, fetchRepos, createBrainstormSession } from '../api'
+import type { Handoff, HandoffSummary, RepoView } from '../types'
+import { fetchHandoff, fetchHandoffs, deleteHandoff, fetchRepos, createBrainstormSession } from '../api'
 import { useDashboardStore } from '../stores/dashboard'
 import SourceChip from '../components/SourceChip.vue'
 import LoomLoader from '../components/LoomLoader.vue'
+import { renderMarkdown } from '../utils/markdown'
 
 const handoffSteps = [
   'Gathering the build evidence…',
@@ -28,10 +29,43 @@ let reposLoaded = false
 // A handoff can be handed off only when it targets a real repo (not the empty state).
 const runnable = computed(() => !!data.value && data.value.id !== 'none' && !!data.value.repo && data.value.repo !== '—')
 
-onMounted(async () => {
+// The handoffs you've generated. Without this the screen only ever showed the newest failure —
+// the one you wrote this morning was gone the moment you navigated away from it.
+const history = ref<HandoffSummary[]>([])
+async function loadHistory() {
+  try { history.value = await fetchHandoffs() } catch { history.value = [] }
+}
+
+async function remove(id: string) {
+  await deleteHandoff(id).catch(() => {})
+  history.value = history.value.filter((h) => h.id !== id)
+  // Viewing the one just deleted → fall back to the newest remaining, or the latest failure.
+  if (String(route.params.id) === id) router.push(`/handoffs/${history.value[0]?.id ?? 'h1'}`)
+}
+
+function when(iso: string): string {
+  const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000)
+  if (mins < 60) return `${Math.max(0, mins)}m ago`
+  if (mins < 60 * 24) return `${Math.round(mins / 60)}h ago`
+  return new Date(iso).toLocaleDateString()
+}
+
+async function load() {
+  loading.value = true
   data.value = await fetchHandoff(String(route.params.id ?? 'h1'))
   loading.value = false
+}
+
+onMounted(async () => {
+  loadHistory()
+  await load()
 })
+watch(() => route.params.id, load)
+
+// The artifact IS markdown, so show it as markdown. Copy and Export deliberately still take the
+// raw text — this gets pasted into another agent, where the source is what matters — so `raw`
+// lets you see exactly what those buttons will hand over.
+const raw = ref(false)
 
 async function copy() {
   if (!data.value) return
@@ -113,7 +147,22 @@ async function launch(repo: RepoView, mode: 'chat' | 'cli') {
         <span class="when mono">target: {{ data.target }} · <span class="local">⌂ local</span></span>
       </div>
 
-      <pre class="artifact mono">{{ data.rendered }}</pre>
+      <div v-if="history.length" class="hist">
+        <span class="hlab mono">saved</span>
+        <button v-for="h in history" :key="h.id" class="hchip mono"
+                :class="{ on: String(route.params.id) === h.id }" @click="router.push(`/handoffs/${h.id}`)">
+          {{ h.branch || h.title }}
+          <span class="hwhen">{{ when(h.savedAt) }}</span>
+          <span class="hx" role="button" aria-label="Delete handoff" @click.stop="remove(h.id)">✕</span>
+        </button>
+      </div>
+
+      <div class="viewtoggle mono">
+        <button class="vt" :class="{ on: !raw }" @click="raw = false">rendered</button>
+        <button class="vt" :class="{ on: raw }" @click="raw = true">raw</button>
+      </div>
+      <pre v-if="raw" class="artifact mono">{{ data.rendered }}</pre>
+      <div v-else class="artifact md" v-html="renderMarkdown(data.rendered)"></div>
 
       <section class="safety">
         <div class="st mono">Safety — locked defaults, editable</div>
@@ -184,6 +233,32 @@ async function launch(repo: RepoView, mode: 'chat' | 'cli') {
   font-size: 12.5px; line-height: 1.7; background: var(--bg); border: 1px solid var(--line);
   border-radius: var(--r-card); padding: 16px; color: var(--dim); white-space: pre-wrap; margin: 0;
 }
+.hist { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.hlab { font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--faint-text); margin-right: 4px; }
+.hchip { display: inline-flex; align-items: center; gap: 7px; font-size: 11px; color: var(--dim); background: var(--bg); border: 1px solid var(--line); border-radius: 20px; padding: 4px 9px; cursor: pointer; }
+.hchip:hover { border-color: var(--warp); color: var(--ink); }
+.hchip.on { color: var(--warp-hi); border-color: var(--warp); }
+.hwhen { color: var(--faint-text); }
+.hx { color: var(--faint-text); padding: 0 2px; }
+.hx:hover { color: var(--chip-fail); }
+.viewtoggle { display: flex; gap: 4px; justify-content: flex-end; margin-bottom: 6px; }
+.vt { font-size: 10.5px; letter-spacing: 0.08em; background: transparent; border: 1px solid transparent; border-radius: 6px; padding: 3px 8px; color: var(--faint-text); cursor: pointer; }
+.vt:hover { color: var(--ink); }
+.vt.on { color: var(--warp-hi); border-color: var(--warp); }
+/* Rendered markdown supplies its own block spacing — pre-wrap would double every gap. */
+.artifact.md { white-space: normal; color: var(--dim); }
+.md :deep(.md-p) { margin: 0 0 9px; } .md :deep(.md-p:last-child) { margin-bottom: 0; }
+.md :deep(.md-h) { font-weight: 600; color: var(--ink); margin: 14px 0 6px; }
+.md :deep(.md-h1) { font-size: 15px; margin-top: 0; }
+.md :deep(.md-h2) { font-size: 13.5px; }
+.md :deep(.md-ul), .md :deep(.md-ol) { margin: 4px 0 10px; padding-left: 20px; }
+.md :deep(li) { margin: 3px 0; }
+.md :deep(strong) { color: var(--ink); font-weight: 600; }
+.md :deep(.md-code) { font-family: var(--mono); font-size: 11.5px; background: var(--chip-bg); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; color: var(--warp-hi); }
+.md :deep(.md-pre) { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; overflow: auto; margin: 8px 0; }
+.md :deep(.md-pre code) { font-family: var(--mono); font-size: 11.5px; white-space: pre; background: none; border: 0; padding: 0; color: var(--dim); }
+.md :deep(a) { color: var(--warp-hi); text-decoration: underline; }
+.md :deep(hr) { border: 0; border-top: 1px solid var(--line); margin: 12px 0; }
 .safety { border: 1px solid var(--warp); border-radius: 8px; padding: 12px 14px; margin-top: 12px; background: var(--warp-weft); }
 .st { font-size: 11px; letter-spacing: 0.12em; color: var(--warp-hi); text-transform: uppercase; margin-bottom: 8px; }
 .safety div { font-size: 12.5px; padding: 2px 0; }

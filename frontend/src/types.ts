@@ -126,7 +126,16 @@ export interface BuildFailure {
 }
 
 // ---- Coding-agent handoff (SPEC §24) ----
+export interface HandoffSummary {
+  id: string
+  title: string
+  repo: string | null
+  branch: string | null
+  buildId: string | null
+  savedAt: string
+}
 export interface Handoff {
+  savedAt?: string | null   // set once kept in the history
   id: string
   title: string
   target: string

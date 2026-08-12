@@ -179,6 +179,15 @@ export function fetchMonitoring(windowDays = 7): Promise<import('../types').Moni
     retentionDays: 30,
   })
 }
+export function fetchHandoffs(): Promise<import('../types').HandoffSummary[]> {
+  return delay([])
+}
+export function generateHandoff(_buildId?: string): Promise<import('../types').Handoff> {
+  return delay(HANDOFF)
+}
+export function deleteHandoff(id: string): Promise<{ deleted: string }> {
+  return delay({ deleted: id })
+}
 export function setMonitoringRetention(days: number): Promise<{ retentionDays: number }> {
   return delay({ retentionDays: days })
 }

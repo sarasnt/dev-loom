@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { BuildFailure } from '../types'
-import { fetchBuildFailure, fetchLatestBuild } from '../api'
+import { fetchBuildFailure, fetchLatestBuild, fetchWork, generateHandoff } from '../api'
 import { useDashboardStore } from '../stores/dashboard'
 import SourceChip from '../components/SourceChip.vue'
 import LoomLoader from '../components/LoomLoader.vue'
@@ -27,6 +27,39 @@ const loading = ref(true)
 const step = ref('Starting analysis…')
 const progress = ref(0)
 const resultModel = ref('') // the model that produced the on-screen summary
+
+// Every failing run, so this screen isn't a view of whichever one you analysed last. The work
+// model already carries them, so no new endpoint — a build item's id is its CI run id.
+const failing = ref<{ id: string; title: string; repo: string }[]>([])
+async function loadFailing() {
+  try {
+    const rows = await fetchWork()
+    failing.value = rows
+      .filter((r) => r.type === 'build')
+      .map((r) => ({ id: r.id, title: r.title, repo: (r.meta ?? []).slice(-1)[0] ?? '' }))
+  } catch { failing.value = [] }
+}
+function switchTo(id: string) {
+  if (id && id !== currentId.value) router.push(`/builds/${id}`)
+}
+// What the selector should read as: the run actually on screen. The route has no id when you
+// arrive at /builds (the backend picks the newest failure), so keying off the route alone left
+// the selector blank on the very page it's most useful.
+const currentId = computed(() => String(route.params.id ?? '') || data.value?.id || '')
+
+// Generate and KEEP it, then open the saved one — a handoff you can't come back to isn't an
+// artifact, it's a view.
+const generating = ref(false)
+async function makeHandoff() {
+  if (generating.value) return
+  generating.value = true
+  try {
+    const h = await generateHandoff(currentId.value || undefined)
+    router.push(`/handoffs/${h.id}`)
+  } catch {
+    router.push('/handoffs/h1')
+  } finally { generating.value = false }
+}
 let es: EventSource | null = null
 
 function closeStream() {
@@ -103,6 +136,7 @@ onMounted(async () => {
   // "Analyze with X" from a Today card passes ?model; otherwise open with the configured default.
   runModel.value = (route.query.model as string) || store.modelFor('builds')
   store.reflectModel(runModel.value)
+  loadFailing()
   analyze()
 })
 watch(() => route.params.id, analyze)
@@ -128,6 +162,12 @@ onUnmounted(closeStream)
       <div class="head">
         <h1>Build failure · run <span class="mono">{{ data.run }}</span></h1>
         <div class="headright">
+          <label v-if="failing.length > 1" class="picker mono">
+            <span class="plab">failure</span>
+            <select class="psel" :value="currentId" @change="switchTo(($event.target as HTMLSelectElement).value)">
+              <option v-for="f in failing" :key="f.id" :value="f.id">{{ f.title }}</option>
+            </select>
+          </label>
           <ModelSelect screen="builds" label="run with" manual :model-value="runModel" @change="pickRun" />
           <span class="when">{{ data.branch }}<template v-if="data.pr"> · PR #{{ data.pr }}</template> · {{ data.failedAgo }}</span>
         </div>
@@ -198,7 +238,7 @@ onUnmounted(closeStream)
       <div class="handoffbar">
         <span class="ic" aria-hidden="true">⇥</span>
         <span class="txt">Generate agent handoff</span>
-        <button class="btn pri" @click="router.push('/handoffs/h1')">Generate ▸</button>
+        <button class="btn pri" :disabled="generating" @click="makeHandoff">{{ generating ? 'Generating…' : 'Generate ▸' }}</button>
       </div>
     </template>
   </main>
@@ -208,6 +248,10 @@ onUnmounted(closeStream)
 .bf { padding: 22px 26px; overflow: auto; }
 .head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 18px; gap: 14px; flex-wrap: wrap; }
 .head h1 { font-size: 22px; }
+.picker { display: flex; align-items: center; gap: 8px; }
+.plab { font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--faint-text); }
+.psel { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; color: var(--ink); padding: 5px 8px; font-family: var(--mono); font-size: 11.5px; max-width: 340px; }
+.psel:focus { outline: none; border-color: var(--warp); }
 .headright { display: flex; align-items: center; gap: 14px; }
 .when { font-size: 12px; color: var(--faint-text); }
 .empty { color: var(--faint-text); padding: 24px 0; }

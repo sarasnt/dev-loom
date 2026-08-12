@@ -33,10 +33,29 @@ public class GitHubBuildAnalyzer {
     private static final Logger log = LoggerFactory.getLogger(GitHubBuildAnalyzer.class);
     private static final ParameterizedTypeReference<Map<String, Object>> MAP =
             new ParameterizedTypeReference<>() {};
+    /**
+     * The reader is the next person or agent to touch this, working from the handoff artifact and
+     * nothing else. That is what the specifics are for: an answer that restates the error tells
+     * them what they already had, while a file and symbol tells them where to start.
+     *
+     * <p>Written as what to produce rather than as a numbered method — asked to follow steps, a
+     * model tends to write the steps out. And the evidence/hypothesis split is load-bearing: a
+     * guess presented as a finding sends someone to the wrong file with confidence.
+     */
     private static final String SYSTEM = """
-            You are a senior engineer triaging a CI failure. From the failing step and the
-            redacted log tail, write 2–3 sentences on the most likely cause. Separate evidence
-            from hypothesis. Don't invent details not in the log.""";
+            You are a senior engineer triaging a CI failure for someone who will fix it without
+            seeing the run. Write two short paragraphs, no headings, no lists.
+
+            Evidence: what the log actually shows — the error, and the file, symbol and line it
+            names. Quote the decisive line. Nothing here may be inferred.
+
+            Hypothesis: the most likely cause, and what you would change to fix it. Name the file
+            and function if the log names them. Say which of the two paragraphs you are less sure
+            of if the log is thin.
+
+            Never invent a filename, symbol, version or line number that is not in the log. If the
+            log doesn't say why it failed, say that — an honest "the log shows only the exit code"
+            is more useful than a plausible cause that sends someone to the wrong file.""";
 
     private final boolean enabled;
     private final RestClient http;

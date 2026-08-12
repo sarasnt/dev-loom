@@ -18,6 +18,7 @@ import type {
   MonitoringData,
   TerminalInfo,
   SettingsData,
+  HandoffSummary,
 } from '../types'
 
 type SourceUpsert = {
@@ -82,6 +83,10 @@ export const fetchBuildFailure = (id: string, model?: string) =>
 export const fetchLatestBuild = (model?: string) =>
   get<BuildFailure>(`/builds${model ? `?model=${encodeURIComponent(model)}` : ''}`)
 export const fetchHandoff = (id: string) => get<Handoff>(`/handoffs/${id}`)
+export const fetchHandoffs = () => get<HandoffSummary[]>('/handoffs')
+export const generateHandoff = (buildId?: string) =>
+  post<Handoff>('/handoffs', { buildId: buildId ?? null })
+export const deleteHandoff = (id: string) => del<{ deleted: string }>(`/handoffs/${id}`)
 export const fetchIntegrations = () => get<Integration[]>('/integrations')
 export const fetchProviders = () => get<ProvidersData>('/providers')
 export const fetchMonitoring = (windowDays = 7) =>

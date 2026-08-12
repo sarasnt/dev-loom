@@ -182,12 +182,36 @@ public class ApiController {
         return changesService.detail();
     }
 
-    @GetMapping({"/handoffs/{id}", "/handoffs"})
-    public Dto.Handoff handoff(@PathVariable(required = false) String id) {
-        // Real assembly from a real build's (redacted) data. A handoff id ("h…") or no id →
-        // let the build service resolve the most recent real failed run.
-        String buildId = (id == null || id.startsWith("h")) ? null : id;
-        return handoffService.fromBuild(buildFailureService.analyze(buildId));
+    /** The handoffs you've generated, newest first. */
+    @GetMapping("/handoffs")
+    public List<Dto.HandoffSummary> handoffs() {
+        return handoffService.history();
+    }
+
+    /**
+     * A handoff by id. A saved one is returned as it was written; anything else is treated as a
+     * build id and assembled fresh, so a link from a failure still works before you've saved it.
+     */
+    @GetMapping("/handoffs/{id}")
+    public Dto.Handoff handoff(@PathVariable String id) {
+        return handoffService.saved(id).orElseGet(() -> {
+            String buildId = id.startsWith("h") ? null : id;
+            return handoffService.fromBuild(buildFailureService.analyze(buildId));
+        });
+    }
+
+    /** Generate from a build failure and keep it. */
+    @PostMapping("/handoffs")
+    public Dto.Handoff generateHandoff(@RequestBody(required = false) Map<String, String> body) {
+        String buildId = body == null ? null : body.get("buildId");
+        Dto.Handoff fresh = handoffService.fromBuild(buildFailureService.analyze(buildId));
+        return handoffService.save(fresh, buildId);
+    }
+
+    @DeleteMapping("/handoffs/{id}")
+    public Map<String, Object> deleteHandoff(@PathVariable String id) {
+        handoffService.delete(id);
+        return Map.of("deleted", id);
     }
 
     @GetMapping("/integrations")
