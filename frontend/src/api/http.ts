@@ -84,7 +84,10 @@ export const fetchLatestBuild = (model?: string) =>
 export const fetchHandoff = (id: string) => get<Handoff>(`/handoffs/${id}`)
 export const fetchIntegrations = () => get<Integration[]>('/integrations')
 export const fetchProviders = () => get<ProvidersData>('/providers')
-export const fetchMonitoring = () => get<MonitoringData>('/monitoring/models')
+export const fetchMonitoring = (windowDays = 7) =>
+  get<MonitoringData>(`/monitoring/models?windowDays=${windowDays}`)
+export const setMonitoringRetention = (days: number) =>
+  put<{ retentionDays: number }>('/monitoring/retention', { days })
 export const openBrainstormTerminal = (id: string) =>
   post<TerminalInfo>(`/brainstorm/sessions/${id}/terminal`, {})
 export const fetchInstalledModels = () => get<import('../types').InstalledModel[]>('/models/installed')

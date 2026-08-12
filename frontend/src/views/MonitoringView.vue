@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue'
 import type { MonitoringData, PrivacyData } from '../types'
-import { fetchMonitoring, fetchPrivacy } from '../api'
+import { fetchMonitoring, fetchPrivacy, setMonitoringRetention } from '../api'
 import SettingsTabs from '../components/SettingsTabs.vue'
 
 const data = ref<MonitoringData | null>(null)
@@ -9,10 +9,37 @@ const privacy = ref<PrivacyData | null>(null)
 const loading = ref(true)
 let timer: number | undefined
 
+// How far back the figures cover. Kept client-side (like the screen model choices) — it's a way of
+// looking at the history, not a setting the backend should remember.
+const WINDOWS = [
+  { days: 1, label: '24h' },
+  { days: 7, label: '7 days' },
+  { days: 30, label: '30 days' },
+  { days: 0, label: 'All' },
+]
+const windowDays = ref<number>(Number(localStorage.getItem('devloom.monitoringWindow') ?? 7))
+
+function setWindow(days: number) {
+  windowDays.value = days
+  localStorage.setItem('devloom.monitoringWindow', String(days))
+  load()
+}
+
 async function load() {
-  data.value = await fetchMonitoring()
+  data.value = await fetchMonitoring(windowDays.value)
   try { privacy.value = await fetchPrivacy() } catch { /* egress stays hidden */ }
   loading.value = false
+}
+
+// Retention, unlike the view window, is a real setting — it decides what gets deleted.
+const RETENTIONS = [7, 30, 90, 365, 0]
+const savingRetention = ref(false)
+async function changeRetention(days: number) {
+  savingRetention.value = true
+  try {
+    await setMonitoringRetention(days)
+    await load() // pruning runs on save, so the figures may legitimately shrink
+  } finally { savingRetention.value = false }
 }
 onMounted(() => {
   load()
@@ -35,12 +62,26 @@ function ago(ts: number): string {
     <SettingsTabs />
     <div class="head">
       <h1>Model monitoring</h1>
+      <div class="windows mono">
+        <button v-for="w in WINDOWS" :key="w.days" class="chip"
+                :class="{ on: windowDays === w.days }" @click="setWindow(w.days)">{{ w.label }}</button>
+      </div>
       <button class="chip" @click="load">↻ Refresh</button>
     </div>
     <p class="sub">
       Every model call routes through LangChain4j, so latency and token usage below are measured, not estimated.
       Local (Ollama) and remote (Anthropic/OpenAI) calls are all observed by one listener.
+      History is stored and survives restarts.
     </p>
+
+    <div v-if="data" class="retention mono">
+      <span class="rlab">Keep history for</span>
+      <select class="rsel" :value="data.retentionDays" :disabled="savingRetention"
+              @change="changeRetention(Number(($event.target as HTMLSelectElement).value))">
+        <option v-for="d in RETENTIONS" :key="d" :value="d">{{ d === 0 ? 'forever' : `${d} days` }}</option>
+      </select>
+      <span class="rnote">older calls are deleted hourly</span>
+    </div>
 
     <div v-if="loading" class="mono empty">loading…</div>
     <template v-else-if="data">
@@ -116,12 +157,17 @@ function ago(ts: number): string {
 
 <style scoped>
 .main { padding: 22px 26px; overflow: auto; }
-.head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
-.head h1 { font-size: 22px; }
+.head { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
+.head h1 { font-size: 22px; margin-right: auto; }
+.windows { display: flex; gap: 6px; }
+.retention { display: flex; align-items: center; gap: 10px; margin: 0 0 14px; font-size: 12px; color: var(--dim); }
+.rsel { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; color: var(--ink); padding: 4px 8px; font-family: var(--mono); font-size: 12px; }
+.rnote { color: var(--faint-text); }
 .sub { color: var(--dim); font-size: 13px; margin: 0 0 18px; max-width: 70ch; }
 .empty { color: var(--faint-text); padding: 12px 0; }
 .chip { font-size: 12px; color: var(--dim); border: 1px solid var(--line); background: var(--surface); border-radius: 20px; padding: 5px 12px; cursor: pointer; }
 .chip:hover { color: var(--ink); }
+.chip.on { color: var(--warp-hi); border-color: var(--warp); }
 .totals { display: flex; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
 .stat { flex: 1; min-width: 120px; border: 1px solid var(--line); border-radius: var(--r-card); background: var(--surface); padding: 14px 16px; }
 .stat .n { font-size: 26px; font-variant-numeric: tabular-nums; }

@@ -168,14 +168,19 @@ export function testNotification(): Promise<{ ok: boolean; error?: string }> {
 export function syncRepos() {
   return delay({ added: 0, dirs: [] as string[], agentUp: false, repos: [] as import('../types').RepoView[] })
 }
-export function fetchMonitoring(): Promise<import('../types').MonitoringData> {
+export function fetchMonitoring(windowDays = 7): Promise<import('../types').MonitoringData> {
   return delay({
     models: [],
     recent: [],
     totals: { calls: 0, errors: 0, inputTokens: 0, outputTokens: 0 },
     langfuseEnabled: false,
     metricsPath: '/actuator/metrics/devloom.llm.calls',
+    windowDays,
+    retentionDays: 30,
   })
+}
+export function setMonitoringRetention(days: number): Promise<{ retentionDays: number }> {
+  return delay({ retentionDays: days })
 }
 export function setActiveModel(_name: string): Promise<ProvidersData> {
   return delay(PROVIDERS)

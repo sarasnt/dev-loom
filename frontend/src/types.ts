@@ -364,6 +364,8 @@ export interface MonitoringData {
   totals: { calls: number; errors: number; inputTokens: number; outputTokens: number }
   langfuseEnabled: boolean
   metricsPath: string
+  windowDays: number // 0 = everything still retained
+  retentionDays: number // 0 = history is never pruned
 }
 
 // ---- user settings ----
