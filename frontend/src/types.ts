@@ -501,6 +501,7 @@ export interface Capabilities {
   skills: SkillInfo[]
   plugins: PluginInfo[]
   skillsForModels: string[] // skill keys injected into local / API models
+  mcpForModels: string[] // MCP server names local / API models may call
   skillsDir?: string
   agentUp?: boolean
   error?: string

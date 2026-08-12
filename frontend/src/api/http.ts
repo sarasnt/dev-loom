@@ -239,3 +239,5 @@ export const restoreBackup = (skills: boolean) =>
   post<{ ok: boolean; settings?: number; repos?: number; sources?: number; skills?: number; note?: string; error?: string }>('/backup/restore', { skills })
 export const setSkillsForModels = (keys: string[]) =>
   put<import('../types').Capabilities>('/capabilities/skills-for-models', { keys })
+export const setMcpForModels = (servers: string[]) =>
+  put<import('../types').Capabilities>('/capabilities/mcp-for-models', { servers })

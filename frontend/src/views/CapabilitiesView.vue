@@ -6,7 +6,7 @@ import { computed, onMounted, ref } from 'vue'
 import type { Capabilities } from '../types'
 import {
   fetchCapabilities, addMcpServer, removeMcpServer, togglePlugin,
-  saveSkill, fetchSkill, removeSkill, installSkillRepo, setSkillsForModels,
+  saveSkill, fetchSkill, removeSkill, installSkillRepo, setSkillsForModels, setMcpForModels,
 } from '../api'
 import SettingsTabs from '../components/SettingsTabs.vue'
 
@@ -71,6 +71,18 @@ async function dropMcp(name: string) {
   if (!confirm(`Remove the MCP server "${name}" from your Claude config?`)) return
   busy.value = 'mcp'
   try { await removeMcpServer(name); await load() } finally { busy.value = '' }
+}
+// Which servers local/API models may call. Off by default — tool calls have side effects.
+function mcpUsedByModels(name: string) {
+  return (data.value?.mcpForModels ?? []).includes(name)
+}
+async function toggleMcpForModels(name: string, on: boolean) {
+  const cur = new Set(data.value?.mcpForModels ?? [])
+  if (on) cur.add(name); else cur.delete(name)
+  busy.value = 'mcp:' + name
+  try { data.value = await setMcpForModels([...cur]) }
+  catch { flash.value = 'Could not save — is the host agent running?' }
+  finally { busy.value = '' }
 }
 
 // ---- plugins ----
@@ -257,12 +269,15 @@ async function installRepo() {
             <span class="caret">{{ open.mcp ? '▾' : '▸' }}</span>
             <span class="lab mono">MCP servers</span>
             <span class="count mono">{{ data.mcp.length }}</span>
+            <span v-if="data.mcpForModels?.length" class="count mono on">{{ data.mcpForModels.length }} for local models</span>
             <span class="hint mono">tools and data sources the models can call</span>
           </button>
           <template v-if="open.mcp">
           <p class="explain">
-            Claude Code only, for now: calling a tool needs an agentic loop DevLoom doesn't yet run
-            for local models. Skills above already work everywhere.
+            Claude Code speaks MCP natively. Tick <b>local models</b> and DevLoom runs the tool loop
+            itself, so an Ollama or API-key model can call that server's tools too. Off by default —
+            a tool call has real side effects. Only <b>stdio</b> servers are supported so far;
+            a model that can't do tool calling just answers without them.
           </p>
           <div class="mlist">
             <div v-for="m in data.mcp" :key="m.name" class="mrow">
@@ -270,6 +285,15 @@ async function installRepo() {
                 <div class="mn">{{ m.name }} <span class="tag mono">{{ m.transport }}</span></div>
                 <div class="mdesc mono">{{ m.command }} {{ m.args.join(' ') }}<span v-if="m.env.length"> · env: {{ m.env.join(', ') }}</span></div>
               </div>
+              <label class="tog" :title="m.transport === 'stdio' ? 'Let local and API-key models call this server' : 'Only stdio servers can be used by local models yet'">
+                <input
+                  type="checkbox"
+                  :checked="mcpUsedByModels(m.name)"
+                  :disabled="busy !== '' || m.transport !== 'stdio'"
+                  @change="toggleMcpForModels(m.name, ($event.target as HTMLInputElement).checked)"
+                />
+                <span>local models</span>
+              </label>
               <button class="btn ghost" :disabled="busy !== ''" @click="dropMcp(m.name)">Remove</button>
             </div>
             <div v-if="!data.mcp.length" class="empty mono">no MCP servers configured</div>

@@ -364,6 +364,30 @@ public class HostAgentClient {
         return post("/caps/skills/bundle", Map.of("keys", keys));
     }
 
+    /** Tools advertised by the named MCP servers (the agent runs the servers). */
+    public Map<String, Object> mcpTools(java.util.List<String> servers) {
+        return post("/mcp/tools", Map.of("servers", servers));
+    }
+
+    /** Invoke an MCP tool. {@code argsJson} is the raw JSON object the model produced. */
+    public Map<String, Object> mcpCall(String server, String tool, String argsJson) {
+        Map<String, Object> body = new java.util.HashMap<>();
+        body.put("server", server);
+        body.put("tool", tool);
+        body.put("args", parseArgs(argsJson));
+        return post("/mcp/call", body);
+    }
+
+    /** Models emit tool arguments as a JSON string; MCP wants a real object. */
+    private Object parseArgs(String argsJson) {
+        if (argsJson == null || argsJson.isBlank()) return Map.of();
+        try {
+            return new com.fasterxml.jackson.databind.ObjectMapper().readValue(argsJson, Map.class);
+        } catch (Exception e) {
+            return Map.of();
+        }
+    }
+
     public Map<String, Object> removeSkill(String dir) {
         return post("/caps/skill/remove", Map.of("dir", dir));
     }

@@ -27,26 +27,29 @@ public class CapabilitiesController {
     private final HostAgentClient agent;
     private final AuditService audit;
     private final com.devloom.ai.SkillContext skills;
+    private final com.devloom.ai.McpTools mcp;
 
     public CapabilitiesController(HostAgentClient agent, AuditService audit,
-                                  com.devloom.ai.SkillContext skills) {
+                                  com.devloom.ai.SkillContext skills, com.devloom.ai.McpTools mcp) {
         this.agent = agent;
         this.audit = audit;
         this.skills = skills;
+        this.mcp = mcp;
     }
 
     @GetMapping
     public Map<String, Object> all() {
         try {
             Map<String, Object> caps = new java.util.LinkedHashMap<>(agent.capabilities());
-            // Which skills are also injected into local / API models (Claude loads them itself).
+            // Which skills/servers are also given to local + API models (Claude has them natively).
             caps.put("skillsForModels", skills.enabledKeys());
+            caps.put("mcpForModels", mcp.enabledServers());
             return caps;
         } catch (Exception e) {
             // Agent offline — say so honestly instead of pretending the user has nothing installed.
             return Map.of("agentUp", false, "mcp", java.util.List.of(),
                     "skills", java.util.List.of(), "plugins", java.util.List.of(),
-                    "skillsForModels", java.util.List.of(),
+                    "skillsForModels", java.util.List.of(), "mcpForModels", java.util.List.of(),
                     "error", "host agent unreachable");
         }
     }
@@ -64,6 +67,21 @@ public class CapabilitiesController {
                 body == null || body.keys() == null ? java.util.List.of() : body.keys());
         skills.setEnabled(keys);
         audit.record("skills_for_models", String.join(",", keys), null);
+        return all();
+    }
+
+    public record McpForModels(java.util.List<String> servers) {}
+
+    /**
+     * Choose which MCP servers local / API models may call. Off by default — a tool call has real
+     * side effects, so exposure is deliberate rather than automatic.
+     */
+    @PutMapping("/mcp-for-models")
+    public Map<String, Object> setMcpForModels(@RequestBody McpForModels body) {
+        java.util.Set<String> servers = new java.util.LinkedHashSet<>(
+                body == null || body.servers() == null ? java.util.List.of() : body.servers());
+        mcp.setEnabled(servers);
+        audit.record("mcp_for_models", String.join(",", servers), null);
         return all();
     }
 

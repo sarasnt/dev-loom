@@ -102,3 +102,4 @@ export const configureBackup = api.configureBackup
 export const runBackup = api.runBackup
 export const restoreBackup = api.restoreBackup
 export const setSkillsForModels = api.setSkillsForModels
+export const setMcpForModels = api.setMcpForModels

@@ -37,14 +37,16 @@ public class OllamaLlm implements LlmPort {
     private final String baseUrl;
     private final RestClient http;
     private final ModelMonitor monitor;
+    private final ToolLoop toolLoop;
 
     public OllamaLlm(
             @Value("${devloom.ai.ollama-base-url:http://localhost:11434}") String baseUrl,
             @Value("${devloom.ai.default-model:Qwen3-Coder-30B-A3B}") String defaultModel,
-            ModelMonitor monitor) {
+            ModelMonitor monitor, ToolLoop toolLoop) {
         this.defaultModel = defaultModel;
         this.baseUrl = baseUrl;
         this.monitor = monitor;
+        this.toolLoop = toolLoop;
         SimpleClientHttpRequestFactory f = new SimpleClientHttpRequestFactory();
         f.setConnectTimeout(1500);    // fail fast when Ollama isn't there
         f.setReadTimeout(120_000);    // generation can take a while
@@ -83,8 +85,10 @@ public class OllamaLlm implements LlmPort {
             messages.add(SystemMessage.from(request.system()));
         }
         messages.add(UserMessage.from(request.prompt()));
-        ChatResponse resp = chat.chat(ChatRequest.builder().messages(messages).build());
-        String text = resp.aiMessage() == null || resp.aiMessage().text() == null ? "" : resp.aiMessage().text();
+        // Through the tool loop so the model can actually call any MCP tools the user enabled;
+        // with none enabled this is a plain one-shot chat.
+        String answer = toolLoop.chat(chat, messages);
+        String text = answer == null ? "" : answer;
         log.info("Ollama generate: model={} chars={}", model, text.length());
         return new LlmResult(text, model, provider(), true);
     }

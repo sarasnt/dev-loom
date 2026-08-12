@@ -398,7 +398,7 @@ export function repoSquash(): Promise<import('../types').SquashResult> {
   return delay({ ok: false, error: 'offline' })
 }
 export function fetchCapabilities(): Promise<import('../types').Capabilities> {
-  return delay({ mcp: [], skills: [], plugins: [], skillsForModels: [], agentUp: false, error: 'offline' })
+  return delay({ mcp: [], skills: [], plugins: [], skillsForModels: [], mcpForModels: [], agentUp: false, error: 'offline' })
 }
 export function addMcpServer() { return delay({ ok: false, error: 'offline' }) }
 export function removeMcpServer() { return delay({ ok: false, error: 'offline' }) }
@@ -423,5 +423,8 @@ export function restoreBackup() {
   return delay({ ok: false, settings: 0, repos: 0, sources: 0, skills: 0, note: undefined as string | undefined, error: 'offline' })
 }
 export function setSkillsForModels(): Promise<import('../types').Capabilities> {
-  return delay({ mcp: [], skills: [], plugins: [], skillsForModels: [], agentUp: false, error: 'offline' })
+  return delay({ mcp: [], skills: [], plugins: [], skillsForModels: [], mcpForModels: [], agentUp: false, error: 'offline' })
+}
+export function setMcpForModels(): Promise<import('../types').Capabilities> {
+  return delay({ mcp: [], skills: [], plugins: [], skillsForModels: [], mcpForModels: [], agentUp: false, error: 'offline' })
 }

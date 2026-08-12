@@ -372,6 +372,123 @@ function git(cwd, args) {
   return run('git', args, { cwd, timeoutMs: 120000, shell: false })
 }
 
+// ---- MCP client ----
+// Claude Code speaks MCP itself; local Ollama models and raw API calls don't. The agent hosts the
+// client because MCP servers are usually stdio processes (`npx …`) that a container can neither
+// spawn nor reach. Minimal JSON-RPC 2.0 over newline-delimited stdio — no dependencies.
+const mcpClients = new Map() // name -> { proc, pending, nextId, tools, buf, dead }
+
+function mcpSpec(name) {
+  const cfg = readJson(CLAUDE_JSON(), {})
+  return (cfg.mcpServers || {})[name] || null
+}
+
+function mcpSend(client, msg) {
+  try { client.proc.stdin.write(JSON.stringify(msg) + '\n') } catch { /* server died */ }
+}
+
+function mcpRequest(client, method, params, timeoutMs = 20000) {
+  return new Promise((resolve, reject) => {
+    const id = client.nextId++
+    const timer = setTimeout(() => {
+      client.pending.delete(id)
+      reject(new Error(`${method} timed out`))
+    }, timeoutMs)
+    client.pending.set(id, { resolve, reject, timer })
+    mcpSend(client, { jsonrpc: '2.0', id, method, params: params || {} })
+  })
+}
+
+/** Start a server and complete the MCP handshake, returning a connected client. */
+async function mcpConnect(name) {
+  const existing = mcpClients.get(name)
+  if (existing && !existing.dead) return existing
+  const spec = mcpSpec(name)
+  if (!spec) throw new Error(`no MCP server named ${name}`)
+  if (spec.type === 'http' || spec.type === 'sse' || spec.url) {
+    throw new Error('only stdio MCP servers are supported for local models right now')
+  }
+  const child = spawn(spec.command, spec.args || [], {
+    shell: IS_WIN,                       // npx/npm are .cmd shims on Windows
+    env: { ...process.env, ...(spec.env || {}) },
+    stdio: ['pipe', 'pipe', 'pipe'],
+  })
+  const client = { proc: child, pending: new Map(), nextId: 1, tools: [], buf: '', dead: false }
+  mcpClients.set(name, client)
+
+  child.stdout.on('data', (d) => {
+    client.buf += d.toString()
+    let nl
+    while ((nl = client.buf.indexOf('\n')) >= 0) {
+      const line = client.buf.slice(0, nl).trim()
+      client.buf = client.buf.slice(nl + 1)
+      if (!line) continue
+      let msg
+      try { msg = JSON.parse(line) } catch { continue } // servers may log non-JSON to stdout
+      if (msg.id != null && client.pending.has(msg.id)) {
+        const p = client.pending.get(msg.id)
+        client.pending.delete(msg.id)
+        clearTimeout(p.timer)
+        if (msg.error) p.reject(new Error(msg.error.message || 'MCP error'))
+        else p.resolve(msg.result)
+      }
+    }
+  })
+  child.stderr.on('data', () => { /* servers chatter on stderr; ignore unless they die */ })
+  const die = () => {
+    client.dead = true
+    for (const [, p] of client.pending) { clearTimeout(p.timer); p.reject(new Error('MCP server exited')) }
+    client.pending.clear()
+    mcpClients.delete(name)
+  }
+  child.on('error', die)
+  child.on('close', die)
+
+  await mcpRequest(client, 'initialize', {
+    protocolVersion: '2024-11-05',
+    capabilities: {},
+    clientInfo: { name: 'devloom', version: '1' },
+  })
+  mcpSend(client, { jsonrpc: '2.0', method: 'notifications/initialized' })
+  const listed = await mcpRequest(client, 'tools/list', {})
+  client.tools = (listed && listed.tools) || []
+  console.log(`mcp: ${name} connected (${client.tools.length} tools)`)
+  return client
+}
+
+/** Tools across the named servers (or every configured one), flattened for the model. */
+async function mcpTools(names) {
+  const cfg = readJson(CLAUDE_JSON(), {})
+  const wanted = Array.isArray(names) && names.length ? names : Object.keys(cfg.mcpServers || {})
+  const tools = []
+  const errors = {}
+  for (const name of wanted) {
+    try {
+      const c = await mcpConnect(name)
+      for (const t of c.tools) {
+        tools.push({ server: name, name: t.name, description: t.description || '', inputSchema: t.inputSchema || {} })
+      }
+    } catch (e) {
+      errors[name] = String(e.message || e).slice(0, 200)
+    }
+  }
+  return { tools, errors }
+}
+
+/** Invoke one tool; the text content is what gets fed back to the model. */
+async function mcpCall(server, tool, args) {
+  try {
+    const c = await mcpConnect(server)
+    const result = await mcpRequest(c, 'tools/call', { name: tool, arguments: args || {} }, 60000)
+    const parts = ((result && result.content) || [])
+      .map((p) => (p && p.type === 'text' ? p.text : p && p.type ? `[${p.type}]` : ''))
+      .filter(Boolean)
+    return { ok: !(result && result.isError), text: parts.join('\n').slice(0, 20000) }
+  } catch (e) {
+    return { ok: false, text: '', error: String(e.message || e).slice(0, 300) }
+  }
+}
+
 // ---- configuration backup ----
 // DevLoom writes its exportable (non-secret) state plus the user's custom skills into a git repo
 // they own, commits, and optionally pushes. Restoring reads the same tree back. Secrets never
@@ -1007,6 +1124,14 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'GET' && url.pathname === '/caps') {
       return json(res, 200, capabilities())
+    }
+    if (req.method === 'POST' && url.pathname === '/mcp/tools') {
+      const { servers } = await readBody(req)
+      return json(res, 200, await mcpTools(servers))
+    }
+    if (req.method === 'POST' && url.pathname === '/mcp/call') {
+      const { server, tool, args } = await readBody(req)
+      return json(res, 200, await mcpCall(server, tool, args))
     }
     if (req.method === 'POST' && url.pathname === '/backup/save') {
       return json(res, 200, await backupSave(await readBody(req)))
