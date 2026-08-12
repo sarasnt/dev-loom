@@ -82,6 +82,9 @@ export function renderMarkdown(src: string): string {
     const h = t.match(/^(#{1,6})\s+(.*)$/)
     if (h) { flushPara(); closeList(); const lvl = Math.min(6, h[1].length); out.push(`<div class="md-h md-h${lvl}">${inline(h[2])}</div>`); continue }
 
+    // Thematic break. Models use `---` liberally between sections; unhandled it reads as stray text.
+    if (/^(-{3,}|\*{3,}|_{3,})$/.test(t)) { flushPara(); closeList(); out.push('<hr>'); continue }
+
     const ul = t.match(/^[-*]\s+(.*)$/)
     const ol = t.match(/^\d+\.\s+(.*)$/)
     if (ul) { flushPara(); if (list !== 'ul') { closeList(); out.push('<ul class="md-ul">'); list = 'ul' } out.push(`<li>${inline(ul[1])}</li>`); continue }

@@ -483,7 +483,15 @@ async function mcpCall(server, tool, args) {
     const parts = ((result && result.content) || [])
       .map((p) => (p && p.type === 'text' ? p.text : p && p.type ? `[${p.type}]` : ''))
       .filter(Boolean)
-    return { ok: !(result && result.isError), text: parts.join('\n').slice(0, 20000) }
+    // Cap the output, but say so: a model handed a silently-truncated listing treats it as the
+    // whole picture and reports confidently on data it never saw.
+    const LIMIT = 12000
+    const full = parts.join('\n')
+    const text = full.length > LIMIT
+      ? full.slice(0, LIMIT) + `\n\n[output truncated — ${full.length - LIMIT} more characters. `
+        + `Narrow the request (a subdirectory, a search, a specific file) to see the rest.]`
+      : full
+    return { ok: !(result && result.isError), text }
   } catch (e) {
     return { ok: false, text: '', error: String(e.message || e).slice(0, 300) }
   }
@@ -778,6 +786,19 @@ async function repoInfo(dir) {
     isLinkedWorktree,
     user: cfg,
   }
+}
+
+/**
+ * The repo's tracked files. `ls-files` is the right primitive rather than walking the directory:
+ * it excludes `.git` and honours `.gitignore` for free, so a model given this list never has to
+ * ask for a directory tree and drown in git internals and node_modules.
+ */
+async function repoFiles(dir, { limit } = {}) {
+  const n = Math.min(Math.max(Number(limit) || 300, 1), 2000)
+  const r = await git(dir, ['ls-files'])
+  if (r.code !== 0) return { files: [], total: 0, error: (r.err || 'ls-files failed').trim().slice(0, 200) }
+  const all = r.out.split('\n').map((s) => s.trim()).filter(Boolean)
+  return { files: all.slice(0, n), total: all.length, truncated: all.length > n }
 }
 
 /**
@@ -1254,6 +1275,10 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/repos/log') {
       const { path: p, source, uniqueOnly, limit } = await readBody(req)
       return json(res, 200, await repoLog(p, { source, uniqueOnly, limit }))
+    }
+    if (req.method === 'POST' && url.pathname === '/repos/files') {
+      const { path: p, limit } = await readBody(req)
+      return json(res, 200, await repoFiles(p, { limit }))
     }
     if (req.method === 'POST' && url.pathname === '/repos/commit-info') {
       const { path: p, hash } = await readBody(req)

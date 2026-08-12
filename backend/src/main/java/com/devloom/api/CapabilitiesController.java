@@ -108,6 +108,10 @@ public class CapabilitiesController {
     @DeleteMapping("/mcp/{name}")
     public Map<String, Object> removeMcp(@PathVariable String name) {
         Map<String, Object> r = agent.removeMcpServer(name);
+        // Drop it from the local-model enable list too — a name left behind there is a server the
+        // tool loop tries to connect to on every turn and can never find.
+        java.util.Set<String> enabled = mcp.enabledServers();
+        if (enabled.remove(name)) mcp.setEnabled(enabled);
         audit.record("mcp_remove", name, null);
         return r;
     }

@@ -194,6 +194,14 @@ public class HostAgentClient {
         return post("/repos/worktrees", Map.of("path", path));
     }
 
+    /** The repo's tracked files (git ls-files), capped at {@code limit}. */
+    public Map<String, Object> files(String path, int limit) {
+        Map<String, Object> body = new java.util.HashMap<>();
+        body.put("path", path);
+        body.put("limit", limit);
+        return post("/repos/files", body);
+    }
+
     /** Current-branch commit log; uniqueOnly limits to commits not on the resolved source. */
     public Map<String, Object> log(String path, String source, boolean uniqueOnly, int limit) {
         Map<String, Object> body = new java.util.HashMap<>();

@@ -5,6 +5,7 @@ import { storeToRefs } from 'pinia'
 import { useDashboardStore } from '../stores/dashboard'
 import { fleetRuns, launchRun, cancelRun, fetchRepos, fleetRunChanges, rerunRun, deleteRun, createBrainstormSession, fetchSettings, applyRun, discardRun } from '../api'
 import type { AgentRun, RepoView, RepoChanges, RunLaunch } from '../types'
+import { renderMarkdown } from '../utils/markdown'
 
 const router = useRouter()
 const store = useDashboardStore()
@@ -144,20 +145,38 @@ async function discardIsolated(r: AgentRun) {
   finally { detailBusy.value = false }
 }
 const isolatedReview = computed(() => !!detail.value && detail.value.isolated && detail.value.status === 'review')
-// Open a run in an interactive claude-cli terminal: interactive runs jump to their session;
-// a finished background run opens a fresh cli session in its dir to continue the work.
+// Reopen a run where its work actually lives. Anything born in Brainstorm — a cli terminal or a
+// local-model chat alike — goes back to that session; keying off the session id rather than the
+// kind is what stops a chat run being answered with a brand-new terminal it has no history in.
+// Only a background run, which has no session, opens a fresh cli session to continue the work.
 async function openInTerminal(r: AgentRun) {
-  if (r.kind === 'interactive' && r.brainstormSessionId) {
+  if (r.brainstormSessionId) {
     router.push({ path: '/brainstorm', query: { session: r.brainstormSessionId } })
     return
   }
+  await continueWith(r, 'claude-cli')
+}
+
+// Continue a finished run in a new brainstorm session. The model is the caller's choice, which is
+// the point: a run done by a local model should be followable up on locally, without the only exit
+// from the Fleet being a Claude terminal.
+async function continueWith(r: AgentRun, model: string) {
   detailBusy.value = true
   try {
-    const s = await createBrainstormSession(`Continue · ${r.title}`, r.runDir || r.repoPath, 'claude-cli')
-    if (r.resultSummary) store.setPendingSeed(s.id, `Continue this task:\n\n${r.title}\n\nPrior result:\n${r.resultSummary}`, 'cli')
+    const s = await createBrainstormSession(`Continue · ${r.title}`, r.runDir || r.repoPath, model)
+    if (r.resultSummary) {
+      store.setPendingSeed(s.id, `Continue this task:\n\n${r.title}\n\nPrior result:\n${r.resultSummary}`,
+                           model === 'claude-cli' ? 'cli' : 'chat')
+    }
     router.push({ path: '/brainstorm', query: { session: s.id } })
   } finally { detailBusy.value = false }
 }
+
+// A run's own model is the natural way to continue it — offered whenever that isn't the cli.
+const continueModel = computed(() => {
+  const m = detail.value?.model
+  return m && m !== 'claude-cli' && m !== 'claude-code' ? m : null
+})
 </script>
 
 <template>
@@ -193,8 +212,9 @@ async function openInTerminal(r: AgentRun) {
 
       <section v-if="running.length" class="grp">
         <div class="glab mono">Running</div>
-        <component :is="r.kind === 'chat' ? 'div' : 'button'" v-for="r in running" :key="r.id"
-                   class="run running" @click="r.kind === 'interactive' ? openInTerminal(r) : undefined">
+        <!-- A run tied to a brainstorm session is a live conversation: clicking it goes back there. -->
+        <component :is="r.brainstormSessionId ? 'button' : 'div'" v-for="r in running" :key="r.id"
+                   class="run running" @click="r.brainstormSessionId ? openInTerminal(r) : undefined">
           <span class="rstatus mono running"><span class="spin"></span>running</span>
           <span class="rtitle">{{ r.title }}</span>
           <span class="rbadges mono">
@@ -205,7 +225,7 @@ async function openInTerminal(r: AgentRun) {
             <span class="rb">{{ elapsed(r) }}</span>
           </span>
           <button v-if="r.kind === 'background'" class="link mono danger" @click.stop="stop(r)">cancel</button>
-          <span v-else-if="r.kind === 'interactive'" class="chev">open ›</span>
+          <span v-else-if="r.brainstormSessionId" class="chev">open ›</span>
         </component>
       </section>
 
@@ -262,7 +282,11 @@ async function openInTerminal(r: AgentRun) {
 
         <div class="dsec">
           <div class="dlab mono">{{ detail.error ? 'Error' : 'Result' }}</div>
-          <pre class="rbody mono">{{ detail.error || detail.resultSummary || '(no output)' }}</pre>
+          <!-- Errors stay verbatim (stack traces and JSON must not be reflowed); a model's answer
+               is markdown, so render it. -->
+          <pre v-if="detail.error" class="rbody mono">{{ detail.error }}</pre>
+          <div v-else-if="detail.resultSummary" class="rbody md" v-html="renderMarkdown(detail.resultSummary)"></div>
+          <pre v-else class="rbody mono">(no output)</pre>
         </div>
 
         <p v-if="detail.isolated && detail.branch" class="wtnote mono">⑂ isolated on <b>{{ detail.branch }}</b> — apply keeps that branch, patch lands it on your current branch, discard removes it.</p>
@@ -271,6 +295,10 @@ async function openInTerminal(r: AgentRun) {
           <button v-if="isolatedReview" class="btn pri" :disabled="detailBusy" @click="applyIsolated(detail, 'branch')">Apply → branch</button>
           <button v-if="isolatedReview" class="btn" :disabled="detailBusy" @click="applyIsolated(detail, 'patch')">Apply as patch</button>
           <button v-if="isolatedReview" class="btn danger" :disabled="detailBusy" @click="discardIsolated(detail)">Discard</button>
+          <!-- Continuing on the run's own model comes first: reaching for the Claude terminal to
+               follow up on a local run is the opposite of local-first. -->
+          <button v-if="continueModel" class="btn" :disabled="detailBusy"
+                  @click="continueWith(detail, continueModel)">Continue with {{ continueModel }} ▸</button>
           <button v-if="detail.kind !== 'chat'" class="btn" :disabled="detailBusy" @click="openInTerminal(detail)">Open in terminal ▸</button>
           <button v-if="detail.kind === 'background'" class="btn" :disabled="detailBusy" @click="rerun(detail)">Re-run</button>
           <span class="grow"></span>
@@ -363,6 +391,22 @@ button.run:hover { border-color: var(--warp); }
 .link:hover { color: var(--ink); }
 .link.danger { color: var(--chip-fail, #d88); }
 .rbody { margin: 10px 0 0; padding: 10px 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; font-size: 12px; color: var(--dim); white-space: pre-wrap; max-height: 320px; overflow: auto; }
+/* a rendered answer supplies its own block spacing — pre-wrap would double every gap */
+.rbody.md { white-space: normal; }
+.md :deep(.md-p) { margin: 0 0 8px; } .md :deep(.md-p:last-child) { margin-bottom: 0; }
+.md :deep(.md-h) { font-weight: 600; color: var(--ink); margin: 10px 0 5px; }
+.md :deep(.md-ul), .md :deep(.md-ol) { margin: 4px 0 8px; padding-left: 20px; }
+.md :deep(li) { margin: 2px 0; }
+.md :deep(strong) { color: var(--ink); font-weight: 600; }
+.md :deep(.md-code) { font-family: var(--mono); font-size: 11.5px; background: var(--chip-bg); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; }
+.md :deep(.md-pre) { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; overflow: auto; margin: 6px 0; }
+.md :deep(.md-pre code) { font-family: var(--mono); font-size: 11.5px; white-space: pre; background: none; border: 0; padding: 0; }
+.md :deep(a) { color: var(--warp-hi); text-decoration: underline; }
+.md :deep(hr) { border: 0; border-top: 1px solid var(--line); margin: 10px 0; }
+.md :deep(.md-tablewrap) { overflow-x: auto; margin: 8px 0; }
+.md :deep(.md-table) { border-collapse: collapse; font-size: 12px; }
+.md :deep(.md-table th), .md :deep(.md-table td) { border: 1px solid var(--line); padding: 5px 9px; text-align: left; vertical-align: top; }
+.md :deep(.md-table th) { background: var(--chip-bg); color: var(--ink); font-weight: 600; }
 .spin { width: 8px; height: 8px; border-radius: 50%; border: 2px solid var(--warp); border-top-color: transparent; display: inline-block; animation: sp 0.7s linear infinite; }
 @keyframes sp { to { transform: rotate(360deg); } }
 /* dialog */

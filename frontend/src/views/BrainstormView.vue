@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import type { BrainstormData } from '../types'
 import { useRoute } from 'vue-router'
 import {
@@ -35,6 +35,18 @@ const store = useDashboardStore()
 const data = ref<BrainstormData | null>(null)
 const loading = ref(true)
 const draft = ref('')
+const draftEl = ref<HTMLTextAreaElement | null>(null)
+
+// Grow the composer with its content, up to a point — beyond that it scrolls rather than eating
+// the conversation. Watched rather than bound to @input so programmatic changes (a seeded prompt,
+// clearing after send) resize it too.
+function growDraft() {
+  const el = draftEl.value
+  if (!el) return
+  el.style.height = 'auto'
+  el.style.height = Math.min(el.scrollHeight, 180) + 'px'
+}
+watch(draft, () => nextTick(growDraft))
 const sending = ref(false)
 const switching = ref(false)
 const chatEl = ref<HTMLElement | null>(null)
@@ -204,7 +216,7 @@ function applyPendingSeed() {
   const seed = store.takePendingSeed(a.id)
   if (!seed) return
   if (a.cliMode || seed.mode === 'cli') terminalSeed.value = seed.text
-  else draft.value = seed.text
+  else { draft.value = seed.text; nextTick(growDraft) }
 }
 
 function startRename(id: string, current: string) {
@@ -441,8 +453,10 @@ async function redoLast() {
         <TerminalPane :key="data.active.id" :session-id="data.active.id" :seed="terminalSeed" class="termpane" />
       </template>
       <template v-else>
+      <!-- Name the model actually in the chair — this branch is never the cli, so claiming
+           "Claude Code" was wrong for every local session. -->
       <div v-if="data.active.repoPath" class="repobar mono">
-        ⑂ Claude Code · iterating in <b>{{ data.active.repoPath }}</b> (read-only)
+        ⑂ {{ effectiveModel }} · iterating in <b>{{ data.active.repoPath }}</b> (read-only)
       </div>
       <div ref="chatEl" class="stream">
         <div v-for="(m, i) in data.active.messages" :key="i" class="msg" :class="m.role">
@@ -471,15 +485,19 @@ async function redoLast() {
       </div>
 
       <div class="composer">
-        <input
+        <!-- A textarea, not an input: the browser strips newlines from an input's value, which
+             silently flattened pasted logs and pre-filled prompts into one run-on line.
+             Enter still sends; Shift+Enter is the newline. -->
+        <textarea
           v-model="draft"
+          ref="draftEl"
           class="composer-input"
-          type="text"
-          placeholder="Type a message…  (/model <name> to switch)"
+          rows="1"
+          placeholder="Type a message…  (/model <name> to switch, Shift+Enter for a newline)"
           :disabled="sending"
-          @keydown.enter="send"
+          @keydown.enter.exact.prevent="send"
           aria-label="Message"
-        />
+        ></textarea>
         <button class="send" :disabled="sending || !draft.trim()" @click="send">Send ⏎</button>
       </div>
       <div class="saveas mono">
@@ -655,9 +673,10 @@ async function redoLast() {
 .msg.ai .bub { color: var(--dim); }
 .reason-mark { font-family: var(--mono); font-size: 10px; color: var(--warp); border: 1px solid var(--warp); border-radius: 4px; padding: 1px 5px; margin-left: 6px; }
 .thread { font-size: 11px; color: var(--warp-hi); margin-top: 8px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-.composer { border: 1px solid var(--line); border-radius: 10px; padding: 8px 8px 8px 13px; display: flex; align-items: center; gap: 10px; }
+/* end-aligned so the Send button stays put as the textarea grows upward */
+.composer { border: 1px solid var(--line); border-radius: 10px; padding: 8px 8px 8px 13px; display: flex; align-items: flex-end; gap: 10px; }
 .composer:focus-within { border-color: var(--warp); }
-.composer-input { flex: 1; background: transparent; border: 0; outline: none; color: var(--ink); font-family: var(--sans); font-size: 14px; }
+.composer-input { flex: 1; background: transparent; border: 0; outline: none; color: var(--ink); font-family: var(--sans); font-size: 14px; resize: none; line-height: 1.45; padding: 4px 0; max-height: 180px; overflow-y: auto; }
 .composer-input::placeholder { color: var(--faint-text); }
 .send { border: 1px solid var(--warp); background: var(--warp); color: var(--on-warp); border-radius: 6px; padding: 6px 12px; font-size: 12px; font-weight: 600; white-space: nowrap; }
 .send:disabled { opacity: 0.45; cursor: default; }

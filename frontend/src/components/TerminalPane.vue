@@ -49,6 +49,10 @@ async function connect() {
     t.writeln('\x1b[31mCould not reach the backend to open a terminal session.\x1b[0m')
     return
   }
+  // Switching sessions mid-open unmounts us while the request above is still in flight; without
+  // this the observe() below runs against a detached ref and throws.
+  if (!host.value) { t.dispose(); return }
+
   cwd.value = info.cwd
   resumeCmd.value = `claude --resume ${info.sessionId}`
 

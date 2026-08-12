@@ -34,6 +34,7 @@ public class FleetService {
     private final NotificationService notifications;
     private final com.devloom.brainstorm.BrainstormSessionRepository brainstormSessions;
     private final com.devloom.ai.LlmRouter llm;
+    private final com.devloom.ai.McpTools mcp;
     /** Local/API model runs execute here so they survive the request that launched them. */
     private final java.util.concurrent.ExecutorService pool =
             java.util.concurrent.Executors.newFixedThreadPool(4);
@@ -41,7 +42,7 @@ public class FleetService {
     public FleetService(AgentRunRepository runs, GitRepoRepository repos,
                         HostAgentClient agent, AuditService audit, NotificationService notifications,
                         com.devloom.brainstorm.BrainstormSessionRepository brainstormSessions,
-                        com.devloom.ai.LlmRouter llm) {
+                        com.devloom.ai.LlmRouter llm, com.devloom.ai.McpTools mcp) {
         this.runs = runs;
         this.repos = repos;
         this.agent = agent;
@@ -49,6 +50,7 @@ public class FleetService {
         this.notifications = notifications;
         this.brainstormSessions = brainstormSessions;
         this.llm = llm;
+        this.mcp = mcp;
     }
 
     public List<Dto.AgentRun> list() {
@@ -171,12 +173,28 @@ public class FleetService {
             // No needs-input marker here on purpose: a one-shot analysis has no channel to answer
             // through, so flagging it would offer the user an action they can't take. If the model
             // lacks context it says so in the result and the user re-runs with more.
-            String system = """
+            // The wording changes with tool availability: telling a model it can't gather anything
+            // while handing it tools is a contradiction it resolves by ignoring one or the other.
+            String system = mcp.tools().isEmpty()
+                    ? """
                     You are a background analysis agent inspecting a git repository for an engineer.
                     You cannot edit files or run commands — you read the context you are given and
                     answer. Be concrete and technical; say plainly when the context is insufficient
-                    rather than guessing.""";
-            String full = repoContext(path) + "\n\nTask:\n" + (prompt == null ? "" : prompt);
+                    rather than guessing."""
+                    : """
+                    You are a background analysis agent inspecting a git repository for an engineer.
+                    The summary below is a starting point: use the tools provided to gather anything
+                    else you need (reading files, for instance) before answering. Be concrete and
+                    technical, ground every claim in what you actually read, and say plainly when
+                    something could not be determined rather than guessing.
+
+                    This runs unattended: nobody will read a follow-up question. Never end by
+                    offering choices or asking how to proceed — do the work and give the answer.""";
+            // The closing instruction sits at the very end of the user turn, not in the system
+            // message: small local models weight recency heavily, and from mid-prompt the same
+            // sentence loses to their chat-assistant habit of ending on "would you like me to…".
+            String full = repoContext(path) + "\n\nTask:\n" + (prompt == null ? "" : prompt)
+                    + "\n\nAnswer the task above directly. Do not end with questions or offers of help.";
             com.devloom.ai.LlmPort.LlmResult r =
                     llm.generate(new com.devloom.ai.LlmPort.LlmRequest("fleet", system, full, model));
             String text = r.text() == null ? "" : r.text();
@@ -219,6 +237,19 @@ public class FleetService {
         } catch (Exception e) {
             sb.append("(repo status unavailable — the host agent may be offline)\n");
         }
+        // The file list up front is what keeps a model off directory-listing tools, whose output is
+        // mostly .git internals — noise it then describes back instead of the project.
+        try {
+            Map<String, Object> f = agent.files(path, 200);
+            if (f.get("files") instanceof List<?> list && !list.isEmpty()) {
+                sb.append("\nTracked files");
+                if (Boolean.TRUE.equals(f.get("truncated"))) {
+                    sb.append(" (first ").append(list.size()).append(" of ").append(f.get("total")).append(')');
+                }
+                sb.append(":\n");
+                for (Object o : list) sb.append("- ").append(o).append('\n');
+            }
+        } catch (Exception ignore) { /* the file list is helpful, not required */ }
         try {
             Object commits = agent.log(path, null, false, 15).get("commits");
             if (commits instanceof List<?> list && !list.isEmpty()) {
