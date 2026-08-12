@@ -142,6 +142,28 @@ const usedPct = (p: KeyProvider) =>
           <span v-if="data.local.loaded" class="tag ok mono">● loaded</span>
         </div>
 
+        <!-- Not a scare banner: what these models are good at is most of what this app does, and
+             the one thing they can't do yet is the one thing that quietly wastes an afternoon. -->
+        <div class="note">
+          <p class="nlab mono">what to use these for</p>
+          <p>
+            Brainstorming, summarising, and <b>reading</b> code — what a file does, why a build
+            failed, what changed and why. Given tools to read a repository they answer questions
+            about it reliably, and nothing leaves your machine.
+          </p>
+          <p>
+            <b>Not yet for writing code.</b> Asked to add a file they tend to describe the change
+            instead of making it, or edit a file they were only meant to read. That is why a Fleet
+            edit run on a local model always gets its own git worktree and branch — a bad one is
+            discarded rather than landed. For unattended code changes, use a Claude model, which
+            runs through the Claude Code CLI.
+          </p>
+          <p class="nfoot mono">
+            Measured, not assumed — <code>eval/</code> in this repo scores both, and the Fleet shows
+            a run quality score with what went wrong.
+          </p>
+        </div>
+
         <!-- installed models manager -->
         <div class="mlist">
           <div v-for="m in installed" :key="m.name" class="mrow mono">
@@ -261,6 +283,14 @@ const usedPct = (p: KeyProvider) =>
 .warnbar { font-size: 12.5px; color: var(--dim); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; margin-bottom: 14px; }
 .prov { border: 1px solid var(--line); border-radius: var(--r-card); background: var(--surface); padding: 16px; margin-bottom: 14px; }
 .prov.muted { opacity: 0.9; }
+/* Marked by the accent edge rather than a colour, so it reads as guidance and not an error. */
+.note { border-left: 2px solid var(--warp); background: var(--bg); border-radius: 0 8px 8px 0; padding: 10px 14px; margin: 12px 0 4px; }
+.note p { font-size: 12.5px; color: var(--dim); line-height: 1.55; margin: 0 0 8px; max-width: 88ch; }
+.note p:last-child { margin-bottom: 0; }
+.note b { color: var(--ink); }
+.nlab { font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--warp-hi); }
+.nfoot { font-size: 11px; color: var(--faint-text); }
+.nfoot code { font-family: var(--mono); }
 .ph { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
 .ph h3 { font-size: 15px; }
 .opt { color: var(--faint-text); font-size: 11px; }
