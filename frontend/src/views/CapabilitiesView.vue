@@ -2,7 +2,7 @@
 // Settings › Capabilities — what the models can actually do: skills, MCP servers and plugins.
 // These edit the user's own Claude config through the host agent, so anything set here applies to
 // the CLI terminal, background runs and their own `claude` sessions alike.
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import type { Capabilities } from '../types'
 import {
   fetchCapabilities, addMcpServer, removeMcpServer, togglePlugin,
@@ -14,6 +14,24 @@ const data = ref<Capabilities | null>(null)
 const loading = ref(true)
 const busy = ref('')
 const flash = ref('')
+
+// Which sections are expanded, remembered across visits — with dozens of skills installed the
+// page is otherwise a long scroll to reach MCP or plugins.
+type Section = 'skills' | 'mcp' | 'plugins'
+const OPEN_KEY = 'devloom.capabilitiesOpen'
+function loadOpen(): Record<Section, boolean> {
+  try {
+    const saved = JSON.parse(localStorage.getItem(OPEN_KEY) || '{}')
+    return { skills: saved.skills ?? true, mcp: saved.mcp ?? true, plugins: saved.plugins ?? false }
+  } catch {
+    return { skills: true, mcp: true, plugins: false }
+  }
+}
+const open = ref<Record<Section, boolean>>(loadOpen())
+function toggleSection(s: Section) {
+  open.value = { ...open.value, [s]: !open.value[s] }
+  try { localStorage.setItem(OPEN_KEY, JSON.stringify(open.value)) } catch { /* ignore */ }
+}
 
 async function load() {
   try { data.value = await fetchCapabilities() } catch { data.value = null }
@@ -78,6 +96,25 @@ async function toggleForModels(key: string, on: boolean) {
 function sourceLabel(s: string) {
   return s === 'personal' ? 'yours' : s.replace(/^plugin:/, '').split('@')[0]
 }
+
+// Search + filter: a couple of installed plugins is already dozens of skills, so finding one by
+// scrolling doesn't scale. Matches name, description and the source (e.g. type "superpowers").
+const skillQuery = ref('')
+const onlyEnabled = ref(false)
+const allSkills = computed(() => data.value?.skills ?? [])
+const enabledCount = computed(() => (data.value?.skillsForModels ?? []).length)
+const filteredSkills = computed(() => {
+  const q = skillQuery.value.trim().toLowerCase()
+  return allSkills.value.filter((s) => {
+    if (onlyEnabled.value && !usedByModels(s.key)) return false
+    if (!q) return true
+    return (
+      s.name.toLowerCase().includes(q)
+      || s.description.toLowerCase().includes(q)
+      || sourceLabel(s.source).toLowerCase().includes(q)
+    )
+  })
+})
 
 const skillOpen = ref(false)
 const editing = ref<string | null>(null) // dir being edited, null = new
@@ -154,15 +191,35 @@ async function installRepo() {
       <template v-if="data && !data.error">
         <!-- skills -->
         <section class="block">
-          <div class="lab mono">Skills <span class="hint">— reusable instructions, yours and those bundled in plugins</span></div>
+          <button class="sechead" :aria-expanded="open.skills" @click="toggleSection('skills')">
+            <span class="caret">{{ open.skills ? '▾' : '▸' }}</span>
+            <span class="lab mono">Skills</span>
+            <span class="count mono">{{ allSkills.length }}</span>
+            <span v-if="enabledCount" class="count mono on">{{ enabledCount }} for local models</span>
+            <span class="hint mono">reusable instructions, yours and those bundled in plugins</span>
+          </button>
+          <template v-if="open.skills">
           <p class="explain">
             Claude Code loads these itself. Local Ollama models and API-key models have no such
-            mechanism, so tick <b>use with local &amp; API models</b> and DevLoom injects that skill's
+            mechanism, so tick <b>local models</b> and DevLoom injects that skill's
             instructions into their system prompt — same capabilities whichever model you pick.
             Each one costs context on every turn, so enable the ones that earn it.
           </p>
-          <div class="mlist">
-            <div v-for="s in data.skills" :key="s.key" class="mrow">
+          <div class="filterbar">
+            <input
+              v-model="skillQuery"
+              class="in mono"
+              type="search"
+              placeholder="Search skills by name, description or plugin…"
+            />
+            <label class="tog">
+              <input type="checkbox" v-model="onlyEnabled" />
+              <span>only enabled</span>
+            </label>
+            <span class="mono resultn">{{ filteredSkills.length }} / {{ allSkills.length }}</span>
+          </div>
+          <div class="mlist scroll">
+            <div v-for="s in filteredSkills" :key="s.key" class="mrow">
               <div class="grow">
                 <div class="mn">{{ s.name }} <span class="tag mono">{{ sourceLabel(s.source) }}</span></div>
                 <div class="mdesc">{{ s.description || 'no description' }}</div>
@@ -179,7 +236,10 @@ async function installRepo() {
               <button v-if="s.editable" class="btn" :disabled="busy !== ''" @click="editSkill(s.dir)">Edit</button>
               <button v-if="s.editable" class="btn ghost" :disabled="busy !== ''" @click="dropSkill(s.dir)">Delete</button>
             </div>
-            <div v-if="!data.skills.length" class="empty mono">no skills found</div>
+            <div v-if="!allSkills.length" class="empty mono">no skills found</div>
+            <div v-else-if="!filteredSkills.length" class="empty mono">
+              nothing matches “{{ skillQuery }}”{{ onlyEnabled ? ' among enabled skills' : '' }}
+            </div>
           </div>
           <div class="row">
             <button class="btn pri" @click="newSkill">＋ New skill</button>
@@ -188,11 +248,18 @@ async function installRepo() {
               {{ busy === 'install' ? 'Installing…' : 'Install' }}
             </button>
           </div>
+          </template>
         </section>
 
         <!-- MCP servers -->
         <section class="block">
-          <div class="lab mono">MCP servers <span class="hint">— tools and data sources the models can call</span></div>
+          <button class="sechead" :aria-expanded="open.mcp" @click="toggleSection('mcp')">
+            <span class="caret">{{ open.mcp ? '▾' : '▸' }}</span>
+            <span class="lab mono">MCP servers</span>
+            <span class="count mono">{{ data.mcp.length }}</span>
+            <span class="hint mono">tools and data sources the models can call</span>
+          </button>
+          <template v-if="open.mcp">
           <p class="explain">
             Claude Code only, for now: calling a tool needs an agentic loop DevLoom doesn't yet run
             for local models. Skills above already work everywhere.
@@ -231,11 +298,18 @@ async function installRepo() {
               <button class="btn ghost" @click="mcpOpen = false; resetMcp()">Cancel</button>
             </div>
           </div>
+          </template>
         </section>
 
         <!-- plugins -->
         <section class="block">
-          <div class="lab mono">Plugins <span class="hint">— installed via Claude Code's marketplace; toggle what's active</span></div>
+          <button class="sechead" :aria-expanded="open.plugins" @click="toggleSection('plugins')">
+            <span class="caret">{{ open.plugins ? '▾' : '▸' }}</span>
+            <span class="lab mono">Plugins</span>
+            <span class="count mono">{{ data.plugins.length }}</span>
+            <span class="hint mono">installed via Claude Code's marketplace; toggle what's active</span>
+          </button>
+          <template v-if="open.plugins">
           <p class="explain">
             A plugin bundles skills, commands and hooks. Its <em>skills</em> are listed above and can
             be given to any model; commands and hooks stay Claude Code features.
@@ -256,6 +330,7 @@ async function installRepo() {
             <div v-if="!data.plugins.length" class="empty mono">no plugins installed</div>
           </div>
           <p class="note mono">Install new plugins with <b>/plugin</b> in a Claude session; they appear here to toggle.</p>
+          </template>
         </section>
       </template>
     </template>
@@ -296,6 +371,28 @@ async function installRepo() {
 .lab { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--faint-text); margin-bottom: 12px; }
 .lab .hint { text-transform: none; letter-spacing: 0; color: var(--faint-text); }
 .explain { color: var(--dim); font-size: 12.5px; margin: -4px 0 12px; max-width: 76ch; line-height: 1.55; }
+/* collapsible section header */
+.sechead {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 0; margin: 0 0 12px;
+  background: transparent; border: 0; cursor: pointer; text-align: left; color: inherit;
+}
+.sechead:hover .lab { color: var(--ink); }
+.sechead .lab { margin-bottom: 0; }
+.sechead .caret { color: var(--faint-text); font-size: 11px; width: 10px; }
+.sechead .count {
+  font-size: 10px; color: var(--faint-text); border: 1px solid var(--line);
+  border-radius: 20px; padding: 1px 8px;
+}
+.sechead .count.on { color: var(--warp-hi); border-color: var(--warp); }
+.sechead .hint {
+  font-size: 11px; color: var(--faint-text); margin-left: auto; text-align: right;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* skill search */
+.filterbar { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+.filterbar .in { flex: 1; }
+.resultn { font-size: 11px; color: var(--faint-text); white-space: nowrap; }
+.mlist.scroll { max-height: 420px; overflow-y: auto; padding-right: 4px; }
 .mlist { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
 .mrow { display: flex; align-items: center; gap: 12px; border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px; background: var(--bg); }
 .mrow .grow { flex: 1; min-width: 0; }
