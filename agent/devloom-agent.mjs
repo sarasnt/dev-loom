@@ -1561,6 +1561,13 @@ async function startPty(ws, url) {
     delete env[k]
   }
   env.TERM = 'xterm-256color'
+  // Declare full colour rather than inheriting it. Colour-detection libraries read COLORTERM and
+  // fall back to a near-monochrome palette without it — so the terminal's colours ended up
+  // depending on how the *agent* was launched (a shell in Windows Terminal sets COLORTERM; a
+  // service or hidden process doesn't). The destination here is always xterm.js, which does
+  // truecolor unconditionally, so there is nothing to detect.
+  env.COLORTERM = 'truecolor'
+  env.FORCE_COLOR = '3'
   env.CLAUDE_CODE_FORCE_SESSION_PERSISTENCE = '1'
 
   let term
