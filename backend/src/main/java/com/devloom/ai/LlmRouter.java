@@ -86,16 +86,21 @@ public class LlmRouter {
      * Resilient: any provider error falls back to the offline stub so a feature never fails.
      */
     public LlmPort.LlmResult generate(LlmPort.LlmRequest request) {
+        return generate(request, LlmPort.StreamSink.NONE);
+    }
+
+    /** As above, reporting progress to {@code sink} for adapters that can stream. */
+    public LlmPort.LlmResult generate(LlmPort.LlmRequest request, LlmPort.StreamSink sink) {
         // Mark the feature so any model call on this thread exports to Langfuse named by it.
         tracer.setFeature(request.feature());
         try {
-            return doGenerate(request);
+            return doGenerate(request, sink);
         } finally {
             tracer.clearFeature();
         }
     }
 
-    private LlmPort.LlmResult doGenerate(LlmPort.LlmRequest request) {
+    private LlmPort.LlmResult doGenerate(LlmPort.LlmRequest request, LlmPort.StreamSink sink) {
         String model = request.model();
         if (model == null || model.isBlank()) {
             model = modelPref.active();
@@ -126,7 +131,7 @@ public class LlmRouter {
                     request.feature(), system, request.prompt(), model, request.repoPath());
             long t0 = System.currentTimeMillis();
             try {
-                LlmPort.LlmResult result = port.generate(req);
+                LlmPort.LlmResult result = port.generate(req, sink);
                 if (result.text() != null && !result.text().isBlank()) {
                     tracer.trace(request.feature(), result.provider(), result.model(),
                             System.currentTimeMillis() - t0, result.hypothesis());

@@ -4,6 +4,10 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,7 +22,9 @@ import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.response.ChatResponse;
+import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.model.ollama.OllamaChatModel;
+import dev.langchain4j.model.ollama.OllamaStreamingChatModel;
 
 /**
  * Local model adapter via Ollama (SPEC.md §20). Local-first, free, nothing leaves the
@@ -72,7 +78,13 @@ public class OllamaLlm implements LlmPort {
 
     @Override
     public LlmResult generate(LlmRequest request) {
+        return generate(request, StreamSink.NONE);
+    }
+
+    @Override
+    public LlmResult generate(LlmRequest request, StreamSink sink) {
         String model = resolveModel(request.model());
+        if (sink != StreamSink.NONE) return streaming(request, model, sink);
         // Route through LangChain4j so ModelMonitor (a ChatModelListener) observes the call.
         OllamaChatModel chat = OllamaChatModel.builder()
                 .baseUrl(baseUrl)
@@ -94,6 +106,69 @@ public class OllamaLlm implements LlmPort {
         String answer = toolLoop.chat(chat, messages, request.repoPath());
         String text = answer == null ? "" : answer;
         log.info("Ollama generate: model={} chars={}", model, text.length());
+        return new LlmResult(text, model, provider(), true);
+    }
+
+    /**
+     * The same turn, streamed. Local models are slow enough that watching the reply appear is the
+     * difference between "working" and "hung" — a 30-second wait with no output looks like a
+     * failure even when it isn't.
+     *
+     * <p>Each exchange still has to complete before the loop can act on it (a half-received tool
+     * call can't be executed), so this streams within a turn and blocks between turns.
+     */
+    private LlmResult streaming(LlmRequest request, String model, StreamSink sink) {
+        OllamaStreamingChatModel chat = OllamaStreamingChatModel.builder()
+                .baseUrl(baseUrl)
+                .modelName(model)
+                .timeout(Duration.ofSeconds(120))
+                .listeners(List.of(monitor))
+                .temperature(Sampling.temperature(request.feature()))
+                .topP(Sampling.topP(request.feature()))
+                .build();
+
+        ToolLoop.Turn turn = (messages, specs) -> {
+            CompletableFuture<ChatResponse> done = new CompletableFuture<>();
+            ChatRequest req = specs == null || specs.isEmpty()
+                    ? ChatRequest.builder().messages(messages).build()
+                    : ChatRequest.builder().messages(messages).toolSpecifications(specs).build();
+            chat.chat(req, new StreamingChatResponseHandler() {
+                @Override
+                public void onPartialResponse(String partial) {
+                    sink.delta(partial);
+                }
+
+                @Override
+                public void onCompleteResponse(ChatResponse response) {
+                    done.complete(response);
+                }
+
+                @Override
+                public void onError(Throwable error) {
+                    done.completeExceptionally(error);
+                }
+            });
+            try {
+                return done.get(150, TimeUnit.SECONDS);
+            } catch (ExecutionException e) {
+                Throwable cause = e.getCause() == null ? e : e.getCause();
+                throw cause instanceof RuntimeException re ? re : new RuntimeException(cause);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new RuntimeException("interrupted while streaming", e);
+            } catch (TimeoutException e) {
+                throw new RuntimeException("the model stopped responding", e);
+            }
+        };
+
+        List<ChatMessage> messages = new ArrayList<>();
+        if (request.system() != null && !request.system().isBlank()) {
+            messages.add(SystemMessage.from(request.system()));
+        }
+        messages.add(UserMessage.from(request.prompt()));
+        String answer = toolLoop.chat(turn, messages, request.repoPath(), sink);
+        String text = answer == null ? "" : answer;
+        log.info("Ollama stream: model={} chars={}", model, text.length());
         return new LlmResult(text, model, provider(), true);
     }
 

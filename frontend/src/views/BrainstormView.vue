@@ -21,14 +21,15 @@ import LoomLoader from '../components/LoomLoader.vue'
 import TerminalPane from '../components/TerminalPane.vue'
 import ModelSelect from '../components/ModelSelect.vue'
 import { renderMarkdown } from '../utils/markdown'
+import { loomingWord, loomingStart } from '../utils/looming'
 import { isRemoteModel } from '../utils/models'
 import type { Boundary } from '../types'
 
-const thinkingSteps = [
-  'reading your sources…',
-  'weaving a response…',
-  'checking assumptions…',
-]
+// While the model thinks, the loom talks. Rotated on a timer from a fixed starting point so the
+// sequence is stable rather than reshuffling on every re-render.
+const loomTick = ref(loomingStart())
+const thinkingSteps = computed(() => [loomingWord(loomTick.value)])
+let loomTimer: number | undefined
 
 const store = useDashboardStore()
 
@@ -51,6 +52,7 @@ const sending = ref(false)
 const switching = ref(false)
 const chatEl = ref<HTMLElement | null>(null)
 const streamingText = ref('') // live-streamed reply while sending
+const activity = ref('')      // what the run is doing right now (reading a file, searching…)
 const sessionModel = ref('') // this session's model (seeded from the Brainstorm screen default)
 const API = (import.meta.env.VITE_API_BASE as string) ?? '/api/v1'
 
@@ -65,6 +67,7 @@ async function streamReply(
   message: string,
   onDelta: (t: string) => void,
   onDone: (text: string, model: string) => void,
+  onStatus?: (activity: string) => void,
 ) {
   const resp = await fetch(`${API}/brainstorm/messages/stream`, {
     method: 'POST',
@@ -94,6 +97,7 @@ async function streamReply(
       let payload: Record<string, string>
       try { payload = JSON.parse(dataStr) } catch { continue }
       if (event === 'delta') onDelta(payload.t ?? '')
+      else if (event === 'status') onStatus?.(payload.activity ?? '')
       else if (event === 'done') onDone(payload.text ?? '', payload.model ?? 'claude-code')
       else if (event === 'error') throw new Error(payload.error || 'stream error')
     }
@@ -309,6 +313,9 @@ async function send() {
   draft.value = ''
   sending.value = true
   streamingText.value = ''
+  activity.value = ''
+  loomTick.value = loomingStart()
+  loomTimer = window.setInterval(() => { loomTick.value++ }, 2600)
   await scrollToEnd()
   try {
     await streamReply(
@@ -318,6 +325,9 @@ async function send() {
       (finalText, model) => {
         session.messages.push({ role: 'ai', text: finalText, model, hypothesis: true })
       },
+      // Text streamed before a tool call was the model working out what to fetch, not the reply —
+      // so it is dropped and replaced by what's actually happening.
+      (what) => { activity.value = what; streamingText.value = ''; scrollToEnd() },
     )
     syncActiveTitle()
   } catch {
@@ -327,7 +337,9 @@ async function send() {
       hypothesis: false,
     })
   } finally {
+    if (loomTimer) { window.clearInterval(loomTimer); loomTimer = undefined }
     streamingText.value = ''
+    activity.value = ''
     sending.value = false
     await scrollToEnd()
   }
@@ -474,6 +486,7 @@ async function redoLast() {
           <div class="who mono">DevLoom · {{ sessionModel || data.active.model }}</div>
           <div class="bub">
             <template v-if="streamingText"><span class="md" v-html="renderMarkdown(streamingText)"></span><span class="cursor" aria-hidden="true">▍</span></template>
+            <div v-else-if="activity" class="activity mono">⑂ {{ activity }}<span class="cursor" aria-hidden="true">▍</span></div>
             <LoomLoader v-else class="think-loom" :steps="thinkingSteps" size="sm" />
           </div>
         </div>
@@ -644,6 +657,7 @@ async function redoLast() {
 .repobar { font-size: 12px; color: var(--warp-hi); border: 1px solid var(--warp); background: var(--warp-weft); border-radius: 8px; padding: 7px 12px; margin-bottom: 12px; }
 .stream { flex: 1; overflow: auto; min-height: 0; }
 .msg { margin-bottom: 16px; max-width: 58ch; }
+.activity { color: var(--warp-hi); font-size: 12px; }
 .thinking { color: var(--faint-text); }
 .thinking::after { content: ''; animation: none; }
 .who { font-size: 11px; color: var(--faint-text); margin-bottom: 4px; }

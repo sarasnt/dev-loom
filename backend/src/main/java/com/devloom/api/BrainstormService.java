@@ -274,6 +274,15 @@ public class BrainstormService {
     public void replyStreaming(Dto.BrainstormSend req,
                                java.util.function.Consumer<String> onDelta,
                                java.util.function.BiConsumer<String, String> onDone) {
+        replyStreaming(req, onDelta, s -> { }, onDone);
+    }
+
+    /** As above, with an activity channel for what the run is doing between answer chunks. */
+    @Transactional
+    public void replyStreaming(Dto.BrainstormSend req,
+                               java.util.function.Consumer<String> onDelta,
+                               java.util.function.Consumer<String> onStatus,
+                               java.util.function.BiConsumer<String, String> onDone) {
         BrainstormSessionEntity session = sessions.findById(parse(req.sessionId()))
                 .orElseGet(() -> sessions.save(BrainstormSessionEntity.create(null)));
 
@@ -328,8 +337,16 @@ public class BrainstormService {
             Long chatRun = fleet.chatStarted("Chat · " + nzTitle(session.getTitle()),
                     session.getRepoPath(), chatModel, session.getId());
             try {
+                // Stream it. This used to call the blocking path and emit the whole reply at the
+                // end, so a local model looked like it had hung for half a minute and then teleported
+                // an answer in. The sink forwards text as the model writes it, and swaps to an
+                // activity line whenever it stops to use a tool.
+                LlmPort.StreamSink sink = new LlmPort.StreamSink() {
+                    public void delta(String text) { onDelta.accept(text); }
+                    public void status(String activity) { onStatus.accept(activity); }
+                };
                 LlmPort.LlmResult r = llm.generate(new LlmPort.LlmRequest("brainstorm", SYSTEM,
-                        buildPrompt(cblock, prior, userText), chatModel, session.getRepoPath()));
+                        buildPrompt(cblock, prior, userText), chatModel, session.getRepoPath()), sink);
                 finalText = stripMarker(r.text());
                 finalModel = r.model();
                 fleet.chatFinished(chatRun, true, null, wantsInput(r.text()));
@@ -337,7 +354,6 @@ public class BrainstormService {
                 fleet.chatFinished(chatRun, false, e.getMessage(), false);
                 throw e;
             }
-            onDelta.accept(finalText);
         }
 
         messages.save(BrainstormMessageEntity.of(session.getId(), seq, "ai", finalText, finalModel, true));

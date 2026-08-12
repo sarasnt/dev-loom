@@ -487,6 +487,9 @@ public class ApiController {
             try {
                 brainstormService.replyStreaming(body,
                         delta -> send(emitter, "delta", Map.of("t", delta)),
+                        // Activity, not answer: anything streamed before a tool call was the model
+                        // working out what to fetch, so the client drops it and shows this instead.
+                        activity -> send(emitter, "status", Map.of("activity", activity)),
                         (text, model) -> send(emitter, "done", Map.of("text", text, "model", model)));
                 emitter.complete();
             } catch (Exception e) {

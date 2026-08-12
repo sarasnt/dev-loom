@@ -49,8 +49,29 @@ public class ToolLoop {
         return !mcp.tools().isEmpty();
     }
 
+    /**
+     * One exchange with the model. Abstracted so the loop doesn't care whether the adapter got the
+     * response in one blocking call or streamed it token by token — tool calls need a complete
+     * response either way, so the streaming has to be finished before the loop can act on it.
+     */
+    @FunctionalInterface
+    public interface Turn {
+        ChatResponse run(List<ChatMessage> messages, List<ToolSpecification> specs);
+    }
+
+    /** A blocking turn, for adapters that don't stream. */
+    public static Turn blocking(ChatModel model) {
+        return (messages, specs) -> model.chat(specs == null || specs.isEmpty()
+                ? ChatRequest.builder().messages(messages).build()
+                : ChatRequest.builder().messages(messages).toolSpecifications(specs).build());
+    }
+
     public String chat(ChatModel model, List<ChatMessage> messages) {
         return chat(model, messages, null);
+    }
+
+    public String chat(ChatModel model, List<ChatMessage> messages, String repoPath) {
+        return chat(blocking(model), messages, repoPath, LlmPort.StreamSink.NONE);
     }
 
     /**
@@ -60,13 +81,12 @@ public class ToolLoop {
      *                 tools are added to whatever MCP tools the user has enabled
      * @return the model's final text, or {@code null} if it never produced any
      */
-    public String chat(ChatModel model, List<ChatMessage> messages, String repoPath) {
+    public String chat(Turn turn, List<ChatMessage> messages, String repoPath, LlmPort.StreamSink sink) {
         List<McpTools.Tool> tools = new ArrayList<>(repoTools.tools(repoPath));
         tools.addAll(mcp.tools());
         List<ToolSpecification> specs = tools.stream().map(McpTools.Tool::spec).toList();
         if (specs.isEmpty()) {
-            ChatResponse resp = model.chat(ChatRequest.builder().messages(messages).build());
-            return text(resp);
+            return text(turn.run(messages, List.of()));
         }
         withToolGuidance(messages, tools);
         // Smaller models get stuck re-calling the same tool with the same arguments; remember what
@@ -76,14 +96,13 @@ public class ToolLoop {
         for (int step = 0; step < MAX_STEPS; step++) {
             ChatResponse resp;
             try {
-                resp = model.chat(ChatRequest.builder().messages(messages).toolSpecifications(specs).build());
+                resp = turn.run(messages, specs);
             } catch (RuntimeException e) {
                 // Plenty of local models simply can't do tool calling. Rather than fail the turn,
                 // drop the tools and let the model answer from context alone.
                 if (step == 0) {
                     log.info("Model rejected tool specifications ({}) — retrying without tools", e.getMessage());
-                    ChatResponse plain = model.chat(ChatRequest.builder().messages(messages).build());
-                    return text(plain);
+                    return text(turn.run(messages, List.of()));
                 }
                 throw e;
             }
@@ -101,6 +120,7 @@ public class ToolLoop {
                 messages.add(ai);
                 allRepeats = true;
                 for (ToolExecutionRequest req : parsed) {
+                    sink.status(activity(req));
                     Outcome o = runTool(req, repoPath, seen);
                     allRepeats &= o.repeat();
                     // Fed back as a plain message: a tool-result message without a matching
@@ -112,6 +132,7 @@ public class ToolLoop {
                 messages.add(ai);
                 allRepeats = true;
                 for (ToolExecutionRequest req : ai.toolExecutionRequests()) {
+                    sink.status(activity(req));
                     Outcome o = runTool(req, repoPath, seen);
                     allRepeats &= o.repeat();
                     messages.add(ToolExecutionResultMessage.from(req, withBudget(o.text(), stepsLeft)));
@@ -124,7 +145,7 @@ public class ToolLoop {
             spinning = allRepeats ? spinning + 1 : 0;
             if (spinning >= 2) {
                 log.info("Tool loop stopped early — {} repeated tool steps with nothing new", spinning);
-                return finalAnswer(model, messages,
+                return finalAnswer(turn, messages,
                         "You are repeating tool calls you have already made, which returns nothing new."
                                 + " Stop calling tools and answer now from the results above.");
             }
@@ -132,15 +153,33 @@ public class ToolLoop {
         // Out of steps. Answering without tools invites confabulation, so say plainly that the
         // budget ran out — a truthful "I couldn't finish" beats an invented answer.
         log.info("Tool loop hit the {}-step cap", MAX_STEPS);
-        return finalAnswer(model, messages,
+        return finalAnswer(turn, messages,
                 "You have used all available tool steps. Answer now using only the tool results above.");
     }
 
     /** One last turn with no tools offered, so the model has to produce prose. */
-    private String finalAnswer(ChatModel model, List<ChatMessage> messages, String instruction) {
+    private String finalAnswer(Turn turn, List<ChatMessage> messages, String instruction) {
         messages.add(dev.langchain4j.data.message.UserMessage.from(instruction
                 + " If the results were not enough, say exactly what is missing — do not invent details."));
-        return text(model.chat(ChatRequest.builder().messages(messages).build()));
+        return text(turn.run(messages, List.of()));
+    }
+
+    /** Plain-language description of a tool call, for the activity line the user sees. */
+    private static String activity(ToolExecutionRequest req) {
+        String args = req.arguments() == null ? "" : req.arguments();
+        String detail = null;
+        try {
+            com.fasterxml.jackson.databind.JsonNode n = JSON.readTree(args.isBlank() ? "{}" : args);
+            for (String field : List.of("file", "path", "query", "pattern")) {
+                if (n.hasNonNull(field)) { detail = n.get(field).asText(); break; }
+            }
+        } catch (Exception ignore) { /* a label is never worth failing a turn over */ }
+        return switch (req.name()) {
+            case RepoTools.LIST -> "listing the repository";
+            case RepoTools.READ -> detail == null ? "reading a file" : "reading " + detail;
+            case RepoTools.SEARCH -> detail == null ? "searching the repository" : "searching for \"" + detail + "\"";
+            default -> detail == null ? req.name() : req.name() + " · " + detail;
+        };
     }
 
     /**
