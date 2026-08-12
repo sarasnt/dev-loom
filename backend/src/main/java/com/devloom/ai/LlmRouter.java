@@ -41,7 +41,7 @@ public class LlmRouter {
     }
 
     /** Which provider serves a model name. "claude-code" = CLI subscription; "gpt-oss" = local. */
-    static String providerForModel(String model) {
+    public static String providerForModel(String model) {
         if (model == null) return null;
         String m = model.toLowerCase();
         if (m.equals("claude-code") || m.equals("claude-cli")) return "claude-code";

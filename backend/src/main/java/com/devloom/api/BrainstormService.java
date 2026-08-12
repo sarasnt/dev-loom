@@ -46,7 +46,24 @@ public class BrainstormService {
             - Be concrete, technical, and tight. No filler, no restating the question.
             - Once the problem is clear, move to options + a recommendation rather than asking more.
 
-            You are talking to an experienced engineer. Match that level.""";
+            You are talking to an experienced engineer. Match that level.
+
+            When you end a turn waiting on the user — you asked a clarifying question, need a
+            decision, or need approval before continuing — finish the message with the literal
+            marker [DEVLOOM:INPUT] on its own line. DevLoom strips it and flags the session as
+            needing you, so the user sees it in the Fleet even if they've navigated away. Use it
+            only when you are genuinely blocked on their answer.""";
+
+    /** Explicit "I'm blocked on you" signal a model can emit; stripped before the reply is shown. */
+    static final String INPUT_MARKER = "[DEVLOOM:INPUT]";
+
+    private static boolean wantsInput(String text) {
+        return text != null && text.contains(INPUT_MARKER);
+    }
+
+    private static String stripMarker(String text) {
+        return text == null ? null : text.replace(INPUT_MARKER, "").stripTrailing();
+    }
 
     private static final int MAX_HISTORY_TURNS = 12;
 
@@ -217,11 +234,12 @@ public class BrainstormService {
         String replyModel;
         try {
             LlmPort.LlmResult r = llm.generate(new LlmPort.LlmRequest("brainstorm", SYSTEM, prompt, model));
-            replyText = r.text();
+            replyText = stripMarker(r.text());
             replyModel = r.model();
-            fleet.chatFinished(chatRun, true, null);
+            // The model told us it's blocked on the user — keep the row so Fleet can route them back.
+            fleet.chatFinished(chatRun, true, null, wantsInput(r.text()));
         } catch (RuntimeException e) {
-            fleet.chatFinished(chatRun, false, e.getMessage());
+            fleet.chatFinished(chatRun, false, e.getMessage(), false);
             throw e;
         }
 
@@ -305,11 +323,11 @@ public class BrainstormService {
             try {
                 LlmPort.LlmResult r = llm.generate(new LlmPort.LlmRequest("brainstorm", SYSTEM,
                         buildPrompt(cblock, prior, userText), chatModel));
-                finalText = r.text();
+                finalText = stripMarker(r.text());
                 finalModel = r.model();
-                fleet.chatFinished(chatRun, true, null);
+                fleet.chatFinished(chatRun, true, null, wantsInput(r.text()));
             } catch (RuntimeException e) {
-                fleet.chatFinished(chatRun, false, e.getMessage());
+                fleet.chatFinished(chatRun, false, e.getMessage(), false);
                 throw e;
             }
             onDelta.accept(finalText);

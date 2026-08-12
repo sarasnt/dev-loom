@@ -1,19 +1,32 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { storeToRefs } from 'pinia'
 import { useDashboardStore } from '../stores/dashboard'
 import { fleetRuns, launchRun, cancelRun, fetchRepos, fleetRunChanges, rerunRun, deleteRun, createBrainstormSession, fetchSettings, applyRun, discardRun } from '../api'
 import type { AgentRun, RepoView, RepoChanges, RunLaunch } from '../types'
 
 const router = useRouter()
 const store = useDashboardStore()
-// Background runs are `claude -p` — only Claude models are valid (a local/OpenAI model errors).
+const { models } = storeToRefs(store)
+// Claude models run through the Claude Code CLI — the agentic path that can edit files.
 const claudeModels: { value: string | undefined; label: string }[] = [
   { value: undefined, label: 'Claude (default)' },
   { value: 'sonnet', label: 'Claude Sonnet' },
   { value: 'opus', label: 'Claude Opus' },
   { value: 'haiku', label: 'Claude Haiku' },
 ]
+// Everything else (local Ollama, keyed API models) has no tool loop, so those runs analyse the
+// repo and report back — read-only by construction. claude-cli/claude-code are terminal-only.
+const otherModels = computed(() =>
+  models.value.filter((m) => !m.startsWith('claude-cli') && !m.startsWith('claude-code')),
+)
+function isCliModel(m: string | undefined) {
+  if (!m) return true
+  const l = m.toLowerCase()
+  return l.startsWith('claude') || l === 'sonnet' || l === 'opus' || l === 'haiku'
+}
+const analysisOnly = computed(() => !isCliModel(form.value.model))
 
 const runs = ref<AgentRun[]>([])
 const repos = ref<RepoView[]>([])
@@ -62,6 +75,11 @@ const statusLabel: Record<string, string> = {
 const dlg = ref(false)
 const busy = ref(false)
 const form = ref<RunLaunch>({ repoId: '', prompt: '', model: undefined, permission: 'readonly', allowTests: false, isolate: false })
+// A model without a tool loop can't edit files — snap the permission back so the dialog can't
+// offer something the run would refuse.
+watch(() => form.value.model, (m) => {
+  if (!isCliModel(m)) form.value.permission = 'readonly'
+})
 function openLaunch() {
   form.value = { repoId: repos.value[0]?.id ?? '', prompt: '', model: undefined, permission: 'readonly', allowTests: false, isolate: worktreesDefault.value }
   flash.value = ''
@@ -275,14 +293,26 @@ async function openInTerminal(r: AgentRun) {
         </label>
         <label class="fld"><span class="flab mono">Model</span>
           <select v-model="form.model" class="in mono">
-            <option v-for="m in claudeModels" :key="m.label" :value="m.value">{{ m.label }}</option>
+            <optgroup label="Claude Code — can edit files">
+              <option v-for="m in claudeModels" :key="m.label" :value="m.value">{{ m.label }}</option>
+            </optgroup>
+            <optgroup v-if="otherModels.length" label="Analysis only — reads and reports">
+              <option v-for="m in otherModels" :key="m" :value="m">{{ m }}</option>
+            </optgroup>
           </select>
         </label>
-        <p class="hint2 mono">Background runs are headless Claude Code — only Claude models apply.</p>
+        <p class="hint2 mono">
+          {{ analysisOnly
+            ? 'This model has no tool loop: it reads the repo and reports back, and never edits. It runs in the background — you can navigate away.'
+            : 'Runs headless Claude Code in the repo — can edit files, never pushes.' }}
+        </p>
         <div class="fld"><span class="flab mono">Permission</span>
           <div class="perm">
             <label class="pr"><input type="radio" value="readonly" v-model="form.permission" /> Read-only<span class="mono">proposes a plan; writes nothing</span></label>
-            <label class="pr"><input type="radio" value="edit" v-model="form.permission" /> Edit in repo<span class="mono">changes files; never pushes/deploys</span></label>
+            <label class="pr" :class="{ off: analysisOnly }">
+              <input type="radio" value="edit" v-model="form.permission" :disabled="analysisOnly" />
+              Edit in repo<span class="mono">{{ analysisOnly ? 'needs a Claude model' : 'changes files; never pushes/deploys' }}</span>
+            </label>
           </div>
         </div>
         <label v-if="form.permission === 'edit'" class="fld ck"><input type="checkbox" v-model="form.allowTests" /> <span>Let it run tests</span></label>
@@ -348,6 +378,7 @@ button.run:hover { border-color: var(--warp); }
 .perm { display: flex; flex-direction: column; gap: 6px; }
 .pr { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink); }
 .pr .mono { font-size: 11px; color: var(--faint-text); }
+.pr.off { opacity: 0.55; }
 .warn { font-size: 11px; color: var(--warp-hi); margin: 0 0 8px; }
 .hint { color: var(--faint-text); }
 .hint2 { font-size: 11px; color: var(--faint-text); margin: -6px 0 10px; }

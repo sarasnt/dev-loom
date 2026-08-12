@@ -33,16 +33,22 @@ public class FleetService {
     private final AuditService audit;
     private final NotificationService notifications;
     private final com.devloom.brainstorm.BrainstormSessionRepository brainstormSessions;
+    private final com.devloom.ai.LlmRouter llm;
+    /** Local/API model runs execute here so they survive the request that launched them. */
+    private final java.util.concurrent.ExecutorService pool =
+            java.util.concurrent.Executors.newFixedThreadPool(4);
 
     public FleetService(AgentRunRepository runs, GitRepoRepository repos,
                         HostAgentClient agent, AuditService audit, NotificationService notifications,
-                        com.devloom.brainstorm.BrainstormSessionRepository brainstormSessions) {
+                        com.devloom.brainstorm.BrainstormSessionRepository brainstormSessions,
+                        com.devloom.ai.LlmRouter llm) {
         this.runs = runs;
         this.repos = repos;
         this.agent = agent;
         this.audit = audit;
         this.notifications = notifications;
         this.brainstormSessions = brainstormSessions;
+        this.llm = llm;
     }
 
     public List<Dto.AgentRun> list() {
@@ -62,6 +68,9 @@ public class FleetService {
         GitRepoEntity repo = repos.findById(parse(body.repoId())).orElseThrow();
         String path = repo.getPath();
         String permission = "edit".equals(body.permission()) ? "edit" : "readonly";
+        if (!usesClaudeCli(body.model())) {
+            return launchLocal(repo, body, permission);
+        }
         boolean isolate = body.isolate() && "edit".equals(permission); // isolation only matters for edits
 
         if ("edit".equals(permission) && !isolate) {
@@ -119,6 +128,120 @@ public class FleetService {
         runs.save(run);
         audit.record("fleet_launch", path, permission + (isolate ? " · isolated" : "") + " · " + title);
         return toDto(run);
+    }
+
+    /**
+     * Whether a model runs through the Claude Code CLI (`claude -p`, the agentic path that can
+     * edit files). Null = the CLI default. Everything else — local Ollama models, OpenAI models —
+     * goes through {@link #launchLocal}, which can analyse a repo but not edit it.
+     */
+    private static boolean usesClaudeCli(String model) {
+        if (model == null || model.isBlank()) return true;
+        String m = model.toLowerCase();
+        return m.startsWith("claude") || m.equals("sonnet") || m.equals("opus") || m.equals("haiku");
+    }
+
+    /**
+     * Background run on a non-CLI model (local Ollama, or a keyed API model). These have no
+     * agentic tool loop, so they <em>analyse</em> the repo and report back — they never edit it.
+     * The work runs on a pool thread, so navigating away (or closing the tab) doesn't stop it;
+     * the board shows it running and flips it to review when the model answers.
+     */
+    private Dto.AgentRun launchLocal(GitRepoEntity repo, Dto.RunLaunch body, String permission) {
+        if ("edit".equals(permission)) {
+            throw new IllegalStateException(
+                    "This model can only run read-only analysis — it has no tool loop to edit files. "
+                            + "Pick a Claude model for an edit run, or switch this run to read-only.");
+        }
+        String title = titleFrom(body.prompt(), repo.getName());
+        AgentRunEntity run = AgentRunEntity.background(title, repo.getPath(), body.model(), "readonly", false);
+        run = runs.save(run);
+        final Long id = run.getId();
+        final String prompt = body.prompt();
+        final String model = body.model();
+        final String path = repo.getPath();
+        pool.submit(() -> runLocal(id, path, prompt, model));
+        audit.record("fleet_launch", path, "local · " + model + " · " + title);
+        return toDto(run);
+    }
+
+    /** Executes a local/API analysis run off-request and records its outcome. */
+    private void runLocal(Long id, String path, String prompt, String model) {
+        try {
+            String system = """
+                    You are a background analysis agent inspecting a git repository for an engineer.
+                    You cannot edit files or run commands — you read the context you are given and
+                    answer. Be concrete and technical; say plainly when the context is insufficient
+                    rather than guessing. If you are blocked on a decision only the user can make,
+                    end your reply with the literal marker [DEVLOOM:INPUT].""";
+            String full = repoContext(path) + "\n\nTask:\n" + (prompt == null ? "" : prompt);
+            com.devloom.ai.LlmPort.LlmResult r =
+                    llm.generate(new com.devloom.ai.LlmPort.LlmRequest("fleet", system, full, model));
+            String text = r.text() == null ? "" : r.text();
+            boolean needsInput = text.contains("[DEVLOOM:INPUT]");
+            finishLocal(id, text.replace("[DEVLOOM:INPUT]", "").stripTrailing(), null, needsInput);
+        } catch (Exception e) {
+            finishLocal(id, null, e.getMessage() == null ? "run failed" : e.getMessage(), false);
+        }
+    }
+
+    /** Persist a local run's outcome (runs on a pool thread — the repository save opens its own tx). */
+    private void finishLocal(Long id, String result, String error, boolean needsInput) {
+        AgentRunEntity run = runs.findById(id).orElse(null);
+        if (run == null) return;
+        if ("canceled".equals(run.getStatus())) return; // the user let go of it while it ran
+        run.setFinishedAt(Instant.now());
+        if (error != null) {
+            run.setStatus("failed");
+            run.setError(error);
+            runs.save(run);
+            notifications.notify("Run failed · " + repoName(run.getRepoPath()), run.getTitle(), true);
+            return;
+        }
+        run.setResultSummary(result);
+        run.setStatus(needsInput ? "input" : "review");
+        runs.save(run);
+        notifications.notify(needsInput ? "Run needs your input" : "Run finished · review in Fleet",
+                run.getTitle(), false);
+    }
+
+    /** Read-only snapshot of a repo the analysis model can reason over. */
+    private String repoContext(String path) {
+        StringBuilder sb = new StringBuilder("Repository: ").append(path).append('\n');
+        try {
+            Map<String, Object> st = agent.status(path);
+            sb.append("Branch: ").append(str(st.get("branch"))).append('\n');
+            sb.append("Remote: ").append(str(st.get("slug"))).append('\n');
+            sb.append("Working tree: ").append(Boolean.TRUE.equals(st.get("dirty")) ? "has changes" : "clean")
+              .append(" (staged ").append(st.get("staged")).append(", unstaged ").append(st.get("unstaged"))
+              .append(", untracked ").append(st.get("untracked")).append(")\n");
+        } catch (Exception e) {
+            sb.append("(repo status unavailable — the host agent may be offline)\n");
+        }
+        try {
+            Object commits = agent.log(path, null, false, 15).get("commits");
+            if (commits instanceof List<?> list && !list.isEmpty()) {
+                sb.append("\nRecent commits:\n");
+                for (Object o : list) {
+                    if (o instanceof Map<?, ?> c) {
+                        sb.append("- ").append(c.get("short")).append(' ').append(c.get("subject")).append('\n');
+                    }
+                }
+            }
+        } catch (Exception ignore) { /* history is optional context */ }
+        try {
+            Map<String, Object> ch = agent.changes(path);
+            List<String> files = new java.util.ArrayList<>();
+            for (String k : List.of("staged", "unstaged", "untracked")) {
+                if (ch.get(k) instanceof List<?> l) {
+                    for (Object o : l) {
+                        if (o instanceof Map<?, ?> m && m.get("file") != null) files.add(String.valueOf(m.get("file")));
+                    }
+                }
+            }
+            if (!files.isEmpty()) sb.append("\nChanged files: ").append(String.join(", ", files)).append('\n');
+        } catch (Exception ignore) { /* changes are optional context */ }
+        return sb.toString();
     }
 
     /**
@@ -291,9 +414,6 @@ public class FleetService {
      * previously-alive PTY now gone → ended.
      */
     private void syncInteractive() {
-        List<AgentRunEntity> live = runs.findByStatusIn(List.of("active", "running", "input")).stream()
-                .filter(r -> "interactive".equals(r.getKind())).toList();
-        if (live.isEmpty()) return;
         Map<String, Map<String, Object>> ptys = new java.util.HashMap<>();
         try {
             Object list = agent.ptySessions().get("sessions");
@@ -309,6 +429,10 @@ public class FleetService {
         } catch (Exception e) {
             return; // agent unreachable — try next tick
         }
+        adoptLiveTerminals(ptys.keySet());
+        List<AgentRunEntity> live = runs.findByStatusIn(List.of("active", "running", "input")).stream()
+                .filter(r -> "interactive".equals(r.getKind())).toList();
+        if (live.isEmpty()) return;
         for (AgentRunEntity run : live) {
             // The PTY is keyed by the claude session id; pick it up from the brainstorm session
             // once the terminal has actually been opened.
@@ -344,14 +468,62 @@ public class FleetService {
         }
     }
 
-    /** A chat turn that never finished (backend restarted mid-turn) must not sit running forever. */
+    /**
+     * Adopt terminals the board doesn't know about yet: any live PTY whose brainstorm session has
+     * no interactive run (sessions started before Fleet existed, or after a DB reset) gets a row
+     * here. The live PTY list is the source of truth, so the board reflects what is actually
+     * running rather than only what DevLoom happened to record at launch time.
+     */
+    private void adoptLiveTerminals(java.util.Set<String> liveSessionIds) {
+        if (liveSessionIds.isEmpty()) return;
+        // Index every interactive run we already have, so a terminal is never duplicated: an
+        // ended row whose terminal is alive again is revived rather than re-created.
+        Map<String, AgentRunEntity> bySession = new java.util.HashMap<>();
+        java.util.Set<Long> liveBrainstormIds = new java.util.HashSet<>();
+        for (AgentRunEntity r : runs.findAll()) {
+            if (!"interactive".equals(r.getKind())) continue;
+            if (r.getClaudeSessionId() != null) bySession.putIfAbsent(r.getClaudeSessionId(), r);
+            if (r.getBrainstormSessionId() != null
+                    && List.of("active", "running", "input").contains(r.getStatus())) {
+                liveBrainstormIds.add(r.getBrainstormSessionId());
+            }
+        }
+        for (com.devloom.brainstorm.BrainstormSessionEntity s : brainstormSessions.findAll()) {
+            String sid = s.getClaudeSessionId();
+            if (sid == null || !liveSessionIds.contains(sid)) continue; // no live terminal for it
+            AgentRunEntity existing = bySession.get(sid);
+            if (existing != null) {
+                if (!List.of("active", "running", "input").contains(existing.getStatus())) {
+                    existing.setStatus("running"); // terminal is alive again — put it back on the board
+                    existing.setFinishedAt(null);
+                    runs.save(existing);
+                }
+                continue;
+            }
+            if (liveBrainstormIds.contains(s.getId())) continue; // row exists, id not yet linked
+            AgentRunEntity run = AgentRunEntity.interactive(
+                    s.getTitle() == null || s.getTitle().isBlank() ? "Terminal" : s.getTitle(),
+                    s.getRepoPath() == null ? "" : s.getRepoPath(), s.getId(), sid);
+            run.setStatus("running"); // discovered mid-flight; the status pass refines it
+            runs.save(run);
+            bySession.put(sid, run);
+        }
+    }
+
+    /**
+     * In-process work (chat turns, local analysis runs) lives on a thread, not in the host agent —
+     * so a backend restart orphans it. Anything still "running" long past any plausible finish is
+     * marked failed rather than left spinning on the board forever.
+     */
     private void reapStaleChats() {
         for (AgentRunEntity run : runs.findByStatus("running")) {
-            if (!"chat".equals(run.getKind())) continue;
+            boolean inProcess = "chat".equals(run.getKind())
+                    || ("background".equals(run.getKind()) && run.getAgentRunId() == null);
+            if (!inProcess) continue;
             Instant started = run.getStartedAt() == null ? run.getCreatedAt() : run.getStartedAt();
             if (started.isBefore(Instant.now().minusSeconds(30 * 60))) {
                 run.setStatus("failed");
-                run.setError("chat turn lost (backend restarted while it was generating)");
+                run.setError("lost (the backend restarted while it was generating)");
                 run.setFinishedAt(Instant.now());
                 runs.save(run);
             }
@@ -368,20 +540,40 @@ public class FleetService {
 
     // ---- chat turns (local-model visibility) ----
 
-    /** Record an in-flight chat turn so it shows on the board while a (slow) model generates. */
+    /**
+     * Record an in-flight chat turn so it shows on the board while a (slow) model generates.
+     * Answering also clears a previous "needs input" row for the same session — the user is
+     * replying, so the model is no longer blocked on them.
+     */
     @Transactional(propagation = org.springframework.transaction.annotation.Propagation.REQUIRES_NEW)
     public Long chatStarted(String title, String repoPath, String model, Long brainstormSessionId) {
+        if (brainstormSessionId != null) {
+            for (AgentRunEntity r : runs.findByStatus("input")) {
+                if ("chat".equals(r.getKind()) && brainstormSessionId.equals(r.getBrainstormSessionId())) {
+                    runs.delete(r);
+                }
+            }
+        }
         return runs.save(AgentRunEntity.chat(title, repoPath, model, brainstormSessionId)).getId();
     }
 
     /**
-     * Close out a chat-turn row. Success removes it (the reply lives in the brainstorm session —
-     * the row's only job was live visibility); failure keeps it on the board so the user knows.
+     * Close out a chat-turn row. A model that signalled it is blocked on the user keeps its row as
+     * "needs input" so the Fleet can route them back; an ordinary success removes it (the reply
+     * lives in the brainstorm session — the row's only job was live visibility); a failure stays
+     * on the board so the user knows.
      */
     @Transactional(propagation = org.springframework.transaction.annotation.Propagation.REQUIRES_NEW)
-    public void chatFinished(Long id, boolean ok, String error) {
+    public void chatFinished(Long id, boolean ok, String error, boolean needsInput) {
         if (id == null) return;
         runs.findById(id).ifPresent(run -> {
+            if (ok && needsInput) {
+                run.setStatus("input");
+                run.setFinishedAt(Instant.now());
+                runs.save(run);
+                notifications.notify("Agent needs your input", run.getTitle(), false);
+                return;
+            }
             if (ok) {
                 runs.delete(run);
                 return;
