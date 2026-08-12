@@ -13,6 +13,7 @@ const routes = [
   { path: '/onboarding', name: 'onboarding', component: () => import('../views/OnboardingView.vue') },
   { path: '/settings/integrations', name: 'integrations', component: () => import('../views/IntegrationsView.vue') },
   { path: '/settings/models', name: 'models', component: () => import('../views/ProvidersView.vue') },
+  { path: '/settings/code', name: 'code-settings', component: () => import('../views/CodeSettingsView.vue') },
   { path: '/settings/providers', redirect: '/settings/models' }, // old bookmark-friendly path
   { path: '/settings/capabilities', name: 'capabilities', component: () => import('../views/CapabilitiesView.vue') },
   { path: '/settings/general', name: 'general', component: () => import('../views/GeneralView.vue') },
