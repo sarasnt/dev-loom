@@ -74,8 +74,15 @@ public class SkillContext {
         String built;
         try {
             built = build(agent.skillBundle(new ArrayList<>(keys)));
+            // Worth a line: silently dropping the user's skills would look like the model ignoring
+            // them, which is far harder to diagnose than a log saying they never arrived.
+            if (built == null) {
+                log.warn("Skills enabled for models ({}) but the agent returned none", keys);
+            } else {
+                log.info("Injecting {} skill(s) into non-CLI models ({} chars)", keys.size(), built.length());
+            }
         } catch (Exception e) {
-            log.debug("skill bundle unavailable (agent down?): {}", e.getMessage());
+            log.warn("Could not load skills for models — is the host agent running? {}", e.toString());
             return cached; // keep serving the last good block rather than silently dropping skills
         }
         cached = built;
