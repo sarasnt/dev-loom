@@ -639,6 +639,23 @@ async function worktreeFinalize(repoPath, wtPath, branch, mode) {
  * toast (built into Win10/11), macOS uses osascript, Linux uses notify-send. Best-effort: returns
  * { ok:false, error } rather than throwing so the backend can log-and-continue.
  */
+// Windows only shows toasts sent under an AppUserModelID it has registered (one with a Start Menu
+// shortcut). A made-up "DevLoom" id worked briefly and then was silently dropped — the API still
+// returns success, so nothing surfaced the failure. PowerShell's own AUMID is always registered,
+// so we send under it; the toast still reads as DevLoom because that's the title text.
+const WIN_AUMID = '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe'
+
+/** Did Windows actually accept a toast in the last few seconds? Its own bookkeeping is the proof. */
+async function toastDelivered() {
+  const script = `$k='HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Notifications\\Settings\\${WIN_AUMID}';`
+    + `if (Test-Path $k) { $v=(Get-ItemProperty $k).LastNotificationAddedTime; if ($v) {`
+    + `$age=((Get-Date) - [DateTime]::FromFileTime($v)).TotalSeconds; if ($age -lt 30) { 'yes' } else { 'stale' } }`
+    + ` else { 'unknown' } } else { 'unknown' }`
+  const enc = Buffer.from(script, 'utf16le').toString('base64')
+  const r = await run('powershell', ['-NoProfile', '-NonInteractive', '-EncodedCommand', enc], { timeoutMs: 8000 })
+  return r.code === 0 ? r.out.trim() === 'yes' : null
+}
+
 async function osNotify(title, body, urgency = 'normal') {
   const t = String(title || 'DevLoom')
   const b = String(body || '')
@@ -670,11 +687,14 @@ async function osNotify(title, body, urgency = 'normal') {
         '$xml = [Windows.Data.Xml.Dom.XmlDocument]::new();',
         `$xml.LoadXml(${q(toastXml)});`,
         '$toast = [Windows.UI.Notifications.ToastNotification]::new($xml);',
-        '[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("DevLoom").Show($toast);',
+        `[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('${WIN_AUMID}').Show($toast);`,
       ].join(' ')
       const encoded = Buffer.from(script, 'utf16le').toString('base64')
       const r = await run('powershell', ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded], { timeoutMs: 10000 })
-      return r.code === 0 ? { ok: true } : { ok: false, error: (r.err || 'powershell toast failed').trim().slice(0, 300) }
+      if (r.code !== 0) return { ok: false, error: (r.err || 'powershell toast failed').trim().slice(0, 300) }
+      // PowerShell exits 0 even when Windows drops the toast, so confirm delivery: Windows stamps
+      // LastNotificationAddedTime under the notifier's key only when it actually accepted one.
+      return { ok: true, delivered: await toastDelivered() }
     }
     if (process.platform === 'darwin') {
       const esc = (s) => s.replace(/"/g, '\\"')

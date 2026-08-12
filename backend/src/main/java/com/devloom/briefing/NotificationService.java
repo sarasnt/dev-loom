@@ -87,9 +87,16 @@ public class NotificationService {
     private void send(String title, String body, String urgency) {
         try {
             Map<String, Object> r = agent.notify(title, body, urgency);
-            if (!Boolean.TRUE.equals(r.get("ok"))) log.info("notify skipped: {}", r.get("error"));
+            if (!Boolean.TRUE.equals(r.get("ok"))) {
+                log.warn("Notification failed: {}", r.get("error"));
+            } else if (Boolean.FALSE.equals(r.get("delivered"))) {
+                // The OS call succeeded but Windows dropped the toast — the failure mode that made
+                // notifications look broken with nothing in the logs to say why.
+                log.warn("Notification was sent but the OS did not display it "
+                        + "(check Windows notification settings / focus assist)");
+            }
         } catch (Exception e) {
-            log.info("notify unavailable (agent down?): {}", e.getMessage());
+            log.warn("Notification unavailable — is the host agent running? {}", e.getMessage());
         }
     }
 

@@ -121,7 +121,7 @@ public class LlmRouter {
             // so a local model has the same capabilities as the CLI rather than none.
             String system = "claude-code".equals(port.provider())
                     ? request.system()
-                    : skills.applyTo(request.system());
+                    : skills.applyTo(request.system(), request.prompt());
             LlmPort.LlmRequest req = new LlmPort.LlmRequest(
                     request.feature(), system, request.prompt(), model);
             long t0 = System.currentTimeMillis();
