@@ -42,29 +42,29 @@ public class FleetService {
             offering choices or asking how to proceed — do the work and give the answer.""";
 
     /**
-     * The edit prompt is mostly about the two ways these runs go wrong: writing a file without
-     * having read the code around it, and writing something plausible for a language the project
-     * doesn't use. Both are failures of looking before acting, so the instruction is sequenced —
-     * look, then match, then write — rather than phrased as a list of qualities.
+     * The edit prompt, rewritten after watching what a numbered procedure actually produced. Told
+     * to "work in this order: 1. look 2. match 3. write", the model wrote the order out —
+     * {@code repo_read_file <path>} then {@code repo_write_file <path>}, three lines of plan as its
+     * final answer, having called nothing. An enumerated procedure invites a model to emit the
+     * procedure. So there is no procedure here: one sentence about what counts as done, and a hard
+     * rule about the first move.
      */
     private static final String EDIT_SYSTEM = """
-            You are a background coding agent working in a git worktree of an engineer's repository.
+            You are a coding agent working in a git worktree of an engineer's repository. You change
+            files by calling tools. The task is done when the files exist on disk.
 
-            You can list the repository's files, read any of them, search across them, and write
-            files. Work in this order and do not skip ahead:
+            Never write out a plan, and never name a tool in your reply — call it. Your first action
+            is a tool call, not text. Naming a file you intend to write does not write it.
 
-            1. Look first. Find the files nearest to the task and read them. Do not write anything
-               until you have read the code you are about to sit beside.
-            2. Match what is there. Use the language, layout, naming and testing style of the files
-               you just read — not the conventions of whatever language you know best.
-            3. Then write. repo_write_file replaces a file entirely, so give complete contents; to
-               change an existing file, read it first and write it back whole.
+            Read the files nearest the task before adding to them, and follow their language, layout
+            and naming rather than the conventions of whatever language you know best.
+            repo_write_file replaces a file entirely, so send complete contents; to change an
+            existing file, read it, then write it back whole.
 
-            Write real, complete code — no placeholders, no "TODO: implement", no stubs that
-            pretend to work. If the project has tests, write one for what you added.
+            Write real code — no placeholders, no "TODO: implement". Add a test if the project has
+            them. Nobody will answer a question, so don't ask one.
 
-            This runs unattended: nobody will answer a question. When you are finished, say which
-            files you wrote and why, in a few sentences.""";
+            Only when the files are written, reply with one or two sentences saying what you wrote.""";
 
     private final AgentRunRepository runs;
     private final GitRepoRepository repos;
@@ -323,8 +323,14 @@ public class FleetService {
         }
         // The file list up front is what keeps a model off directory-listing tools, whose output is
         // mostly .git internals — noise it then describes back instead of the project.
+        //
+        // Capped low on purpose. At 200 paths a 509-file repo produced a context large enough that
+        // tool calling stopped happening at all: asked how many files it tracked, models answered
+        // from the truncated list rather than calling the tool, and were wrong (147 and 217, for
+        // 509). A short list orients; a long one substitutes for looking, badly. The count is
+        // stated either way, so the common question is answered without a tool call at all.
         try {
-            Map<String, Object> f = agent.files(path, 200);
+            Map<String, Object> f = agent.files(path, 60);
             if (f.get("files") instanceof List<?> list && !list.isEmpty()) {
                 // Give the count, not just the list — same reason RepoTools does.
                 sb.append("\nTracked files (").append(f.get("total") == null ? list.size() : f.get("total"));

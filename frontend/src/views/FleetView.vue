@@ -125,6 +125,20 @@ async function rerun(r: AgentRun) {
   catch { flash.value = 'Re-run failed — is the host agent running?' }
   finally { detailBusy.value = false }
 }
+// Finished runs accumulate — a day of work leaves a wall of them, each needing an individual
+// dismiss. Only ever clears what's already in Recent, so nothing live can be swept up by it.
+const clearing = ref(false)
+async function dismissRecent() {
+  if (clearing.value) return
+  clearing.value = true
+  const ids = recent.value.map((r) => r.id)
+  try {
+    for (const id of ids) await deleteRun(id).catch(() => {})
+    runs.value = runs.value.filter((r) => !ids.includes(r.id))
+    if (detail.value && ids.includes(detail.value.id)) detail.value = null
+  } finally { clearing.value = false }
+}
+
 async function dismiss(r: AgentRun) {
   detailBusy.value = true
   try { await deleteRun(r.id); runs.value = runs.value.filter((x) => x.id !== r.id); if (detail.value?.id === r.id) detail.value = null }
@@ -247,7 +261,12 @@ const continueModel = computed(() => {
       </section>
 
       <section v-if="recent.length" class="grp">
-        <div class="glab mono">Recent</div>
+        <div class="glab mono">
+          Recent
+          <button class="link mono clearall" :disabled="clearing" @click="dismissRecent">
+            {{ clearing ? 'clearing…' : `dismiss all (${recent.length})` }}
+          </button>
+        </div>
         <button v-for="r in recent" :key="r.id" class="run recent" @click="openDetail(r)">
           <span class="rstatus mono" :class="r.status">{{ statusLabel[r.status] }}</span>
           <span class="rtitle">{{ r.title }}</span>
@@ -384,6 +403,7 @@ const continueModel = computed(() => {
 .flash { color: var(--warp-hi); margin-bottom: 10px; font-size: 12px; }
 .grp { margin-bottom: 18px; }
 .glab { font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--faint-text); margin-bottom: 8px; }
+.clearall { float: right; font-size: 10px; letter-spacing: 0.08em; text-transform: none; }
 .run { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); padding: 10px 14px; margin-bottom: 8px; cursor: pointer; color: inherit; font: inherit; }
 button.run:hover { border-color: var(--warp); }
 .run.review { border-left: 2px solid var(--warp); }
@@ -461,7 +481,9 @@ button.run:hover { border-color: var(--warp); }
 .btn.danger { border-color: var(--failed, #a55); color: var(--chip-fail, #d88); }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 /* run detail */
-.box.detail { width: min(680px, 94vw); max-height: 84vh; display: flex; flex-direction: column; }
+/* Grows with the window: a review dialog holds a model's whole answer plus up to six actions, and
+   at 680px the actions wrapped into a ragged block. Capped so it stays readable on a wide monitor. */
+.box.detail { width: min(1040px, 94vw); max-height: 86vh; display: flex; flex-direction: column; }
 .dh { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
 .dtitle { flex: 1; font-size: 15px; color: var(--ink); }
 .x { background: transparent; border: 0; color: var(--faint-text); font-size: 15px; cursor: pointer; }
@@ -474,6 +496,9 @@ button.run:hover { border-color: var(--warp); }
 .diffrow { display: flex; gap: 10px; padding: 4px 10px; font-size: 12px; color: var(--dim); border-bottom: 1px solid var(--line); }
 .diffrow:last-child { border-bottom: 0; }
 .dfstat { color: var(--warp-hi); min-width: 22px; }
-.df { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+/* Wraps deliberately rather than squeezing: on a narrow window the actions stack in rows instead
+   of each button shrinking to fit its own label. */
+.df { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
+.df .btn { white-space: nowrap; }
 .df .grow { flex: 1; }
 </style>

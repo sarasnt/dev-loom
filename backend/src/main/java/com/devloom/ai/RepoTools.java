@@ -113,8 +113,30 @@ public class RepoTools {
     }
 
     public boolean handles(String toolName) {
-        return LIST.equals(toolName) || READ.equals(toolName) || SEARCH.equals(toolName)
-                || WRITE.equals(toolName);
+        return resolve(toolName) != null;
+    }
+
+    /**
+     * Map a requested name onto a repo tool, accepting the obvious near-misses.
+     *
+     * <p>A model that had read the right files and knew what to do next called {@code write_file}
+     * — the natural name — got "there is no tool named that", and gave up. The whole run was lost
+     * to a prefix. Models reach for the plain name; accepting it costs nothing at runtime, whereas
+     * teaching them the exact spelling costs prompt tokens on every run that never needed it.
+     *
+     * @return the canonical tool name, or null if this isn't a repo tool at all
+     */
+    public String resolve(String toolName) {
+        if (toolName == null) return null;
+        String n = toolName.trim().toLowerCase();
+        if (n.startsWith("repo_")) n = n.substring("repo_".length());
+        return switch (n) {
+            case "list_files", "list", "ls", "files" -> LIST;
+            case "read_file", "read", "cat", "open_file" -> READ;
+            case "search", "grep", "find", "search_files" -> SEARCH;
+            case "write_file", "write", "create_file", "edit_file", "save_file" -> WRITE;
+            default -> null;
+        };
     }
 
     /** Execute one repo tool. Returns text for the model — including failures, phrased as guidance. */
@@ -122,7 +144,8 @@ public class RepoTools {
         try {
             JsonNode args = argumentsJson == null || argumentsJson.isBlank()
                     ? JSON.createObjectNode() : JSON.readTree(argumentsJson);
-            return switch (toolName) {
+            String canonical = resolve(toolName);
+            return switch (canonical == null ? "" : canonical) {
                 case LIST -> list(repoPath);
                 case READ -> read(repoPath, text(args, "file"));
                 case SEARCH -> search(repoPath, text(args, "query"), text(args, "glob"), args.path("max").asInt(60));
@@ -136,7 +159,10 @@ public class RepoTools {
     }
 
     private String list(String repoPath) {
-        Map<String, Object> r = agent.files(repoPath, 400);
+        // 120, not 400. On a 509-file repo the full listing was 20KB of context that the model then
+        // summarised back instead of doing the task. A short list plus the true count orients it;
+        // beyond that, searching is the right move and the truncation note says so.
+        Map<String, Object> r = agent.files(repoPath, 120);
         if (r.get("files") instanceof List<?> files && !files.isEmpty()) {
             // State the count rather than leaving it to be counted. The number is known here, and
             // counting a list is the arithmetic language models are worst at — asked how many files

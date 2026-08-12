@@ -109,6 +109,7 @@ public class ToolLoop {
         // we've already run so the loop can say "you have this already" instead of burning steps.
         java.util.Map<String, String> seen = new java.util.LinkedHashMap<>();
         int spinning = 0; // consecutive steps that asked only for things already fetched
+        boolean nudged = false; // the one correction allowed for describing calls instead of making them
         for (int step = 0; step < MAX_STEPS; step++) {
             tel.step();
             ChatResponse resp;
@@ -133,7 +134,24 @@ public class ToolLoop {
                 // instead of returning a structured one, depending on their Ollama template. Taking
                 // them at their word is the difference between MCP working on local models and not.
                 List<ToolExecutionRequest> parsed = TextToolCalls.parse(text(resp), tools);
-                if (parsed.isEmpty()) return text(resp);
+                if (parsed.isEmpty()) {
+                    // A reply that names the tools but never called them is a plan, not an answer:
+                    // "repo_read_file <path>", "repo_write_file <path>" as prose, nothing on disk.
+                    // One correction is far cheaper than losing the run — and cheaper than the
+                    // extra tokens a longer, more defensive system prompt would cost every run
+                    // that never needed it.
+                    if (!nudged && tel.toolCalls() == 0 && namesATool(text(resp), tools)) {
+                        nudged = true;
+                        log.info("Model described tool calls without making any — nudging once");
+                        messages.add(ai);
+                        messages.add(dev.langchain4j.data.message.UserMessage.from(
+                                "You listed tool calls instead of making them, so nothing happened."
+                                        + " Nothing you write in a reply reaches the repository."
+                                        + " Make the first of those calls now, as a real tool call."));
+                        continue;
+                    }
+                    return text(resp);
+                }
                 messages.add(ai);
                 allRepeats = true;
                 for (ToolExecutionRequest req : parsed) {
@@ -181,6 +199,18 @@ public class ToolLoop {
         messages.add(dev.langchain4j.data.message.UserMessage.from(instruction
                 + " If the results were not enough, say exactly what is missing — do not invent details."));
         return text(turn.run(messages, List.of()));
+    }
+
+    /**
+     * Whether a reply mentions a tool by name — the signature of a model announcing what it would
+     * do. Requires an exact tool name, so ordinary prose about "writing a file" doesn't trigger it.
+     */
+    private static boolean namesATool(String text, List<McpTools.Tool> tools) {
+        if (text == null || text.isBlank()) return false;
+        for (McpTools.Tool t : tools) {
+            if (text.contains(t.name())) return true;
+        }
+        return false;
     }
 
     /** Plain-language description of a tool call, for the activity line the user sees. */
@@ -277,11 +307,16 @@ public class ToolLoop {
                     + "\n\nDo not call it again — use this result, or answer with what you have.", true);
         }
         String result;
-        if (repoTools.handles(req.name())) {
-            result = repoTools.call(repoPath, req.name(), req.arguments());
-            log.info("Repo tool call: {} -> {} chars", req.name(), result.length());
+        // A user's MCP server owns its exact name; the repo aliases only apply to what's left, so
+        // adding a server called "search" can't be hijacked by the alias for repo_search.
+        String mcpServer = mcp.serverFor(req.name());
+        String repoTool = mcpServer == null ? repoTools.resolve(req.name()) : null;
+        if (repoTool != null) {
+            result = repoTools.call(repoPath, repoTool, req.arguments());
+            log.info("Repo tool call: {}{} -> {} chars", repoTool,
+                    repoTool.equals(req.name()) ? "" : " (as '" + req.name() + "')", result.length());
         } else {
-            String server = mcp.serverFor(req.name());
+            String server = mcpServer;
             if (server == null) {
                 // Naming the real tools beats "no such tool": a model that invented a name usually
                 // wanted one of these, and can pick it on the next step instead of guessing again.
@@ -296,7 +331,7 @@ public class ToolLoop {
         }
         seen.put(signature, result);
         if (result.startsWith("Tool error:") || result.startsWith("Could not ")) tel.toolError();
-        else if (RepoTools.WRITE.equals(req.name())) tel.wroteFile();
+        else if (RepoTools.WRITE.equals(repoTool)) tel.wroteFile();
         else tel.gatheredSomething();
         return new Outcome(result, false);
     }
