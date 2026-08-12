@@ -101,3 +101,4 @@ export const previewBackup = api.previewBackup
 export const configureBackup = api.configureBackup
 export const runBackup = api.runBackup
 export const restoreBackup = api.restoreBackup
+export const setSkillsForModels = api.setSkillsForModels

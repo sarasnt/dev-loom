@@ -26,14 +26,16 @@ public class LlmRouter {
     private final AuditService audit;
     private final ModelPreference modelPref;
     private final CostBudget budget;
+    private final SkillContext skills;
 
     public LlmRouter(List<LlmPort> ports, LangfuseTracer tracer, AuditService audit,
-                     ModelPreference modelPref, CostBudget budget) {
+                     ModelPreference modelPref, CostBudget budget, SkillContext skills) {
         this.ports = ports;
         this.tracer = tracer;
         this.audit = audit;
         this.modelPref = modelPref;
         this.budget = budget;
+        this.skills = skills;
     }
 
     private static boolean isRemote(String provider) {
@@ -115,8 +117,13 @@ public class LlmRouter {
 
         if (chosen.isPresent()) {
             LlmPort port = chosen.get();
+            // Claude Code loads the user's skills itself; every other provider gets them injected,
+            // so a local model has the same capabilities as the CLI rather than none.
+            String system = "claude-code".equals(port.provider())
+                    ? request.system()
+                    : skills.applyTo(request.system());
             LlmPort.LlmRequest req = new LlmPort.LlmRequest(
-                    request.feature(), request.system(), request.prompt(), model);
+                    request.feature(), system, request.prompt(), model);
             long t0 = System.currentTimeMillis();
             try {
                 LlmPort.LlmResult result = port.generate(req);

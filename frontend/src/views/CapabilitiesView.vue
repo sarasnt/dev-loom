@@ -6,7 +6,7 @@ import { onMounted, ref } from 'vue'
 import type { Capabilities } from '../types'
 import {
   fetchCapabilities, addMcpServer, removeMcpServer, togglePlugin,
-  saveSkill, fetchSkill, removeSkill, installSkillRepo,
+  saveSkill, fetchSkill, removeSkill, installSkillRepo, setSkillsForModels,
 } from '../api'
 import SettingsTabs from '../components/SettingsTabs.vue'
 
@@ -62,6 +62,23 @@ async function flipPlugin(id: string, enabled: boolean) {
 }
 
 // ---- skills ----
+// Claude Code loads skills itself. For local Ollama models and raw API calls DevLoom injects the
+// chosen ones into the system prompt, so capabilities aren't Claude-only.
+function usedByModels(key: string) {
+  return (data.value?.skillsForModels ?? []).includes(key)
+}
+async function toggleForModels(key: string, on: boolean) {
+  const cur = new Set(data.value?.skillsForModels ?? [])
+  if (on) cur.add(key); else cur.delete(key)
+  busy.value = key
+  try { data.value = await setSkillsForModels([...cur]) }
+  catch { flash.value = 'Could not save — is the host agent running?' }
+  finally { busy.value = '' }
+}
+function sourceLabel(s: string) {
+  return s === 'personal' ? 'yours' : s.replace(/^plugin:/, '').split('@')[0]
+}
+
 const skillOpen = ref(false)
 const editing = ref<string | null>(null) // dir being edited, null = new
 const skillForm = ref({ dir: '', name: '', description: '', body: '' })
@@ -137,17 +154,32 @@ async function installRepo() {
       <template v-if="data && !data.error">
         <!-- skills -->
         <section class="block">
-          <div class="lab mono">Skills <span class="hint">— reusable instructions Claude loads on demand</span></div>
+          <div class="lab mono">Skills <span class="hint">— reusable instructions, yours and those bundled in plugins</span></div>
+          <p class="explain">
+            Claude Code loads these itself. Local Ollama models and API-key models have no such
+            mechanism, so tick <b>use with local &amp; API models</b> and DevLoom injects that skill's
+            instructions into their system prompt — same capabilities whichever model you pick.
+            Each one costs context on every turn, so enable the ones that earn it.
+          </p>
           <div class="mlist">
-            <div v-for="s in data.skills" :key="s.dir" class="mrow">
+            <div v-for="s in data.skills" :key="s.key" class="mrow">
               <div class="grow">
-                <div class="mn">{{ s.name }} <span class="tag mono">{{ s.managed }}</span></div>
+                <div class="mn">{{ s.name }} <span class="tag mono">{{ sourceLabel(s.source) }}</span></div>
                 <div class="mdesc">{{ s.description || 'no description' }}</div>
               </div>
-              <button class="btn" :disabled="busy !== ''" @click="editSkill(s.dir)">Edit</button>
-              <button class="btn ghost" :disabled="busy !== ''" @click="dropSkill(s.dir)">Delete</button>
+              <label class="tog" :title="'Inject into local and API-key models'">
+                <input
+                  type="checkbox"
+                  :checked="usedByModels(s.key)"
+                  :disabled="busy !== ''"
+                  @change="toggleForModels(s.key, ($event.target as HTMLInputElement).checked)"
+                />
+                <span>local models</span>
+              </label>
+              <button v-if="s.editable" class="btn" :disabled="busy !== ''" @click="editSkill(s.dir)">Edit</button>
+              <button v-if="s.editable" class="btn ghost" :disabled="busy !== ''" @click="dropSkill(s.dir)">Delete</button>
             </div>
-            <div v-if="!data.skills.length" class="empty mono">no personal skills yet</div>
+            <div v-if="!data.skills.length" class="empty mono">no skills found</div>
           </div>
           <div class="row">
             <button class="btn pri" @click="newSkill">＋ New skill</button>
@@ -161,6 +193,10 @@ async function installRepo() {
         <!-- MCP servers -->
         <section class="block">
           <div class="lab mono">MCP servers <span class="hint">— tools and data sources the models can call</span></div>
+          <p class="explain">
+            Claude Code only, for now: calling a tool needs an agentic loop DevLoom doesn't yet run
+            for local models. Skills above already work everywhere.
+          </p>
           <div class="mlist">
             <div v-for="m in data.mcp" :key="m.name" class="mrow">
               <div class="grow">
@@ -200,6 +236,10 @@ async function installRepo() {
         <!-- plugins -->
         <section class="block">
           <div class="lab mono">Plugins <span class="hint">— installed via Claude Code's marketplace; toggle what's active</span></div>
+          <p class="explain">
+            A plugin bundles skills, commands and hooks. Its <em>skills</em> are listed above and can
+            be given to any model; commands and hooks stay Claude Code features.
+          </p>
           <div class="mlist">
             <div v-for="p in data.plugins" :key="p.id" class="mrow">
               <div class="grow">
@@ -255,6 +295,7 @@ async function installRepo() {
 .block { border: 1px solid var(--line); border-radius: var(--r-card); background: var(--surface); padding: 16px; margin-bottom: 14px; }
 .lab { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--faint-text); margin-bottom: 12px; }
 .lab .hint { text-transform: none; letter-spacing: 0; color: var(--faint-text); }
+.explain { color: var(--dim); font-size: 12.5px; margin: -4px 0 12px; max-width: 76ch; line-height: 1.55; }
 .mlist { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
 .mrow { display: flex; align-items: center; gap: 12px; border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px; background: var(--bg); }
 .mrow .grow { flex: 1; min-width: 0; }

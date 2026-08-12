@@ -26,22 +26,45 @@ public class CapabilitiesController {
 
     private final HostAgentClient agent;
     private final AuditService audit;
+    private final com.devloom.ai.SkillContext skills;
 
-    public CapabilitiesController(HostAgentClient agent, AuditService audit) {
+    public CapabilitiesController(HostAgentClient agent, AuditService audit,
+                                  com.devloom.ai.SkillContext skills) {
         this.agent = agent;
         this.audit = audit;
+        this.skills = skills;
     }
 
     @GetMapping
     public Map<String, Object> all() {
         try {
-            return agent.capabilities();
+            Map<String, Object> caps = new java.util.LinkedHashMap<>(agent.capabilities());
+            // Which skills are also injected into local / API models (Claude loads them itself).
+            caps.put("skillsForModels", skills.enabledKeys());
+            return caps;
         } catch (Exception e) {
             // Agent offline — say so honestly instead of pretending the user has nothing installed.
             return Map.of("agentUp", false, "mcp", java.util.List.of(),
                     "skills", java.util.List.of(), "plugins", java.util.List.of(),
+                    "skillsForModels", java.util.List.of(),
                     "error", "host agent unreachable");
         }
+    }
+
+    public record SkillsForModels(java.util.List<String> keys) {}
+
+    /**
+     * Choose which skills are injected into models that can't load skills themselves (local Ollama
+     * models and raw API calls). Claude Code sessions are unaffected — they read the same skills
+     * from disk natively.
+     */
+    @PutMapping("/skills-for-models")
+    public Map<String, Object> setSkillsForModels(@RequestBody SkillsForModels body) {
+        java.util.Set<String> keys = new java.util.LinkedHashSet<>(
+                body == null || body.keys() == null ? java.util.List.of() : body.keys());
+        skills.setEnabled(keys);
+        audit.record("skills_for_models", String.join(",", keys), null);
+        return all();
     }
 
     // ---- MCP servers ----

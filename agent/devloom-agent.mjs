@@ -211,26 +211,61 @@ function skillMeta(md) {
   return out
 }
 
-function listSkills() {
-  const dir = SKILLS_DIR()
-  if (!fs.existsSync(dir)) return []
+/** Read every `<root>/<name>/SKILL.md` under a directory into skill records. */
+function scanSkillDir(root, source, keyPrefix) {
+  if (!root || !fs.existsSync(root)) return []
   const out = []
-  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+  for (const e of fs.readdirSync(root, { withFileTypes: true })) {
     if (!e.isDirectory()) continue
-    const file = path.join(dir, e.name, 'SKILL.md')
+    const file = path.join(root, e.name, 'SKILL.md')
     if (!fs.existsSync(file)) continue
     let md = ''
     try { md = fs.readFileSync(file, 'utf8') } catch { /* unreadable */ }
     const meta = skillMeta(md)
     out.push({
+      key: keyPrefix + e.name,
       dir: e.name,
+      source,                       // 'personal' | 'plugin:<id>'
+      editable: source === 'personal',
       name: meta.name || e.name,
       description: meta.description || '',
-      path: path.join(dir, e.name),
-      managed: fs.existsSync(path.join(dir, e.name, '.git')) ? 'git' : 'local',
+      path: path.join(root, e.name),
+      managed: fs.existsSync(path.join(root, e.name, '.git')) ? 'git' : 'local',
     })
   }
   return out
+}
+
+/**
+ * Every skill available on this machine: the user's own, plus those bundled inside installed
+ * plugins. Claude Code loads these itself; DevLoom lists them so they can also be injected into
+ * local / API-key models, which have no such mechanism of their own.
+ */
+function listSkills() {
+  const out = scanSkillDir(SKILLS_DIR(), 'personal', 'personal:')
+  const installed = readJson(path.join(os.homedir(), '.claude', 'plugins', 'installed_plugins.json'), {})
+  for (const [id, entries] of Object.entries(installed.plugins || {})) {
+    const installPath = ((entries || [])[0] || {}).installPath
+    if (!installPath) continue
+    out.push(...scanSkillDir(path.join(installPath, 'skills'), 'plugin:' + id, 'plugin:' + id + ':'))
+  }
+  return out
+}
+
+/** Full text of the named skills, for injecting into a model that can't load them natively. */
+function skillBundle(keys) {
+  const wanted = new Set(Array.isArray(keys) ? keys : [])
+  const out = []
+  for (const s of listSkills()) {
+    if (!wanted.has(s.key)) continue
+    let body = ''
+    try {
+      const md = fs.readFileSync(path.join(s.path, 'SKILL.md'), 'utf8')
+      body = md.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '').trim()
+    } catch { /* unreadable — skip its body */ }
+    out.push({ key: s.key, name: s.name, description: s.description, body })
+  }
+  return { skills: out }
 }
 
 /** Everything DevLoom can show/manage about what the models can do. */
@@ -999,6 +1034,10 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/caps/skill') {
       const { dir, name, description, body } = await readBody(req)
       return json(res, 200, writeSkill(dir, name, description, body))
+    }
+    if (req.method === 'POST' && url.pathname === '/caps/skills/bundle') {
+      const { keys } = await readBody(req)
+      return json(res, 200, skillBundle(keys))
     }
     if (req.method === 'POST' && url.pathname === '/caps/skill/get') {
       const { dir } = await readBody(req)

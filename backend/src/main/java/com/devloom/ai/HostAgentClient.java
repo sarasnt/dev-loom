@@ -359,6 +359,11 @@ public class HostAgentClient {
         return post("/caps/skill/get", Map.of("dir", dir));
     }
 
+    /** Full text of the named skills, for injecting into models that can't load them natively. */
+    public Map<String, Object> skillBundle(java.util.List<String> keys) {
+        return post("/caps/skills/bundle", Map.of("keys", keys));
+    }
+
     public Map<String, Object> removeSkill(String dir) {
         return post("/caps/skill/remove", Map.of("dir", dir));
     }

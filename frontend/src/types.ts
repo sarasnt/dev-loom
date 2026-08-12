@@ -479,7 +479,10 @@ export interface McpServer {
   env: string[] // key names only — values are never sent back to the UI
 }
 export interface SkillInfo {
+  key: string // personal:<dir> | plugin:<pluginId>:<dir>
   dir: string
+  source: string // 'personal' | 'plugin:<id>'
+  editable: boolean // only personal skills can be edited/deleted from DevLoom
   name: string
   description: string
   path: string
@@ -497,6 +500,7 @@ export interface Capabilities {
   mcp: McpServer[]
   skills: SkillInfo[]
   plugins: PluginInfo[]
+  skillsForModels: string[] // skill keys injected into local / API models
   skillsDir?: string
   agentUp?: boolean
   error?: string
