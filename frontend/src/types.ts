@@ -510,6 +510,17 @@ export interface SkillDetail {
   error?: string
 }
 
+// ---- Configuration backup ----
+export interface BackupStatus {
+  dir: string // folder holding the backup git repo
+  remote: string // optional push target
+  everyHours: number // 0 = manual only
+  includeSkills: boolean
+  push: boolean
+  lastAt: string | null
+  lastResult: string | null
+}
+
 // ---- Onboarding ----
 export interface OnboardStep {
   n: number | string

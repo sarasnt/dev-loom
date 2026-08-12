@@ -227,3 +227,13 @@ export const removeSkill = (dir: string) =>
   del<{ ok: boolean; error?: string }>(`/capabilities/skills/${encodeURIComponent(dir)}`)
 export const installSkillRepo = (repo: string) =>
   post<{ ok: boolean; dir?: string; error?: string }>('/capabilities/skills/install', { repo })
+
+// ---- configuration backup ----
+export const fetchBackup = () => get<import('../types').BackupStatus>('/backup')
+export const previewBackup = () => get<Record<string, unknown>>('/backup/preview')
+export const configureBackup = (b: Partial<import('../types').BackupStatus>) =>
+  put<import('../types').BackupStatus>('/backup', b)
+export const runBackup = () =>
+  post<{ ok: boolean; summary?: string; error?: string }>('/backup/run', {})
+export const restoreBackup = (skills: boolean) =>
+  post<{ ok: boolean; settings?: number; repos?: number; sources?: number; skills?: number; note?: string; error?: string }>('/backup/restore', { skills })

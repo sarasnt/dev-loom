@@ -337,6 +337,95 @@ function git(cwd, args) {
   return run('git', args, { cwd, timeoutMs: 120000, shell: false })
 }
 
+// ---- configuration backup ----
+// DevLoom writes its exportable (non-secret) state plus the user's custom skills into a git repo
+// they own, commits, and optionally pushes. Restoring reads the same tree back. Secrets never
+// enter this payload — the backend excludes them before the files reach here.
+async function backupSave({ dir, remote, files, includeSkills, push, message }) {
+  if (!dir) return { ok: false, error: 'no backup directory configured' }
+  try {
+    fs.mkdirSync(dir, { recursive: true })
+    if (!fs.existsSync(path.join(dir, '.git'))) {
+      const init = await git(dir, ['init'])
+      if (init.code !== 0) return { ok: false, error: (init.err || 'git init failed').trim().slice(0, 300) }
+    }
+    if (remote) {
+      const has = await git(dir, ['remote', 'get-url', 'origin'])
+      if (has.code !== 0) await git(dir, ['remote', 'add', 'origin', remote])
+      else if (has.out.trim() !== remote) await git(dir, ['remote', 'set-url', 'origin', remote])
+    }
+    for (const [rel, content] of Object.entries(files || {})) {
+      const safe = String(rel).replace(/\\/g, '/')
+      if (safe.includes('..') || path.isAbsolute(safe)) continue // never escape the backup dir
+      const target = path.join(dir, safe)
+      fs.mkdirSync(path.dirname(target), { recursive: true })
+      fs.writeFileSync(target, String(content))
+    }
+    let skills = 0
+    if (includeSkills) {
+      const src = SKILLS_DIR()
+      const dest = path.join(dir, 'skills')
+      fs.rmSync(dest, { recursive: true, force: true })
+      if (fs.existsSync(src)) {
+        // Copy the tree but drop each skill's own .git — the backup repo owns the history.
+        fs.cpSync(src, dest, { recursive: true, filter: (s) => path.basename(s) !== '.git' })
+        skills = listSkills().length
+      }
+    }
+    await git(dir, ['add', '-A'])
+    const status = await git(dir, ['status', '--porcelain'])
+    if (!status.out.trim()) return { ok: true, unchanged: true, skills }
+    const commit = await git(dir, ['commit', '-m', message || 'DevLoom backup'])
+    if (commit.code !== 0) {
+      return { ok: false, error: (commit.err || commit.out || 'commit failed').trim().slice(0, 300) }
+    }
+    let pushed = false, pushError = null
+    if (push && remote) {
+      const branch = (await git(dir, ['rev-parse', '--abbrev-ref', 'HEAD'])).out.trim() || 'main'
+      const r = await git(dir, ['push', '-u', 'origin', branch])
+      pushed = r.code === 0
+      if (!pushed) pushError = (r.err || 'push failed').trim().slice(0, 300)
+    }
+    return { ok: true, skills, pushed, pushError, commit: (await git(dir, ['rev-parse', '--short', 'HEAD'])).out.trim() }
+  } catch (e) {
+    return { ok: false, error: String(e).slice(0, 300) }
+  }
+}
+
+/** Read a backup tree back: the JSON payload files plus any skills stored alongside. */
+function backupLoad(dir) {
+  if (!dir || !fs.existsSync(dir)) return { ok: false, error: 'backup directory not found' }
+  const files = {}
+  for (const name of fs.readdirSync(dir)) {
+    if (!name.endsWith('.json')) continue
+    try { files[name] = fs.readFileSync(path.join(dir, name), 'utf8') } catch { /* skip */ }
+  }
+  const skillsDir = path.join(dir, 'skills')
+  const skills = []
+  if (fs.existsSync(skillsDir)) {
+    for (const e of fs.readdirSync(skillsDir, { withFileTypes: true })) {
+      if (e.isDirectory()) skills.push(e.name)
+    }
+  }
+  return { ok: true, files, skills }
+}
+
+/** Copy backed-up skills back into ~/.claude/skills (existing ones of the same name are replaced). */
+function backupRestoreSkills(dir) {
+  const src = path.join(dir || '', 'skills')
+  if (!fs.existsSync(src)) return { ok: true, restored: 0 }
+  fs.mkdirSync(SKILLS_DIR(), { recursive: true })
+  let n = 0
+  for (const e of fs.readdirSync(src, { withFileTypes: true })) {
+    if (!e.isDirectory()) continue
+    const dest = path.join(SKILLS_DIR(), e.name)
+    fs.rmSync(dest, { recursive: true, force: true })
+    fs.cpSync(path.join(src, e.name), dest, { recursive: true })
+    n++
+  }
+  return { ok: true, restored: n }
+}
+
 // ---- worktree isolation (Fleet) ----
 // Give an edit run its own linked worktree + branch so many runs can work one repo at once
 // without touching the user's checkout. `finalize` either keeps the run's branch (committing its
@@ -876,6 +965,17 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'GET' && url.pathname === '/caps') {
       return json(res, 200, capabilities())
+    }
+    if (req.method === 'POST' && url.pathname === '/backup/save') {
+      return json(res, 200, await backupSave(await readBody(req)))
+    }
+    if (req.method === 'POST' && url.pathname === '/backup/load') {
+      const { dir } = await readBody(req)
+      return json(res, 200, backupLoad(dir))
+    }
+    if (req.method === 'POST' && url.pathname === '/backup/restore-skills') {
+      const { dir } = await readBody(req)
+      return json(res, 200, backupRestoreSkills(dir))
     }
     if (req.method === 'POST' && url.pathname === '/caps/mcp') {
       const { name, spec } = await readBody(req)

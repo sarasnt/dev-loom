@@ -411,3 +411,14 @@ export function removeSkill() { return delay({ ok: false, error: 'offline' }) }
 export function installSkillRepo() {
   return delay({ ok: false, dir: undefined as string | undefined, error: 'offline' })
 }
+export function fetchBackup(): Promise<import('../types').BackupStatus> {
+  return delay({ dir: '', remote: '', everyHours: 0, includeSkills: true, push: true, lastAt: null, lastResult: null })
+}
+export function previewBackup() { return delay({} as Record<string, unknown>) }
+export function configureBackup(): Promise<import('../types').BackupStatus> {
+  return delay({ dir: '', remote: '', everyHours: 0, includeSkills: true, push: true, lastAt: null, lastResult: null })
+}
+export function runBackup() { return delay({ ok: false, summary: undefined as string | undefined, error: 'offline' }) }
+export function restoreBackup() {
+  return delay({ ok: false, settings: 0, repos: 0, sources: 0, skills: 0, note: undefined as string | undefined, error: 'offline' })
+}

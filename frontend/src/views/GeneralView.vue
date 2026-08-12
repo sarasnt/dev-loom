@@ -2,8 +2,8 @@
 // Settings › General — machine/workflow preferences: terminal workdir, repo directories,
 // notifications, push protection, Fleet defaults. (Model things live in Settings › Models.)
 import { onMounted, ref } from 'vue'
-import type { BrowseResult, NotifySettings } from '../types'
-import { fetchSettings, saveTerminalWorkdir, browseFs, addRepoDir, removeRepoDir, saveNotificationSettings, testNotification, saveGitSettings, saveFleetSettings } from '../api'
+import type { BrowseResult, NotifySettings, BackupStatus } from '../types'
+import { fetchSettings, saveTerminalWorkdir, browseFs, addRepoDir, removeRepoDir, saveNotificationSettings, testNotification, saveGitSettings, saveFleetSettings, fetchBackup, configureBackup, runBackup, restoreBackup } from '../api'
 import SettingsTabs from '../components/SettingsTabs.vue'
 
 const workdir = ref('')
@@ -12,9 +12,8 @@ const newDir = ref('')
 const loading = ref(true)
 const saving = ref(false)
 const flash = ref('')
-// The browse modal is shared: `browseFor` says whether picking a folder sets the terminal
-// workdir or adds a repository directory.
-const browseFor = ref<'workdir' | 'repodir'>('workdir')
+// The browse modal is shared: `browseFor` says which field a picked folder lands in.
+const browseFor = ref<'workdir' | 'repodir' | 'backupdir'>('workdir')
 const browse = ref<{ open: boolean; data: BrowseResult | null; loading: boolean }>({
   open: false,
   data: null,
@@ -38,6 +37,13 @@ const gitFlash = ref('')
 const worktreesDefault = ref(true)
 const fleetFlash = ref('')
 
+// Configuration backup to a git repo you own (never includes secrets).
+const backup = ref<BackupStatus>({
+  dir: '', remote: '', everyHours: 0, includeSkills: true, push: true, lastAt: null, lastResult: null,
+})
+const backupFlash = ref('')
+const backupBusy = ref('')
+
 onMounted(async () => {
   try {
     const s = await fetchSettings()
@@ -48,8 +54,39 @@ onMounted(async () => {
     protectedPatterns.value = s.gitProtectedPatterns ?? 'main, master, develop, dev'
     worktreesDefault.value = s.fleetWorktreesDefault ?? true
   } catch { /* ignore */ }
+  try { backup.value = await fetchBackup() } catch { /* leave defaults */ }
   loading.value = false
 })
+
+async function saveBackupCfg() {
+  backupFlash.value = ''
+  try { backup.value = await configureBackup(backup.value); backupFlash.value = 'Saved.' }
+  catch { backupFlash.value = 'Could not save.' }
+}
+async function backupNow() {
+  if (backupBusy.value) return
+  backupBusy.value = 'run'; backupFlash.value = ''
+  try {
+    const r = await runBackup()
+    backupFlash.value = r.ok ? `Backed up — ${r.summary}` : `Failed: ${r.error ?? r.summary ?? 'unknown'}`
+    backup.value = await fetchBackup()
+  } catch { backupFlash.value = 'Backup failed — is the host agent running?' }
+  finally { backupBusy.value = '' }
+}
+async function doRestore() {
+  if (backupBusy.value) return
+  if (!confirm('Restore configuration from the backup folder?\n\nSettings are overwritten with the '
+    + 'backed-up values; missing repos and source definitions are added. Your API keys and source '
+    + 'credentials are NOT in the backup and stay as they are.')) return
+  backupBusy.value = 'restore'; backupFlash.value = ''
+  try {
+    const r = await restoreBackup(backup.value.includeSkills)
+    backupFlash.value = r.ok
+      ? `Restored ${r.settings} settings, ${r.repos} repos, ${r.sources} sources, ${r.skills} skills. ${r.note ?? ''}`
+      : `Restore failed: ${r.error ?? 'unknown'}`
+  } catch { backupFlash.value = 'Restore failed — is the host agent running?' }
+  finally { backupBusy.value = '' }
+}
 
 async function saveGit() {
   gitFlash.value = ''
@@ -113,10 +150,13 @@ async function save() {
   }
 }
 
-async function openBrowse(target: 'workdir' | 'repodir' = 'workdir') {
+async function openBrowse(target: 'workdir' | 'repodir' | 'backupdir' = 'workdir') {
   browseFor.value = target
   browse.value.open = true
-  await navigate((target === 'workdir' ? workdir.value : newDir.value) || '')
+  const seed = target === 'workdir' ? workdir.value
+    : target === 'backupdir' ? backup.value.dir
+    : newDir.value
+  await navigate(seed || '')
 }
 async function navigate(p: string) {
   browse.value.loading = true
@@ -129,6 +169,7 @@ function useFolder() {
   const picked = browse.value.data.path
   browse.value.open = false
   if (browseFor.value === 'repodir') addDir(picked)
+  else if (browseFor.value === 'backupdir') { backup.value.dir = picked; saveBackupCfg() }
   else workdir.value = picked
 }
 </script>
@@ -253,6 +294,50 @@ function useFolder() {
           <input type="checkbox" v-model="worktreesDefault" @change="saveFleet" />
           <span>Isolate edit runs in a worktree by default</span>
         </label>
+      </section>
+
+      <section class="block">
+        <div class="lab mono">Backup</div>
+        <p class="prose">
+          Writes your DevLoom configuration — settings, source definitions, tracked repositories
+          (and your custom skills) — into a git repo you own, then optionally pushes it.
+          <b>Secrets are never included:</b> API keys and source credentials stay encrypted here and
+          are re-entered once after a restore.
+        </p>
+        <div v-if="backupFlash" class="flash mono">{{ backupFlash }}</div>
+        <div class="row">
+          <span class="mono fld">Backup folder</span>
+          <input v-model="backup.dir" class="in mono" placeholder="e.g. C:\Users\you\devloom-backup" @keydown.enter="saveBackupCfg" />
+          <button class="btn" @click="openBrowse('backupdir')">Browse…</button>
+        </div>
+        <div class="row">
+          <span class="mono fld">Push to (optional)</span>
+          <input v-model="backup.remote" class="in mono" placeholder="git@github.com:you/devloom-backup.git" @keydown.enter="saveBackupCfg" />
+        </div>
+        <div class="row">
+          <span class="mono fld">Automatic backup</span>
+          <select v-model.number="backup.everyHours" class="in mono nin" @change="saveBackupCfg">
+            <option :value="0">manual only</option>
+            <option :value="6">every 6 hours</option>
+            <option :value="12">every 12 hours</option>
+            <option :value="24">daily</option>
+            <option :value="168">weekly</option>
+          </select>
+          <button class="btn pri" @click="saveBackupCfg">Save</button>
+        </div>
+        <div class="nchecks">
+          <label class="nrow"><input type="checkbox" v-model="backup.includeSkills" @change="saveBackupCfg" /><span>Include custom skills</span></label>
+          <label class="nrow"><input type="checkbox" v-model="backup.push" @change="saveBackupCfg" /><span>Push after each backup</span></label>
+        </div>
+        <div class="row">
+          <button class="btn pri" :disabled="backupBusy !== '' || !backup.dir" @click="backupNow">
+            {{ backupBusy === 'run' ? 'Backing up…' : 'Back up now' }}
+          </button>
+          <button class="btn" :disabled="backupBusy !== '' || !backup.dir" @click="doRestore">
+            {{ backupBusy === 'restore' ? 'Restoring…' : 'Restore' }}
+          </button>
+          <span class="idnote">{{ backup.lastAt ? `last: ${backup.lastResult ?? ''}` : 'never backed up' }}</span>
+        </div>
       </section>
     </template>
 

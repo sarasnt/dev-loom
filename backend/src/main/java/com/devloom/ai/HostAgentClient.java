@@ -367,6 +367,23 @@ public class HostAgentClient {
         return post("/caps/skill/install", Map.of("repo", repo));
     }
 
+    // ---- configuration backup ----
+
+    /** Write the backup payload into the user's backup repo, commit, optionally push. */
+    public Map<String, Object> backupSave(Map<String, Object> body) {
+        return post("/backup/save", body);
+    }
+
+    /** Read a backup tree back (payload files + the names of any stored skills). */
+    public Map<String, Object> backupLoad(String dir) {
+        return post("/backup/load", Map.of("dir", dir));
+    }
+
+    /** Copy backed-up skills back into ~/.claude/skills. */
+    public Map<String, Object> backupRestoreSkills(String dir) {
+        return post("/backup/restore-skills", Map.of("dir", dir));
+    }
+
     private Map<String, Object> get(String path) {
         Map<String, Object> resp = http.get().uri(path).retrieve().body(MAP);
         if (resp == null) throw new IllegalStateException("no response from host agent");
