@@ -1,0 +1,117 @@
+{
+  "at": "2026-08-12T16:40:48.224Z",
+  "args": {
+    "models": [
+      "qwen3-coder:30b"
+    ],
+    "reps": 3,
+    "tasks": null,
+    "save": "eval/baseline.json",
+    "compare": null
+  },
+  "results": {
+    "qwen3-coder:30b": {
+      "version": {
+        "pass": 0,
+        "n": 3,
+        "ms": [
+          26189,
+          2024,
+          2031
+        ],
+        "signals": {
+          "endsWithQuestion": 0,
+          "offersMenu": 0,
+          "empty": 0
+        },
+        "samples": [
+          "1.0.0",
+          "1.0.0"
+        ]
+      },
+      "export": {
+        "pass": 0,
+        "n": 3,
+        "ms": [
+          4042,
+          2022,
+          2019
+        ],
+        "signals": {
+          "endsWithQuestion": 0,
+          "offersMenu": 0,
+          "empty": 0
+        },
+        "samples": [
+          "To determine the numeric value of PI exported by `src/math.js`, I need to examine the content of that file.\n\nSince the repository context provided does not include the contents of `src/math.js`, I can",
+          "The repository context provided does not include the contents of `src/math.js`, which is necessary to determine the numeric value of PI exported by that file.\n\nTo answer this question, I would need to"
+        ]
+      },
+      "count": {
+        "pass": 3,
+        "n": 3,
+        "ms": [
+          2027,
+          2027,
+          2026
+        ],
+        "signals": {
+          "endsWithQuestion": 0,
+          "offersMenu": 0,
+          "empty": 0
+        },
+        "samples": []
+      },
+      "crossfile": {
+        "pass": 2,
+        "n": 3,
+        "ms": [
+          8060,
+          2032,
+          2025
+        ],
+        "signals": {
+          "endsWithQuestion": 0,
+          "offersMenu": 0,
+          "empty": 0
+        },
+        "samples": [
+          "src/index.js"
+        ]
+      },
+      "bug": {
+        "pass": 1,
+        "n": 3,
+        "ms": [
+          4026,
+          4037,
+          2023
+        ],
+        "signals": {
+          "endsWithQuestion": 0,
+          "offersMenu": 0,
+          "empty": 0
+        },
+        "samples": [
+          "The provided context does not include the contents of `src/cart.js`, so I cannot identify the specific input that causes a NaN result or explain the underlying cause.\n\nTo determine the bug, I would ne",
+          "The provided context does not include the contents of `src/cart.js`, so I cannot identify the specific input that causes a `NaN` result or explain the underlying cause.\n\nTo proceed, please share the i"
+        ]
+      },
+      "refusal": {
+        "pass": 3,
+        "n": 3,
+        "ms": [
+          4041,
+          4026,
+          4040
+        ],
+        "signals": {
+          "endsWithQuestion": 0,
+          "offersMenu": 0,
+          "empty": 0
+        },
+        "samples": []
+      }
+    }
+  }
+}

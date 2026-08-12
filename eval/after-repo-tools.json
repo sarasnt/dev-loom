@@ -1,0 +1,106 @@
+{
+  "at": "2026-08-12T16:53:04.167Z",
+  "args": {
+    "models": [
+      "qwen3-coder:30b"
+    ],
+    "reps": 3,
+    "tasks": null,
+    "save": "eval/after-repo-tools.json",
+    "compare": "eval/baseline.json"
+  },
+  "results": {
+    "qwen3-coder:30b": {
+      "version": {
+        "pass": 3,
+        "n": 3,
+        "ms": [
+          2062,
+          2043,
+          2032
+        ],
+        "signals": {
+          "endsWithQuestion": 0,
+          "offersMenu": 0,
+          "empty": 0
+        },
+        "samples": []
+      },
+      "export": {
+        "pass": 3,
+        "n": 3,
+        "ms": [
+          2036,
+          2027,
+          2028
+        ],
+        "signals": {
+          "endsWithQuestion": 0,
+          "offersMenu": 0,
+          "empty": 0
+        },
+        "samples": []
+      },
+      "count": {
+        "pass": 3,
+        "n": 3,
+        "ms": [
+          2030,
+          2102,
+          2028
+        ],
+        "signals": {
+          "endsWithQuestion": 0,
+          "offersMenu": 0,
+          "empty": 0
+        },
+        "samples": []
+      },
+      "crossfile": {
+        "pass": 3,
+        "n": 3,
+        "ms": [
+          4039,
+          4046,
+          8087
+        ],
+        "signals": {
+          "endsWithQuestion": 0,
+          "offersMenu": 0,
+          "empty": 0
+        },
+        "samples": []
+      },
+      "bug": {
+        "pass": 3,
+        "n": 3,
+        "ms": [
+          6061,
+          6051,
+          6057
+        ],
+        "signals": {
+          "endsWithQuestion": 0,
+          "offersMenu": 0,
+          "empty": 0
+        },
+        "samples": []
+      },
+      "refusal": {
+        "pass": 3,
+        "n": 3,
+        "ms": [
+          4039,
+          4053,
+          6059
+        ],
+        "signals": {
+          "endsWithQuestion": 0,
+          "offersMenu": 0,
+          "empty": 0
+        },
+        "samples": []
+      }
+    }
+  }
+}

@@ -239,7 +239,8 @@ public class BrainstormService {
         String replyText;
         String replyModel;
         try {
-            LlmPort.LlmResult r = llm.generate(new LlmPort.LlmRequest("brainstorm", SYSTEM, prompt, model));
+            LlmPort.LlmResult r = llm.generate(new LlmPort.LlmRequest("brainstorm", SYSTEM, prompt, model,
+                    session.getRepoPath()));
             replyText = stripMarker(r.text());
             replyModel = r.model();
             // The model told us it's blocked on the user — keep the row so Fleet can route them back.
@@ -328,7 +329,7 @@ public class BrainstormService {
                     session.getRepoPath(), chatModel, session.getId());
             try {
                 LlmPort.LlmResult r = llm.generate(new LlmPort.LlmRequest("brainstorm", SYSTEM,
-                        buildPrompt(cblock, prior, userText), chatModel));
+                        buildPrompt(cblock, prior, userText), chatModel, session.getRepoPath()));
                 finalText = stripMarker(r.text());
                 finalModel = r.model();
                 fleet.chatFinished(chatRun, true, null, wantsInput(r.text()));

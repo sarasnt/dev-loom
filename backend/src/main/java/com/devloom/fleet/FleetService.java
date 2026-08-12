@@ -173,20 +173,18 @@ public class FleetService {
             // No needs-input marker here on purpose: a one-shot analysis has no channel to answer
             // through, so flagging it would offer the user an action they can't take. If the model
             // lacks context it says so in the result and the user re-runs with more.
-            // The wording changes with tool availability: telling a model it can't gather anything
-            // while handing it tools is a contradiction it resolves by ignoring one or the other.
-            String system = mcp.tools().isEmpty()
-                    ? """
+            // Every analysis run can read its repository now (RepoTools is always available), so
+            // there is one prompt rather than one per tool availability.
+            String system = """
                     You are a background analysis agent inspecting a git repository for an engineer.
-                    You cannot edit files or run commands — you read the context you are given and
-                    answer. Be concrete and technical; say plainly when the context is insufficient
-                    rather than guessing."""
-                    : """
-                    You are a background analysis agent inspecting a git repository for an engineer.
-                    The summary below is a starting point: use the tools provided to gather anything
-                    else you need (reading files, for instance) before answering. Be concrete and
-                    technical, ground every claim in what you actually read, and say plainly when
-                    something could not be determined rather than guessing.
+
+                    The summary below is only a starting point. You can read the repository: list
+                    its files, read any file, and search across them. Read what the question is
+                    actually about before answering it — an answer you inferred without reading the
+                    file is the failure mode here. Never state a version, name or value you have not
+                    seen; if the repository does not contain the answer, say so plainly.
+
+                    Be concrete and technical, and quote the code you rely on.
 
                     This runs unattended: nobody will read a follow-up question. Never end by
                     offering choices or asking how to proceed — do the work and give the answer.""";
@@ -196,7 +194,7 @@ public class FleetService {
             String full = repoContext(path) + "\n\nTask:\n" + (prompt == null ? "" : prompt)
                     + "\n\nAnswer the task above directly. Do not end with questions or offers of help.";
             com.devloom.ai.LlmPort.LlmResult r =
-                    llm.generate(new com.devloom.ai.LlmPort.LlmRequest("fleet", system, full, model));
+                    llm.generate(new com.devloom.ai.LlmPort.LlmRequest("fleet", system, full, model, path));
             String text = r.text() == null ? "" : r.text();
             finishLocal(id, text.replace("[DEVLOOM:INPUT]", "").stripTrailing(), null, false);
         } catch (Exception e) {
@@ -242,11 +240,10 @@ public class FleetService {
         try {
             Map<String, Object> f = agent.files(path, 200);
             if (f.get("files") instanceof List<?> list && !list.isEmpty()) {
-                sb.append("\nTracked files");
-                if (Boolean.TRUE.equals(f.get("truncated"))) {
-                    sb.append(" (first ").append(list.size()).append(" of ").append(f.get("total")).append(')');
-                }
-                sb.append(":\n");
+                // Give the count, not just the list — same reason RepoTools does.
+                sb.append("\nTracked files (").append(f.get("total") == null ? list.size() : f.get("total"));
+                if (Boolean.TRUE.equals(f.get("truncated"))) sb.append(" in total, first ").append(list.size()).append(" shown");
+                sb.append("):\n");
                 for (Object o : list) sb.append("- ").append(o).append('\n');
             }
         } catch (Exception ignore) { /* the file list is helpful, not required */ }

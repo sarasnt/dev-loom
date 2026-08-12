@@ -21,7 +21,18 @@ public interface LlmPort {
     /** Generate a completion. Callers pass already-redacted, budgeted context. */
     LlmResult generate(LlmRequest request);
 
-    record LlmRequest(String feature, String system, String prompt, String model) {}
+    /**
+     * @param repoPath the repository this request is about, or null. Present, it turns on the
+     *                 built-in repo tools ({@link RepoTools}) for the turn — which is what lets a
+     *                 model actually read the code it is being asked about.
+     */
+    record LlmRequest(String feature, String system, String prompt, String model, String repoPath) {
+
+        /** For features with no repository in play (brainstorming a topic, a build log). */
+        public LlmRequest(String feature, String system, String prompt, String model) {
+            this(feature, system, prompt, model, null);
+        }
+    }
 
     record LlmResult(String text, String model, String provider, boolean hypothesis) {}
 }

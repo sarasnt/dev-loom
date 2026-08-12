@@ -123,7 +123,7 @@ public class LlmRouter {
                     ? request.system()
                     : skills.applyTo(request.system(), request.prompt());
             LlmPort.LlmRequest req = new LlmPort.LlmRequest(
-                    request.feature(), system, request.prompt(), model);
+                    request.feature(), system, request.prompt(), model, request.repoPath());
             long t0 = System.currentTimeMillis();
             try {
                 LlmPort.LlmResult result = port.generate(req);

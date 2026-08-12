@@ -802,6 +802,69 @@ async function repoFiles(dir, { limit } = {}) {
 }
 
 /**
+ * Resolve a repo-relative path, refusing anything that escapes the repo or reaches into `.git`.
+ * The read tools are handed to models, so the check is on the RESOLVED path: `..` segments and
+ * symlinks both normalise away before it, which string matching on the input would miss.
+ */
+function insideRepo(dir, rel) {
+  const root = fs.realpathSync(path.resolve(dir))
+  const full = path.resolve(root, rel ?? '')
+  const relative = path.relative(root, full)
+  if (relative.startsWith('..') || path.isAbsolute(relative)) return { ok: false, why: 'outside the repository' }
+  if (relative === '.git' || relative.startsWith('.git' + path.sep)) {
+    return { ok: false, why: "inside .git — read the repository's own files instead" }
+  }
+  return { ok: true, full }
+}
+
+/**
+ * Read one file from a repo. Deliberately narrow: a model gets file CONTENTS, not a filesystem —
+ * no absolute paths, no parent directories, no `.git`, and a byte cap so one large file can't
+ * crowd out the conversation.
+ */
+async function repoRead(dir, { file, maxBytes } = {}) {
+  const cap = Math.min(Math.max(Number(maxBytes) || 60_000, 1), 200_000)
+  let where
+  try { where = insideRepo(dir, file) } catch { return { error: 'repo not found' } }
+  if (!where.ok) return { error: `refused: '${file}' is ${where.why}` }
+  const full = where.full
+  let stat
+  try { stat = fs.statSync(full) } catch { return { error: `no such file: ${file}` } }
+  if (stat.isDirectory()) return { error: `${file} is a directory — list the repo's files instead` }
+  const buf = fs.readFileSync(full, { length: cap })
+  // A NUL in the first chunk means binary; returning mojibake teaches a model nothing.
+  if (buf.includes(0)) return { error: `${file} looks binary` }
+  return {
+    file,
+    text: buf.toString('utf8'),
+    bytes: stat.size,
+    truncated: stat.size > buf.length,
+  }
+}
+
+/**
+ * Search the repo's tracked files. `git grep` rather than a directory walk for the same reason
+ * `ls-files` is used above: it never descends into `.git` or ignored directories.
+ */
+async function repoGrep(dir, { query, glob, max } = {}) {
+  if (!query || !String(query).trim()) return { matches: [], error: 'empty query' }
+  const n = Math.min(Math.max(Number(max) || 60, 1), 300)
+  const args = ['grep', '-n', '-I', '--fixed-strings', '--no-color', '-e', String(query)]
+  if (glob) args.push('--', String(glob))
+  const r = await git(dir, args)
+  // git grep exits 1 for "no matches", which is an answer, not a failure.
+  if (r.code !== 0 && r.code !== 1) return { matches: [], error: (r.err || 'grep failed').trim().slice(0, 200) }
+  const matches = []
+  for (const line of r.out.split('\n')) {
+    if (!line.trim()) continue
+    const m = line.match(/^(.*?):(\d+):(.*)$/)
+    if (m) matches.push({ file: m[1], line: Number(m[2]), text: m[3].trim().slice(0, 300) })
+    if (matches.length >= n) break
+  }
+  return { matches, total: matches.length }
+}
+
+/**
  * Commit history for the current branch (repo-spec §8). `uniqueOnly` limits it to commits not on
  * the resolved source branch (the natural context for squash); each row carries whether it is
  * already published to the upstream (drives the squash warning).
@@ -1279,6 +1342,14 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/repos/files') {
       const { path: p, limit } = await readBody(req)
       return json(res, 200, await repoFiles(p, { limit }))
+    }
+    if (req.method === 'POST' && url.pathname === '/repos/read') {
+      const { path: p, file, maxBytes } = await readBody(req)
+      return json(res, 200, await repoRead(p, { file, maxBytes }))
+    }
+    if (req.method === 'POST' && url.pathname === '/repos/grep') {
+      const { path: p, query, glob, max } = await readBody(req)
+      return json(res, 200, await repoGrep(p, { query, glob, max }))
     }
     if (req.method === 'POST' && url.pathname === '/repos/commit-info') {
       const { path: p, hash } = await readBody(req)

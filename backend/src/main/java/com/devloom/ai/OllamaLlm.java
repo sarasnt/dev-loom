@@ -79,6 +79,10 @@ public class OllamaLlm implements LlmPort {
                 .modelName(model)
                 .timeout(Duration.ofSeconds(120))
                 .listeners(List.of(monitor))
+                // Sampling by feature: grounded work near-greedy, brainstorming warm. Left unset
+                // this ran at the provider default, which made repeat runs disagree with themselves.
+                .temperature(Sampling.temperature(request.feature()))
+                .topP(Sampling.topP(request.feature()))
                 .build();
         List<ChatMessage> messages = new ArrayList<>();
         if (request.system() != null && !request.system().isBlank()) {
@@ -87,7 +91,7 @@ public class OllamaLlm implements LlmPort {
         messages.add(UserMessage.from(request.prompt()));
         // Through the tool loop so the model can actually call any MCP tools the user enabled;
         // with none enabled this is a plain one-shot chat.
-        String answer = toolLoop.chat(chat, messages);
+        String answer = toolLoop.chat(chat, messages, request.repoPath());
         String text = answer == null ? "" : answer;
         log.info("Ollama generate: model={} chars={}", model, text.length());
         return new LlmResult(text, model, provider(), true);

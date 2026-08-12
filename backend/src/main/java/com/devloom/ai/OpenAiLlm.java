@@ -30,12 +30,14 @@ public class OpenAiLlm implements LlmPort {
 
     private final CredentialStore credentials;
     private final ModelMonitor monitor;
+    private final ToolLoop toolLoop;
     private final String baseUrl;
 
-    public OpenAiLlm(CredentialStore credentials, ModelMonitor monitor,
+    public OpenAiLlm(CredentialStore credentials, ModelMonitor monitor, ToolLoop toolLoop,
                      @Value("${devloom.ai.openai-base-url:https://api.openai.com}") String baseUrl) {
         this.credentials = credentials;
         this.monitor = monitor;
+        this.toolLoop = toolLoop;
         // LangChain4j expects the base ending at /v1; our config holds the host root.
         this.baseUrl = baseUrl.endsWith("/v1") ? baseUrl : baseUrl + "/v1";
     }
@@ -65,14 +67,20 @@ public class OpenAiLlm implements LlmPort {
                 .modelName(model)
                 .timeout(Duration.ofSeconds(120))
                 .listeners(List.of(monitor))
+                // Sampling by feature: grounded work near-greedy, brainstorming warm. Left unset
+                // this ran at the provider default, which made repeat runs disagree with themselves.
+                .temperature(Sampling.temperature(request.feature()))
+                .topP(Sampling.topP(request.feature()))
                 .build();
         List<ChatMessage> messages = new ArrayList<>();
         if (request.system() != null && !request.system().isBlank()) {
             messages.add(SystemMessage.from(request.system()));
         }
         messages.add(UserMessage.from(request.prompt()));
-        ChatResponse resp = chat.chat(ChatRequest.builder().messages(messages).build());
-        String text = resp.aiMessage() == null || resp.aiMessage().text() == null ? "" : resp.aiMessage().text();
+        // Through the tool loop, like the local adapter: a paid model that cannot read the repo
+        // it was asked about is no more useful than a local one that cannot.
+        String answer = toolLoop.chat(chat, messages, request.repoPath());
+        String text = answer == null ? "" : answer;
         log.info("OpenAI generate: model={} chars={}", model, text.length());
         return new LlmResult(text, model, provider(), true);
     }

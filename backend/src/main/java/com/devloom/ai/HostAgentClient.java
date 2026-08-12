@@ -202,6 +202,25 @@ public class HostAgentClient {
         return post("/repos/files", body);
     }
 
+    /** One file's contents, refused by the agent if the path escapes the repo or enters .git. */
+    public Map<String, Object> readFile(String path, String file, int maxBytes) {
+        Map<String, Object> body = new java.util.HashMap<>();
+        body.put("path", path);
+        body.put("file", file);
+        body.put("maxBytes", maxBytes);
+        return post("/repos/read", body);
+    }
+
+    /** Literal search across the repo's tracked files (git grep). */
+    public Map<String, Object> grep(String path, String query, String glob, int max) {
+        Map<String, Object> body = new java.util.HashMap<>();
+        body.put("path", path);
+        body.put("query", query);
+        if (glob != null && !glob.isBlank()) body.put("glob", glob);
+        body.put("max", max);
+        return post("/repos/grep", body);
+    }
+
     /** Current-branch commit log; uniqueOnly limits to commits not on the resolved source. */
     public Map<String, Object> log(String path, String source, boolean uniqueOnly, int limit) {
         Map<String, Object> body = new java.util.HashMap<>();

@@ -61,6 +61,13 @@ containerized `mvn compile`, then exercising the real running app with `curl`
 (`http://localhost:8080/api/v1/...`) and the browser (`http://localhost:8088`). Prefer proving a
 change against live data over asserting it works.
 
+**Model behaviour has its own harness** (`eval/`) because it can't be checked by reading the diff:
+local models vary run to run, so a prompt or tool change looks like whatever the last attempt did.
+`node eval/run.mjs --models <m> --reps 3 --save x.json` runs a battery of questions with known
+answers through the real `/fleet/runs` path and scores them; `--compare x.json` diffs pass rates.
+Change anything in `ai/` (prompts, tools, sampling) and re-run it — a claim of improvement without
+a moved pass rate is a guess.
+
 ## Architecture
 
 ### Unified work model
