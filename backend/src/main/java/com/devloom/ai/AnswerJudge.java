@@ -55,10 +55,16 @@ public class AnswerJudge {
             GROUNDED is "no" only when the reply states specifics that nothing in WHAT IT
             ACTUALLY DID could have shown it. If it read the file it quotes, it is grounded.""";
 
-    private final LlmRouter llm;
+    /** The name to edit the rubric under in Langfuse. */
+    private static final String PROMPT = "devloom/answer-judge";
 
-    public AnswerJudge(LlmRouter llm) {
+    private final LlmRouter llm;
+    private final PromptLibrary prompts;
+
+    public AnswerJudge(LlmRouter llm, PromptLibrary prompts) {
         this.llm = llm;
+        this.prompts = prompts;
+        prompts.seed(PROMPT, SYSTEM);
     }
 
     /**
@@ -90,7 +96,8 @@ public class AnswerJudge {
 
                     Grade the reply.""".formatted(clip(task, 2_000), clip(did, 1_500), clip(answer, 6_000));
 
-            LlmPort.LlmResult r = llm.generate(new LlmPort.LlmRequest("judge", SYSTEM, prompt, model));
+            LlmPort.LlmResult r = llm.generate(
+                    new LlmPort.LlmRequest("judge", prompts.get(PROMPT, SYSTEM), prompt, model));
             String text = r.text() == null ? "" : r.text();
 
             Double adherence = switch (field(text, "DID_TASK")) {

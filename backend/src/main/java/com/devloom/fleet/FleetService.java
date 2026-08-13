@@ -66,6 +66,10 @@ public class FleetService {
 
             Only when the files are written, reply with one or two sentences saying what you wrote.""";
 
+    /** Names these are editable under in Langfuse; the constants above stay the fallback. */
+    private static final String ANALYSIS_PROMPT = "devloom/fleet-analysis";
+    private static final String EDIT_PROMPT = "devloom/fleet-edit";
+
     private final AgentRunRepository runs;
     private final GitRepoRepository repos;
     private final HostAgentClient agent;
@@ -75,6 +79,7 @@ public class FleetService {
     private final com.devloom.ai.LlmRouter llm;
     private final com.devloom.ai.McpTools mcp;
     private final com.devloom.ai.AnswerJudge judge;
+    private final com.devloom.ai.PromptLibrary prompts;
     /** Local/API model runs execute here so they survive the request that launched them. */
     private final java.util.concurrent.ExecutorService pool =
             java.util.concurrent.Executors.newFixedThreadPool(4);
@@ -83,7 +88,7 @@ public class FleetService {
                         HostAgentClient agent, AuditService audit, NotificationService notifications,
                         com.devloom.brainstorm.BrainstormSessionRepository brainstormSessions,
                         com.devloom.ai.LlmRouter llm, com.devloom.ai.McpTools mcp,
-                        com.devloom.ai.AnswerJudge judge) {
+                        com.devloom.ai.AnswerJudge judge, com.devloom.ai.PromptLibrary prompts) {
         this.runs = runs;
         this.repos = repos;
         this.agent = agent;
@@ -93,6 +98,11 @@ public class FleetService {
         this.llm = llm;
         this.mcp = mcp;
         this.judge = judge;
+        this.prompts = prompts;
+        // Publish the shipped text so both are editable in Langfuse without pasting them in.
+        // Seeding never overwrites: once you've edited one, it's yours.
+        prompts.seed(ANALYSIS_PROMPT, ANALYSIS_SYSTEM);
+        prompts.seed(EDIT_PROMPT, EDIT_SYSTEM);
     }
 
     public List<Dto.AgentRun> list() {
@@ -252,7 +262,9 @@ public class FleetService {
             // lacks context it says so in the result and the user re-runs with more.
             // Every analysis run can read its repository now (RepoTools is always available), so
             // there is one prompt rather than one per tool availability.
-            String system = edit ? EDIT_SYSTEM : ANALYSIS_SYSTEM;
+            String system = edit
+                    ? prompts.get(EDIT_PROMPT, EDIT_SYSTEM)
+                    : prompts.get(ANALYSIS_PROMPT, ANALYSIS_SYSTEM);
             // The closing instruction sits at the very end of the user turn, not in the system
             // message: small local models weight recency heavily, and from mid-prompt the same
             // sentence loses to their chat-assistant habit of ending on "would you like me to…".
@@ -274,6 +286,33 @@ public class FleetService {
             // reward it for answering us rather than the user.
             com.devloom.ai.AnswerJudge.Verdict verdict = judge.judge(prompt, text, model,
                     r.telemetry() == null ? java.util.List.of() : r.telemetry().activity());
+
+            // One retry, and only on a clear miss. The judge was measured against eval/ before
+            // being wired to anything: it agrees with the known answers 6/7 and has never called
+            // bad work good. So a "no" is worth acting on, while its occasional false alarm costs
+            // one extra run rather than a wrong result. Bounded at one — a model that missed twice
+            // won't find it on a third pass, and an open loop just burns the machine.
+            if (verdict != null && verdict.adherence() != null && verdict.adherence() == 0.0) {
+                log.info("Run {} missed the task ({}) — retrying once", id, verdict.note());
+                String retryPrompt = full
+                        + "\n\nA previous attempt was rejected: " + verdict.note()
+                        + "\nIt replied:\n" + clip(text, 1_200)
+                        + "\n\nDo the task itself this time. Do not restate that reply.";
+                com.devloom.ai.LlmPort.LlmResult r2 = llm.generate(
+                        new com.devloom.ai.LlmPort.LlmRequest("fleet", system, retryPrompt, model, path, edit));
+                String text2 = r2.text() == null ? "" : r2.text();
+                com.devloom.ai.AnswerJudge.Verdict second = judge.judge(prompt, text2, model,
+                        r2.telemetry() == null ? java.util.List.of() : r2.telemetry().activity());
+                // Keep the retry only if it did better. A second attempt is not an improvement
+                // just by being second.
+                if (second != null && second.adherence() != null && second.adherence() > 0.0) {
+                    finishLocal(id, text2.replace("[DEVLOOM:INPUT]", "").stripTrailing(), null, false,
+                            r2.telemetry(),
+                            com.devloom.ai.RunQuality.score(r2.telemetry(), text2, true, edit), second);
+                    return;
+                }
+                log.info("Run {} missed it again — keeping the first attempt", id);
+            }
             finishLocal(id, text.replace("[DEVLOOM:INPUT]", "").stripTrailing(), null, false,
                     r.telemetry(), com.devloom.ai.RunQuality.score(r.telemetry(), text, true, edit),
                     verdict);
@@ -805,6 +844,13 @@ public class FleetService {
 
     private static String iso(Instant t) { return t == null ? null : t.toString(); }
     private static String str(Object o) { return o == null ? null : String.valueOf(o); }
+
+    /** Enough of a rejected attempt to correct it, without pasting the whole thing back. */
+    private static String clip(String s, int max) {
+        if (s == null) return "";
+        String t = s.strip();
+        return t.length() <= max ? t : t.substring(0, max) + "…";
+    }
 
     private static Long parse(String id) {
         try { return Long.valueOf(id); } catch (Exception e) { return -1L; }
