@@ -50,17 +50,24 @@ function when(iso: string): string {
   return new Date(iso).toLocaleDateString()
 }
 
-async function load() {
+async function load(id?: string) {
   loading.value = true
-  data.value = await fetchHandoff(String(route.params.id ?? 'h1'))
-  loading.value = false
+  try {
+    data.value = await fetchHandoff(id ?? String(route.params.id ?? 'h1'))
+  } finally {
+    loading.value = false
+  }
 }
 
 onMounted(async () => {
-  loadHistory()
-  await load()
+  await loadHistory()
+  // No id in the route → open the most recent handoff you saved. Analysing the latest failure is
+  // a model call, and this screen was spending one on every visit while the artifact you generated
+  // an hour ago sat unread in the history.
+  const id = String(route.params.id ?? '')
+  await load(id || history.value[0]?.id || 'h1')
 })
-watch(() => route.params.id, load)
+watch(() => route.params.id, (id) => { if (id) load(String(id)) })
 
 // The artifact IS markdown, so show it as markdown. Copy and Export deliberately still take the
 // raw text — this gets pasted into another agent, where the source is what matters — so `raw`
@@ -140,21 +147,23 @@ async function launch(repo: RepoView, mode: 'chat' | 'cli') {
 
 <template>
   <main class="wrap">
+    <!-- Outside the loading branch on purpose: assembling a handoff can take a model call, and the
+         list of ones you already have is exactly what you want to reach for while that runs. -->
+    <div v-if="history.length" class="hist">
+      <span class="hlab mono">saved</span>
+      <button v-for="h in history" :key="h.id" class="hchip mono"
+              :class="{ on: data?.id === h.id }" @click="router.push(`/handoffs/${h.id}`)">
+        {{ h.branch || h.title }}
+        <span class="hwhen">{{ when(h.savedAt) }}</span>
+        <span class="hx" role="button" aria-label="Delete handoff" @click.stop="remove(h.id)">✕</span>
+      </button>
+    </div>
+
     <div v-if="loading" class="loadwrap"><LoomLoader :steps="handoffSteps" :est-ms="16000" /></div>
     <template v-else-if="data">
       <div class="head">
         <h1>Agent handoff — {{ data.title }}</h1>
         <span class="when mono">target: {{ data.target }} · <span class="local">⌂ local</span></span>
-      </div>
-
-      <div v-if="history.length" class="hist">
-        <span class="hlab mono">saved</span>
-        <button v-for="h in history" :key="h.id" class="hchip mono"
-                :class="{ on: String(route.params.id) === h.id }" @click="router.push(`/handoffs/${h.id}`)">
-          {{ h.branch || h.title }}
-          <span class="hwhen">{{ when(h.savedAt) }}</span>
-          <span class="hx" role="button" aria-label="Delete handoff" @click.stop="remove(h.id)">✕</span>
-        </button>
       </div>
 
       <div class="viewtoggle mono">

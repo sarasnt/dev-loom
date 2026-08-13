@@ -29,7 +29,7 @@ const nav = [
   { to: '/brainstorm', label: 'Brainstorm', ic: '✎' },
   { to: '/repos', label: 'Repos', ic: '⑂' },
   { to: '/fleet', label: 'Fleet', ic: '⧉' },
-  { to: '/handoffs/h1', label: 'Handoffs', ic: '⇥' },
+  { to: '/handoffs', label: 'Handoffs', ic: '⇥' },
 ]
 </script>
 
