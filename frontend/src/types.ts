@@ -87,6 +87,7 @@ export interface WorkRow {
   category?: string
   description?: string | null
   parentId?: string | null
+  url?: string | null // where the item lives in its source, as the connector resolved it
 }
 
 // ---- Build-failure analysis (SPEC §23) ----

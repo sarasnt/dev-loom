@@ -26,7 +26,11 @@ public class WorkModelService {
         return new Dto.WorkRow(
                 e.getExtId(), e.getType(), glyph(e.getType()), e.getTitle(),
                 e.getStatus(), e.getStatusTone(), meta, e.getSource(),
-                category(e.getType()), e.getDescription(), e.getParentExtId());
+                category(e.getType()), e.getDescription(), e.getParentExtId(),
+                // The connector already resolved where this item lives. Work was dropping it and
+                // rebuilding a GitHub URL from the id, which meant every other source had no way
+                // to be opened at all.
+                e.getUrl());
     }
 
     /** Presentation glyph derived from domain type (kept out of the DB). */

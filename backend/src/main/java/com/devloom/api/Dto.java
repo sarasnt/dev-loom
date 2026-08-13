@@ -39,7 +39,7 @@ public final class Dto {
     public record WorkRow(
             String id, String type, String glyph, String title, String status,
             String statusTone, List<String> meta, String source,
-            String category, String description, String parentId) {}
+            String category, String description, String parentId, String url) {}
 
     // ---- Build failure ----
     public record LogLine(String text, String kind) {}

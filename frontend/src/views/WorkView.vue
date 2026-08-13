@@ -31,8 +31,12 @@ function matchesFilter(r: WorkRow): boolean {
     case 'Reviews': return r.type === 'review'
     case 'Tasks': return r.type === 'task'
     case 'Builds': return r.type === 'build'
-    case 'Calendar': return r.type === 'calendar' || r.source === 'Calendar'
-    case 'Notes': return r.type === 'doc' || r.source === 'Notion'
+    // Type only. These used to fall back to a source-name match, which is the display name you
+    // typed when configuring the source: "|| source === 'Notion'" pulled two Notion *tasks* into
+    // Notes, and "|| source === 'Calendar'" matched nothing at all because the source is called
+    // "CSW Calendar". Normalising every connector into one type is what the work model is for.
+    case 'Calendar': return r.type === 'calendar'
+    case 'Notes': return r.type === 'doc'
     case 'mine': return r.status.toLowerCase().includes('mine')
     case 'stale': return r.type === 'stale' || r.statusTone === 'stale'
     default: return true
@@ -80,16 +84,15 @@ function hasChildren(r: WorkRow): boolean {
   return childrenOf(r.id).length > 0
 }
 
-const sourceCount = computed(() => new Set(rows.value.map((r) => r.source)).size)
+// Of what's on screen, not of everything configured — it sits next to the item count, and
+// "1 items · 4 sources" while showing a single GitHub build was just wrong.
+const sourceCount = computed(() => new Set(filtered.value.map((r) => r.source)).size)
 
+// Where a row opens. The connector resolved this when it synced, so every source has one — this
+// used to rebuild a GitHub URL from the id, guarded by `source === 'GitHub'`, which never matched
+// because the source is named "Sarasnt GitHub". Jira, Notion and calendar items had no link at all.
 function externalUrl(r: WorkRow): string | null {
-  // GitHub item ids are "owner/repo#number". PRs live under /pull, issues under /issues.
-  if (r.source === 'GitHub' && r.id.includes('#')) {
-    const [repo, num] = r.id.split('#')
-    const path = r.type === 'pr' ? 'pull' : 'issues'
-    return `https://github.com/${repo}/${path}/${num}`
-  }
-  return null
+  return r.url && r.url.startsWith('http') ? r.url : null
 }
 function actionable(r: WorkRow): boolean {
   return r.type === 'build' || externalUrl(r) !== null || !!r.description
