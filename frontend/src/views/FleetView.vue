@@ -158,6 +158,10 @@ async function discardIsolated(r: AgentRun) {
   catch { flash.value = 'Discard failed — is the host agent running?' }
   finally { detailBusy.value = false }
 }
+// "Did the task" is a verdict, not a measurement — show it as one.
+function adherenceLabel(v: number): string {
+  return v >= 1 ? 'yes' : v > 0 ? 'partly' : 'no'
+}
 // Bands, not a gradient: a run either did the job cleanly, wobbled, or went wrong.
 function qualityClass(score: number): string {
   return score >= 0.9 ? 'good' : score >= 0.6 ? 'ok' : 'bad'
@@ -178,10 +182,15 @@ async function openInTerminal(r: AgentRun) {
   await continueWith(r, 'claude-cli')
 }
 
-// Continue a finished run in a new brainstorm session. The model is the caller's choice, which is
-// the point: a run done by a local model should be followable up on locally, without the only exit
-// from the Fleet being a Claude terminal.
+// Continue a run. A run that came out of a conversation goes back INTO that conversation — forking
+// a fresh session and pasting "prior result: …" into it threw away the exchange you were mid-way
+// through and made the model start over from a summary of itself. Only a run with no session of its
+// own (a background analysis) needs a new one.
 async function continueWith(r: AgentRun, model: string) {
+  if (r.brainstormSessionId) {
+    router.push({ path: '/brainstorm', query: { session: r.brainstormSessionId } })
+    return
+  }
   detailBusy.value = true
   try {
     const s = await createBrainstormSession(`Continue · ${r.title}`, r.runDir || r.repoPath, model)
@@ -308,9 +317,16 @@ const continueModel = computed(() => {
 
         <!-- How it went about the work, distinct from whether the answer is right — which only you
              can judge. A clean run is unremarkable, so only the imperfect ones say why. -->
+        <div v-if="detail.adherenceScore !== null && detail.adherenceScore !== undefined" class="quality mono">
+          <span class="qval" :class="qualityClass(detail.adherenceScore)">{{ adherenceLabel(detail.adherenceScore) }}</span>
+          <span class="qlab">did the task</span>
+          <span v-if="detail.adherenceNote" class="qpen">{{ detail.adherenceNote }}</span>
+          <span v-if="detail.grounded === false" class="qsep">·</span>
+          <span v-if="detail.grounded === false" class="qpen">not grounded in what it read</span>
+        </div>
         <div v-if="detail.qualityScore !== null && detail.qualityScore !== undefined" class="quality mono">
           <span class="qval" :class="qualityClass(detail.qualityScore)">{{ detail.qualityScore.toFixed(2) }}</span>
-          <span class="qlab">run quality</span>
+          <span class="qlab" title="How it went about the work — repeats, invented tools, step budget. Not whether the answer is right.">how it worked</span>
           <span v-if="detail.toolCalls" class="qsep">·</span>
           <span v-if="detail.toolCalls">{{ detail.toolCalls }} tool call{{ detail.toolCalls === 1 ? '' : 's' }}</span>
           <span v-if="detail.qualityNotes && detail.qualityNotes !== 'clean'" class="qsep">·</span>

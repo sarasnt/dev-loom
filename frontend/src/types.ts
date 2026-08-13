@@ -473,6 +473,9 @@ export interface AgentRun {
   brainstormSessionId: string | null
   qualityScore: number | null   // how it went about the work, 1.00 clean (see RunQuality)
   qualityNotes: string | null   // the penalties, named
+  adherenceScore: number | null // did it do what was asked (AnswerJudge): 1 / 0.5 / 0
+  adherenceNote: string | null  // the judge's one line
+  grounded: boolean | null      // stays within what it actually looked at
   toolCalls: number | null
   toolRepeats: number | null
 }

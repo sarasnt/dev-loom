@@ -27,6 +27,21 @@ import com.devloom.brainstorm.BrainstormSessionRepository;
 @Service
 public class BrainstormService {
 
+    /**
+     * Tell the model what it is. Left unsaid, a local model fills the gap from its training and
+     * introduces itself as whatever assistant it saw most of — qwen3-coder opened a session with
+     * "Hello! I'm Claude." The app knows which model is answering, so it says so, and the user
+     * reading the reply can trust the name on it.
+     */
+    private static String systemFor(String model) {
+        boolean cli = model == null || model.isBlank()
+                || "claude-cli".equals(model) || "claude-code".equals(model);
+        String who = cli ? "" : "You are the model \"" + model + "\", running locally through DevLoom."
+                + " If you are asked who or what you are, answer with that."
+                + " Never claim to be a different assistant.\n\n";
+        return who + SYSTEM;
+    }
+
     private static final String SYSTEM = """
             You are DevLoom's brainstorming partner — a sharp senior engineer who thinks WITH
             the user, not for them. Help them think; don't rush to an answer.
@@ -239,7 +254,7 @@ public class BrainstormService {
         String replyText;
         String replyModel;
         try {
-            LlmPort.LlmResult r = llm.generate(new LlmPort.LlmRequest("brainstorm", SYSTEM, prompt, model,
+            LlmPort.LlmResult r = llm.generate(new LlmPort.LlmRequest("brainstorm", systemFor(model), prompt, model,
                     session.getRepoPath()));
             replyText = stripMarker(r.text());
             replyModel = r.model();
@@ -345,7 +360,7 @@ public class BrainstormService {
                     public void delta(String text) { onDelta.accept(text); }
                     public void status(String activity) { onStatus.accept(activity); }
                 };
-                LlmPort.LlmResult r = llm.generate(new LlmPort.LlmRequest("brainstorm", SYSTEM,
+                LlmPort.LlmResult r = llm.generate(new LlmPort.LlmRequest("brainstorm", systemFor(chatModel),
                         buildPrompt(cblock, prior, userText), chatModel, session.getRepoPath()), sink);
                 finalText = stripMarker(r.text());
                 finalModel = r.model();
@@ -444,7 +459,50 @@ public class BrainstormService {
         if (w.getDescription() != null && !w.getDescription().isBlank()) {
             b.append("Description:\n").append(w.getDescription().strip()).append("\n");
         }
+        appendPrDiff(b, w);
         return b.append("\n").toString();
+    }
+
+    /**
+     * A PR attached to a session brings its changes with it.
+     *
+     * <p>It used to contribute its title and status and nothing else, so "review this PR" was a
+     * question about code the model had never seen. Asked to review one, it described the
+     * repository instead — which was all it had.
+     */
+    private void appendPrDiff(StringBuilder b, com.devloom.workmodel.WorkItemEntity w) {
+        if (!"pr".equals(w.getType())) return;
+        String extId = w.getExtId() == null ? "" : w.getExtId();
+        int hash = extId.lastIndexOf('#');
+        if (hash < 0) return;
+        String slug = extId.substring(0, hash);
+        String number = extId.substring(hash + 1);
+        // Match on the repository name — the entity stores the local checkout, not the remote slug,
+        // and "owner/name" ends in the name.
+        String repoName = slug.contains("/") ? slug.substring(slug.lastIndexOf('/') + 1) : slug;
+        String path = repos.findAll().stream()
+                .filter(r -> repoName.equalsIgnoreCase(r.getName()))
+                .map(com.devloom.repos.GitRepoEntity::getPath)
+                .findFirst().orElse(null);
+        if (path == null) {
+            b.append("(This PR's repository isn't tracked in DevLoom, so its diff isn't available.)\n");
+            return;
+        }
+        try {
+            java.util.Map<String, Object> d = agent.prDiff(path, number, 60_000);
+            String diff = d.get("diff") == null ? "" : String.valueOf(d.get("diff"));
+            if (diff.isBlank()) {
+                b.append("(Could not read this PR's diff: ")
+                 .append(d.get("error") == null ? "empty result" : d.get("error")).append(")\n");
+                return;
+            }
+            b.append("Diff:\n```diff\n").append(diff.stripTrailing()).append("\n```\n");
+            if (Boolean.TRUE.equals(d.get("truncated"))) {
+                b.append("(Diff truncated at 60KB of ").append(d.get("bytes")).append(" bytes.)\n");
+            }
+        } catch (Exception e) {
+            b.append("(Could not read this PR's diff: ").append(e.getMessage()).append(")\n");
+        }
     }
 
     private String buildPrompt(String contextBlock, List<BrainstormMessageEntity> prior, String userText) {

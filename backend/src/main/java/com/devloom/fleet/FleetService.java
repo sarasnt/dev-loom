@@ -74,6 +74,7 @@ public class FleetService {
     private final com.devloom.brainstorm.BrainstormSessionRepository brainstormSessions;
     private final com.devloom.ai.LlmRouter llm;
     private final com.devloom.ai.McpTools mcp;
+    private final com.devloom.ai.AnswerJudge judge;
     /** Local/API model runs execute here so they survive the request that launched them. */
     private final java.util.concurrent.ExecutorService pool =
             java.util.concurrent.Executors.newFixedThreadPool(4);
@@ -81,7 +82,8 @@ public class FleetService {
     public FleetService(AgentRunRepository runs, GitRepoRepository repos,
                         HostAgentClient agent, AuditService audit, NotificationService notifications,
                         com.devloom.brainstorm.BrainstormSessionRepository brainstormSessions,
-                        com.devloom.ai.LlmRouter llm, com.devloom.ai.McpTools mcp) {
+                        com.devloom.ai.LlmRouter llm, com.devloom.ai.McpTools mcp,
+                        com.devloom.ai.AnswerJudge judge) {
         this.runs = runs;
         this.repos = repos;
         this.agent = agent;
@@ -90,6 +92,7 @@ public class FleetService {
         this.brainstormSessions = brainstormSessions;
         this.llm = llm;
         this.mcp = mcp;
+        this.judge = judge;
     }
 
     public List<Dto.AgentRun> list() {
@@ -266,8 +269,14 @@ public class FleetService {
             com.devloom.ai.LlmPort.LlmResult r = llm.generate(
                     new com.devloom.ai.LlmPort.LlmRequest("fleet", system, full, model, path, edit));
             String text = r.text() == null ? "" : r.text();
+            // Judged on the ORIGINAL request, not the assembled prompt — the repo summary and the
+            // closing instructions are ours, and grading the model on our own scaffolding would
+            // reward it for answering us rather than the user.
+            com.devloom.ai.AnswerJudge.Verdict verdict = judge.judge(prompt, text, model,
+                    r.telemetry() == null ? java.util.List.of() : r.telemetry().activity());
             finishLocal(id, text.replace("[DEVLOOM:INPUT]", "").stripTrailing(), null, false,
-                    r.telemetry(), com.devloom.ai.RunQuality.score(r.telemetry(), text, true, edit));
+                    r.telemetry(), com.devloom.ai.RunQuality.score(r.telemetry(), text, true, edit),
+                    verdict);
         } catch (Exception e) {
             finishLocal(id, null, e.getMessage() == null ? "run failed" : e.getMessage(), false);
         }
@@ -275,11 +284,12 @@ public class FleetService {
 
     /** Persist a local run's outcome (runs on a pool thread — the repository save opens its own tx). */
     private void finishLocal(Long id, String result, String error, boolean needsInput) {
-        finishLocal(id, result, error, needsInput, null, null);
+        finishLocal(id, result, error, needsInput, null, null, null);
     }
 
     private void finishLocal(Long id, String result, String error, boolean needsInput,
-                             com.devloom.ai.ToolTelemetry tel, com.devloom.ai.RunQuality.Score score) {
+                             com.devloom.ai.ToolTelemetry tel, com.devloom.ai.RunQuality.Score score,
+                             com.devloom.ai.AnswerJudge.Verdict verdict) {
         AgentRunEntity run = runs.findById(id).orElse(null);
         if (run == null) return;
         if ("canceled".equals(run.getStatus())) return; // the user let go of it while it ran
@@ -293,6 +303,12 @@ public class FleetService {
         if (score != null) {
             run.setQualityScore(java.math.BigDecimal.valueOf(score.value()));
             run.setQualityNotes(score.summary());
+        }
+        // Whether it did the thing, which is a different question from how tidily it went about it.
+        if (verdict != null && verdict.adherence() != null) {
+            run.setAdherenceScore(java.math.BigDecimal.valueOf(verdict.adherence()));
+            run.setAdherenceNote(verdict.note());
+            run.setGrounded(verdict.grounded());
         }
         if (error != null) {
             run.setStatus("failed");
@@ -782,7 +798,9 @@ public class FleetService {
                 r.getClaudeSessionId(),
                 r.getBrainstormSessionId() == null ? null : String.valueOf(r.getBrainstormSessionId()),
                 r.getQualityScore() == null ? null : r.getQualityScore().doubleValue(),
-                r.getQualityNotes(), r.getToolCalls(), r.getToolRepeats());
+                r.getQualityNotes(), r.getToolCalls(), r.getToolRepeats(),
+                r.getAdherenceScore() == null ? null : r.getAdherenceScore().doubleValue(),
+                r.getAdherenceNote(), r.getGrounded());
     }
 
     private static String iso(Instant t) { return t == null ? null : t.toString(); }

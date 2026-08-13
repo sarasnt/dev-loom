@@ -73,6 +73,16 @@ public class AgentRunEntity {
     @Column(name = "tool_repeats")
     private Integer toolRepeats;
 
+    /** Whether the run did what it was asked (AnswerJudge) — separate from how it went about it. */
+    @Column(name = "adherence_score")
+    private java.math.BigDecimal adherenceScore;
+
+    @Column(name = "adherence_note")
+    private String adherenceNote;
+
+    @Column(name = "grounded")
+    private Boolean grounded;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt = Instant.now();
 
@@ -167,6 +177,12 @@ public class AgentRunEntity {
     public void setToolCalls(Integer v) { this.toolCalls = v; }
     public Integer getToolRepeats() { return toolRepeats; }
     public void setToolRepeats(Integer v) { this.toolRepeats = v; }
+    public java.math.BigDecimal getAdherenceScore() { return adherenceScore; }
+    public void setAdherenceScore(java.math.BigDecimal v) { this.adherenceScore = v; }
+    public String getAdherenceNote() { return adherenceNote; }
+    public void setAdherenceNote(String v) { this.adherenceNote = v; }
+    public Boolean getGrounded() { return grounded; }
+    public void setGrounded(Boolean v) { this.grounded = v; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getStartedAt() { return startedAt; }
     public Instant getFinishedAt() { return finishedAt; }

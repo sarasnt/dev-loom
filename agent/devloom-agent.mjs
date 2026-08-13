@@ -793,6 +793,30 @@ async function repoInfo(dir) {
  * it excludes `.git` and honours `.gitignore` for free, so a model given this list never has to
  * ask for a directory tree and drown in git internals and node_modules.
  */
+/**
+ * A pull request's diff, via the logged-in `gh`. Attaching a PR to a brainstorm gave the model its
+ * title and status and nothing else, so "review this PR" was unanswerable — asked to review one, a
+ * model described the repository instead, because that was all it could see.
+ *
+ * Capped: a review needs the changes, not every line of a large refactor, and the cap is announced
+ * so a truncated diff is never mistaken for the whole one.
+ */
+async function prDiff(dir, { number, maxBytes } = {}) {
+  const n = String(number ?? '').replace(/[^0-9]/g, '')
+  if (!n) return { error: 'a PR number is required' }
+  const cap = Math.min(Math.max(Number(maxBytes) || 60_000, 1_000), 200_000)
+  // gh needs its .cmd shim on Windows, hence shell:true — the argument is digits-only above.
+  const r = await run('gh', ['pr', 'diff', n, '--patch'], { cwd: dir, shell: true })
+  if (r.code !== 0) return { error: (r.err || 'gh pr diff failed').trim().slice(0, 300) }
+  const full = r.out
+  return {
+    number: Number(n),
+    diff: full.length > cap ? full.slice(0, cap) : full,
+    bytes: full.length,
+    truncated: full.length > cap,
+  }
+}
+
 async function repoFiles(dir, { limit } = {}) {
   const n = Math.min(Math.max(Number(limit) || 300, 1), 2000)
   const r = await git(dir, ['ls-files'])
@@ -1366,6 +1390,10 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/repos/files') {
       const { path: p, limit } = await readBody(req)
       return json(res, 200, await repoFiles(p, { limit }))
+    }
+    if (req.method === 'POST' && url.pathname === '/repos/pr-diff') {
+      const { path: p, number, maxBytes } = await readBody(req)
+      return json(res, 200, await prDiff(p, { number, maxBytes }))
     }
     if (req.method === 'POST' && url.pathname === '/repos/read') {
       const { path: p, file, maxBytes } = await readBody(req)

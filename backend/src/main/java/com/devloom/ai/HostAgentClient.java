@@ -220,6 +220,15 @@ public class HostAgentClient {
         return post("/repos/write", body);
     }
 
+    /** A pull request's diff via the logged-in gh CLI. */
+    public Map<String, Object> prDiff(String path, String number, int maxBytes) {
+        Map<String, Object> body = new java.util.HashMap<>();
+        body.put("path", path);
+        body.put("number", number);
+        body.put("maxBytes", maxBytes);
+        return post("/repos/pr-diff", body);
+    }
+
     /** Literal search across the repo's tracked files (git grep). */
     public Map<String, Object> grep(String path, String query, String glob, int max) {
         Map<String, Object> body = new java.util.HashMap<>();

@@ -24,6 +24,8 @@ public final class ToolTelemetry {
     private boolean gathered;
     private int writes;
     private final Set<String> toolsUsed = new LinkedHashSet<>();
+    /** What it actually did, in order ("reading src/math.js") — the evidence a judge needs. */
+    private final java.util.List<String> activity = new java.util.ArrayList<>();
 
     void step() { steps++; }
 
@@ -58,6 +60,8 @@ public final class ToolTelemetry {
     public boolean gathered() { return gathered; }
     public int writes() { return writes; }
     public Set<String> toolsUsed() { return Set.copyOf(toolsUsed); }
+    public java.util.List<String> activity() { return java.util.List.copyOf(activity); }
+    void did(String what) { if (what != null && activity.size() < 40) activity.add(what); }
 
     /** Whether tools were available and offered at all — scoring means something different if not. */
     private boolean hadTools;

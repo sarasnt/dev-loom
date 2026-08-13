@@ -160,7 +160,8 @@ public final class Dto {
             String permission, boolean allowTests, boolean isolated, String model, String status,
             String resultSummary, String error, String createdAt, String startedAt, String finishedAt,
             String claudeSessionId, String brainstormSessionId,
-            Double qualityScore, String qualityNotes, Integer toolCalls, Integer toolRepeats) {}
+            Double qualityScore, String qualityNotes, Integer toolCalls, Integer toolRepeats,
+            Double adherenceScore, String adherenceNote, Boolean grounded) {}
     public record RunLaunch(String repoId, String prompt, String model, String permission,
                             boolean allowTests, boolean isolate) {}
     public record RunApply(String mode) {} // 'branch' | 'patch'

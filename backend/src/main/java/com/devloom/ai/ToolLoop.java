@@ -156,6 +156,7 @@ public class ToolLoop {
                 allRepeats = true;
                 for (ToolExecutionRequest req : parsed) {
                     sink.status(activity(req));
+                    tel.did(activity(req));   // the evidence a judge needs to rule on grounding
                     Outcome o = runTool(req, repoPath, seen, tel);
                     allRepeats &= o.repeat();
                     // Fed back as a plain message: a tool-result message without a matching
@@ -168,6 +169,7 @@ public class ToolLoop {
                 allRepeats = true;
                 for (ToolExecutionRequest req : ai.toolExecutionRequests()) {
                     sink.status(activity(req));
+                    tel.did(activity(req));   // the evidence a judge needs to rule on grounding
                     Outcome o = runTool(req, repoPath, seen, tel);
                     allRepeats &= o.repeat();
                     messages.add(ToolExecutionResultMessage.from(req, withBudget(o.text(), stepsLeft)));
