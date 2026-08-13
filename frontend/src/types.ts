@@ -45,7 +45,6 @@ export interface Recommendation {
 export interface Briefing {
   newItems: Recommendation[]
   resolved: Recommendation[]
-  waiting: Recommendation[]
   needsYou: Recommendation[]
   plan: Recommendation[]
 }

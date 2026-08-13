@@ -29,8 +29,7 @@ public final class Dto {
     // Today "Briefing" mode (spec §5): since-yesterday diff + the urgent set + today's plan.
     public record Briefing(
             List<Recommendation> newItems, List<Recommendation> resolved,
-            List<Recommendation> waiting, List<Recommendation> needsYou,
-            List<Recommendation> plan) {}
+            List<Recommendation> needsYou, List<Recommendation> plan) {}
     public record Today(
             String workspace, String user, String now, Changed changed, Sync sync,
             Model model, Boundary boundary, List<Recommendation> next,
@@ -51,6 +50,9 @@ public final class Dto {
             String failingStep, String failingTest, boolean redacted, List<LogLine> log,
             List<Hypothesis> causes, List<EvidenceRef> related, List<String> diagnostics,
             List<String> fixes, String analyzedBy) {}
+
+    /** An item referenced by its source-stable ext id (which may contain / and #). */
+    public record ItemRef(String id) {}
 
     // ---- Handoff ----
     public record Safety(List<String> allow, List<String> forbid) {}

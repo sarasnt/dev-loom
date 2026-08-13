@@ -180,7 +180,6 @@ public class BriefingService {
 
         List<WorkItemEntity> items = active();
         List<Dto.Recommendation> newItems = new ArrayList<>();
-        List<Dto.Recommendation> waiting = new ArrayList<>();
         List<Dto.Recommendation> needsYou = new ArrayList<>();
         List<Dto.Recommendation> plan = new ArrayList<>();
 
@@ -190,7 +189,10 @@ public class BriefingService {
             Dto.Recommendation rec = toRec.apply(w);
             if (planned.contains(w.getExtId())) plan.add(rec);
             if (handled.contains(w.getExtId())) continue; // handled drops from the active lists
-            if (base.containsKey(w.getExtId())) waiting.add(rec); else newItems.add(rec);
+            // Carried over from the baseline isn't news; only what appeared since is. The full
+            // carried-over set was being built and shipped on every Today load — 49 hydrated items,
+            // two thirds of the payload — and never rendered. It lives in Work and Triage.
+            if (!base.containsKey(w.getExtId())) newItems.add(rec);
             if (UrgencyRules.urgencyKey(w) != null) needsYou.add(rec);
         }
 
@@ -201,6 +203,23 @@ public class BriefingService {
             if (w != null && isDoneStatus(w.getStatus())) resolved.add(toRec.apply(w));
         }
 
-        return new Dto.Briefing(newItems, resolved, waiting, needsYou, plan);
+        // Each list is numbered on its own. The cards are drawn hanging off the warp spine, which
+        // is numbered by rank — and these came through carrying the rank they had in the global
+        // ranking, which for everything below the lead item is 0. Every card in the briefing read
+        // "0". Within a section, position in that section is what the number means.
+        return new Dto.Briefing(numbered(newItems), numbered(resolved),
+                numbered(needsYou), numbered(plan));
+    }
+
+    /** Re-number a briefing section 1..n, leaving everything else about each card alone. */
+    private static List<Dto.Recommendation> numbered(List<Dto.Recommendation> in) {
+        List<Dto.Recommendation> out = new ArrayList<>(in.size());
+        int i = 1;
+        for (Dto.Recommendation r : in) {
+            out.add(new Dto.Recommendation(r.id(), i++, r.type(), r.title(), r.source(), r.why(),
+                    r.isHypothesis(), r.chips(), r.lead(), r.signals(), r.evidence(), r.score(),
+                    r.actions(), r.url(), r.handled(), r.planned()));
+        }
+        return out;
     }
 }

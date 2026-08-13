@@ -75,8 +75,10 @@ async function put<T>(path: string, body: unknown): Promise<T> {
 
 export const fetchToday = () => get<TodayData>('/today')
 export const snoozeToday = (id: string) => post<TodayData>(`/today/snooze/${encodeURIComponent(id)}`, {})
-export const toggleHandled = (id: string) => post<TodayData>(`/today/${encodeURIComponent(id)}/handled`, {})
-export const togglePlan = (id: string) => post<TodayData>(`/today/${encodeURIComponent(id)}/plan`, {})
+// The id goes in the body: a GitHub ext id is owner/repo#123, and an encoded slash in the path is
+// rejected outright by the server, so these returned 400 for every PR and build.
+export const toggleHandled = (id: string) => post<TodayData>('/today/handled', { id })
+export const togglePlan = (id: string) => post<TodayData>('/today/plan', { id })
 export const fetchWork = () => get<WorkRow[]>('/work')
 export const fetchBuildFailure = (id: string, model?: string) =>
   get<BuildFailure>(`/builds/${id}${model ? `?model=${encodeURIComponent(model)}` : ''}`)

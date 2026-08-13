@@ -122,17 +122,24 @@ public class ApiController {
         return todayService.today();
     }
 
-    /** Toggle "handled" on a Today item (persists; drops it from the Briefing). {@code id} = ext id. */
-    @PostMapping("/today/{id}/handled")
-    public Dto.Today handled(@PathVariable String id) {
-        briefingService.toggleHandled(id);
+    /**
+     * Toggle "handled" on a Today item (persists; drops it from the Briefing).
+     *
+     * <p>The ext id travels in the body, not the path. A GitHub ext id is {@code owner/repo#123}:
+     * encoded, the slash becomes %2F and Tomcat rejects the request outright; unencoded, it routes
+     * somewhere else entirely. Both buttons sit on every PR and build card and returned 400 for all
+     * of them — while Jira ids, which have no slash, worked, so the feature looked fine.
+     */
+    @PostMapping("/today/handled")
+    public Dto.Today handled(@RequestBody Dto.ItemRef body) {
+        briefingService.toggleHandled(body.id());
         return todayService.today();
     }
 
-    /** Toggle membership in "Today's plan". {@code id} = ext id. */
-    @PostMapping("/today/{id}/plan")
-    public Dto.Today plan(@PathVariable String id) {
-        briefingService.togglePlan(id);
+    /** Toggle membership in "Today's plan". Body-carried id, for the same reason as above. */
+    @PostMapping("/today/plan")
+    public Dto.Today plan(@RequestBody Dto.ItemRef body) {
+        briefingService.togglePlan(body.id());
         return todayService.today();
     }
 

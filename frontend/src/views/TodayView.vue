@@ -15,6 +15,7 @@ function defaultMode(): 'briefing' | 'triage' {
   if (saved === 'briefing' || saved === 'triage') return saved
   return new Date().getHours() < 12 ? 'briefing' : 'triage'
 }
+const resolvedOpen = ref(false)
 const mode = ref<'briefing' | 'triage'>(defaultMode())
 function setMode(m: 'briefing' | 'triage') {
   mode.value = m
@@ -87,9 +88,22 @@ onMounted(() => store.load())
           <div class="subhead mono">New ({{ today.briefing.newItems.length }})</div>
           <WarpList :items="today.briefing.newItems" />
         </template>
+        <!-- Resolved is acknowledgement, not work. As full cards it was most of the briefing —
+             sixteen closed tickets, each offering "+ Plan" and "Handled" on something already
+             done. One line each, folded away, and the morning read stays short. -->
         <template v-if="today.briefing.resolved.length">
-          <div class="subhead mono">Resolved ({{ today.briefing.resolved.length }})</div>
-          <WarpList :items="today.briefing.resolved" />
+          <button class="subhead mono fold" :aria-expanded="resolvedOpen" @click="resolvedOpen = !resolvedOpen">
+            <span class="caret">{{ resolvedOpen ? '▾' : '▸' }}</span>
+            Resolved ({{ today.briefing.resolved.length }})
+          </button>
+          <ul v-if="resolvedOpen" class="donelist">
+            <li v-for="r in today.briefing.resolved" :key="r.id" class="doneitem">
+              <span class="donetick" aria-hidden="true">✓</span>
+              <a v-if="r.url" :href="r.url" target="_blank" rel="noopener noreferrer" class="donetitle">{{ r.title }}</a>
+              <span v-else class="donetitle">{{ r.title }}</span>
+              <span class="donesrc mono">{{ r.source }}</span>
+            </li>
+          </ul>
         </template>
         <div v-if="!today.briefing.newItems.length && !today.briefing.resolved.length" class="subhead mono quiet">
           nothing new since your last briefing
@@ -108,6 +122,15 @@ onMounted(() => store.load())
 </template>
 
 <style scoped>
+.fold { background: none; border: 0; padding: 0; cursor: pointer; display: flex; align-items: center; gap: 6px; }
+.fold:hover { color: var(--ink); }
+.caret { color: var(--warp-hi); }
+.donelist { list-style: none; margin: 4px 0 18px; padding: 0 0 0 26px; display: flex; flex-direction: column; gap: 2px; }
+.doneitem { display: flex; align-items: baseline; gap: 9px; font-size: 12.5px; padding: 3px 0; }
+.donetick { color: var(--healthy, #6ea87f); font-size: 11px; }
+.donetitle { color: var(--dim); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+a.donetitle:hover { color: var(--ink); text-decoration: underline; }
+.donesrc { color: var(--faint-text); font-size: 10.5px; margin-left: auto; }
 .main { padding: 22px 26px; overflow: auto; }
 .head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 18px; }
 .head h1 { font-size: 26px; }
