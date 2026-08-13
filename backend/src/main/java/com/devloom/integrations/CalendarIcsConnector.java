@@ -29,6 +29,9 @@ public class CalendarIcsConnector implements SourceConnector {
     private static final Logger log = LoggerFactory.getLogger(CalendarIcsConnector.class);
     private static final DateTimeFormatter DISP_DATETIME = DateTimeFormatter.ofPattern("EEE MMM d HH:mm");
     private static final DateTimeFormatter DISP_DATE = DateTimeFormatter.ofPattern("EEE MMM d");
+    /** An event this close to starting is treated like one already running. */
+    private static final int STARTING_SOON_MINUTES = 30;
+
     private static final DateTimeFormatter DISP_TIME = DateTimeFormatter.ofPattern("HH:mm");
     private static final ZoneId ZONE = ZoneId.systemDefault();
 
@@ -89,6 +92,12 @@ public class CalendarIcsConnector implements SourceConnector {
                 } else if (!e.start.isAfter(now)) {
                     tone = "warn";
                     status = e.allDay ? "today" : "now · until " + end.format(DISP_TIME);
+                } else if (!e.allDay && e.start.isBefore(now.plusMinutes(STARTING_SOON_MINUTES))) {
+                    // A meeting about to start is time-critical in a way an open PR isn't, and
+                    // graded only as "upcoming" it ranked below every one of them. Upcoming was a
+                    // single band covering both "in ten minutes" and "in three weeks".
+                    tone = "warn";
+                    status = "starts " + e.start.format(DISP_TIME);
                 } else {
                     tone = "info";
                     status = when;

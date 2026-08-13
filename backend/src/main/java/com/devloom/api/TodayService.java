@@ -119,8 +119,11 @@ public class TodayService {
         // type importance — a broken build or a PR waiting on you outranks a doc
         double kind = switch (w.getType()) {
             case "build" -> 0.95;
+            // Above your own PR: a review requested of you is blocking someone else, and it is
+            // already in the needs-you set by UrgencyRules. Ranking it below the PRs you opened
+            // put the two in disagreement about the same item.
+            case "review" -> 0.85;
             case "pr" -> 0.8;
-            case "review" -> 0.75;
             case "task" -> 0.6;
             case "calendar" -> 0.55;
             case "doc" -> 0.4;
