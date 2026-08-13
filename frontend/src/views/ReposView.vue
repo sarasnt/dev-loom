@@ -137,7 +137,14 @@ function conflictHealth(c: ConflictStatus | null | undefined): Health {
     const n = c.files.length
     return { label: n ? `Conflicts likely (${n} file${n > 1 ? 's' : ''})` : 'Conflicts likely', tone: 'warn' }
   }
-  if (c.state === 'clean') return { label: 'No conflicts', tone: 'ok' }
+  // "No conflicts" against refs we have never fetched is an assumption, not a prediction. The
+  // backend flags exactly this (stale, lastFetch null) so it can be said out loud; the chip was
+  // reporting a confident green result for a comparison it hadn't actually made.
+  if (c.state === 'clean') {
+    return c.stale
+      ? { label: 'No conflicts vs local refs', tone: 'info' }
+      : { label: 'No conflicts', tone: 'ok' }
+  }
   if (c.state === 'unable') return { label: 'Unable to check', tone: 'warn' }
   return { label: 'Unknown', tone: 'info' } // unknown / stale
 }
