@@ -104,13 +104,16 @@ public class ToolLoop {
             return text(turn.run(messages, List.of()));
         }
         tel.toolsOffered();
+        this.lastRepoPath = repoPath;
         withToolGuidance(messages, tools);
         // Smaller models get stuck re-calling the same tool with the same arguments; remember what
         // we've already run so the loop can say "you have this already" instead of burning steps.
         java.util.Map<String, String> seen = new java.util.LinkedHashMap<>();
         int spinning = 0; // consecutive steps that asked only for things already fetched
+        int maxSteps = MAX_STEPS;
+        boolean pushedToWrite = false; // the one shove allowed when an edit run hasn't written
         boolean nudged = false; // the one correction allowed for describing calls instead of making them
-        for (int step = 0; step < MAX_STEPS; step++) {
+        for (int step = 0; step < maxSteps; step++) {
             tel.step();
             ChatResponse resp;
             try {
@@ -126,7 +129,7 @@ public class ToolLoop {
             }
             AiMessage ai = resp.aiMessage();
             if (ai == null) return null;
-            int stepsLeft = MAX_STEPS - step - 1;
+            int stepsLeft = maxSteps - step - 1;
             boolean allRepeats;
 
             if (!ai.hasToolExecutionRequests()) {
@@ -181,26 +184,69 @@ public class ToolLoop {
             // already has are still the last thing it read.
             spinning = allRepeats ? spinning + 1 : 0;
             if (spinning >= 2) {
+                // An edit run that hasn't written is stuck BEFORE the work, not after it. Telling
+                // it to "stop calling tools and answer" — and then taking its tools away, which is
+                // what the wrap-up turn did — guaranteed the no-changes it was then scored for.
+                // Every failing edit run hit this. Shove it at the write instead, once.
+                if (writable && tel.writes() == 0 && !pushedToWrite) {
+                    pushedToWrite = true;
+                    spinning = 0;
+                    maxSteps++;
+                    log.info("Edit run is re-reading without writing — pushing it to write");
+                    messages.add(dev.langchain4j.data.message.UserMessage.from(
+                            "You have read enough, and reading it again will not change anything."
+                                    + " Nothing has been written yet. Call repo_write_file now with the"
+                                    + " complete contents of the file. Do not reply with the code."));
+                    continue;
+                }
                 log.info("Tool loop stopped early — {} repeated tool steps with nothing new", spinning);
                 tel.stoppedSpinning();
-                return finalAnswer(turn, messages,
+                return finalAnswer(turn, messages, specs, tel, writable,
                         "You are repeating tool calls you have already made, which returns nothing new."
                                 + " Stop calling tools and answer now from the results above.");
             }
         }
         // Out of steps. Answering without tools invites confabulation, so say plainly that the
         // budget ran out — a truthful "I couldn't finish" beats an invented answer.
-        log.info("Tool loop hit the {}-step cap", MAX_STEPS);
+        log.info("Tool loop hit the {}-step cap", maxSteps);
         tel.hitStepCap();
-        return finalAnswer(turn, messages,
+        return finalAnswer(turn, messages, specs, tel, writable,
                 "You have used all available tool steps. Answer now using only the tool results above.");
     }
 
-    /** One last turn with no tools offered, so the model has to produce prose. */
-    private String finalAnswer(Turn turn, List<ChatMessage> messages, String instruction) {
-        messages.add(dev.langchain4j.data.message.UserMessage.from(instruction
-                + " If the results were not enough, say exactly what is missing — do not invent details."));
-        return text(turn.run(messages, List.of()));
+    /**
+     * The wrap-up turn. Normally no tools are offered, so the model has to produce prose rather
+     * than keep exploring — but an edit run that has written nothing must keep them, or the last
+     * word we give it is "answer" while it holds no means of doing the job it was sent to do.
+     */
+    private String finalAnswer(Turn turn, List<ChatMessage> messages, List<ToolSpecification> specs,
+                               ToolTelemetry tel, boolean writable, String instruction) {
+        boolean owesAWrite = writable && tel.writes() == 0;
+        messages.add(dev.langchain4j.data.message.UserMessage.from(owesAWrite
+                ? "Nothing has been written yet, so the task is not done. Write the file now with"
+                        + " repo_write_file, or say plainly what stopped you — do not reply with the code."
+                : instruction + " If the results were not enough, say exactly what is missing —"
+                        + " do not invent details."));
+        ChatResponse resp = turn.run(messages, owesAWrite ? specs : List.of());
+        AiMessage ai = resp == null ? null : resp.aiMessage();
+        if (ai != null && ai.hasToolExecutionRequests()) {
+            // It took the opening. Run the calls, then let it say what it did.
+            messages.add(ai);
+            java.util.Map<String, String> seen = new java.util.LinkedHashMap<>();
+            for (ToolExecutionRequest req : ai.toolExecutionRequests()) {
+                Outcome o = runTool(req, repoPathOf(messages), seen, tel);
+                messages.add(ToolExecutionResultMessage.from(req, o.text()));
+            }
+            return text(turn.run(messages, List.of()));
+        }
+        return text(resp);
+    }
+
+    /** The repo a wrap-up write applies to — carried on the loop, not re-derived from messages. */
+    private String lastRepoPath;
+
+    private String repoPathOf(List<ChatMessage> ignored) {
+        return lastRepoPath;
     }
 
     /**

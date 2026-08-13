@@ -15,6 +15,9 @@
 // the new file has the shape asked for, and — where the repo has a toolchain — whether it still
 // compiles. A run that explains a perfect implementation and writes nothing scores zero here.
 
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+
 const API = process.env.DEVLOOM_API ?? 'http://localhost:8080/api/v1'
 
 /**
@@ -134,7 +137,7 @@ async function repoIdFor(name) {
 }
 
 /** Score one finished run against the task's expectations, using the changes it actually made. */
-function grade(task, changed, created, text) {
+function grade(task, changed, created, text, written) {
   const problems = []
   const e = task.expect ?? {}
   const all = [...changed, ...created]
@@ -149,8 +152,11 @@ function grade(task, changed, created, text) {
     if (!all.some((f) => pat.test(f))) problems.push(`nothing matching ${pat} was touched`)
   }
   if (all.length === 0) problems.push('wrote nothing at all')
+  // Against the CODE, not the reply. This read the model's prose and reported "written code has
+  // no <pattern>" about text that was never meant to contain it — a run that wrote a correct fix
+  // was failed for describing it in different words.
   for (const pat of e.contains ?? []) {
-    if (text && !pat.test(text)) problems.push(`written code has no ${pat}`)
+    if (!pat.test(written)) problems.push(`written code has no ${pat}`)
   }
   return problems
 }
@@ -188,7 +194,12 @@ for (const model of args.models) {
         created = (ch.untracked ?? []).map((c) => c.file)
       } catch { /* agent offline or run failed */ }
       text = r.resultSummary ?? ''
-      const problems = grade(task, changed, created, text)
+      // Read what it actually wrote, from the run's own worktree.
+      let written = ''
+      for (const f of [...changed, ...created]) {
+        try { written += readFileSync(join(r.runDir, f), 'utf8') + '\n' } catch { /* gone */ }
+      }
+      const problems = grade(task, changed, created, text, written)
       results.push({ model, task: task.id, tier: task.tier, quality: r.qualityScore,
                      notes: r.qualityNotes, problems, changed, created })
       console.log(`  ${model} t${task.tier} ${task.id.padEnd(16)} `
