@@ -656,7 +656,23 @@ async function redoLast() {
 .btn.ghost { background: transparent; color: var(--dim); border-color: transparent; }
 .repobar { font-size: 12px; color: var(--warp-hi); border: 1px solid var(--warp); background: var(--warp-weft); border-radius: 8px; padding: 7px 12px; margin-bottom: 12px; }
 .stream { flex: 1; overflow: auto; min-height: 0; }
-.msg { margin-bottom: 16px; max-width: 58ch; }
+/* Chat mode reads as a conversation: yours on the right in the accent, the model's on the left on
+   the plain surface. Three cues — side, surface, colour — so the two are still separable if the
+   accent is hard to see, which colour alone wouldn't give. */
+.msg { margin-bottom: 14px; }
+/* The bubble hugs its text rather than filling the column — a three-word question drawn 58ch
+   wide doesn't read as a short question. */
+.bub { width: fit-content; max-width: min(58ch, 100%); }
+.msg.you .bub { margin-left: auto; }
+.msg.you .who { text-align: right; }
+.msg.you .bub {
+  background: var(--warp-weft); border: 1px solid var(--warp); color: var(--ink);
+  border-radius: 12px 12px 3px 12px; padding: 9px 13px;
+}
+.msg.ai .bub {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: 12px 12px 12px 3px; padding: 10px 14px;
+}
 .activity { color: var(--warp-hi); font-size: 12px; }
 .thinking { color: var(--faint-text); }
 .thinking::after { content: ''; animation: none; }
@@ -685,6 +701,7 @@ async function redoLast() {
 @keyframes blink { 50% { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .cursor { animation: none; } }
 .msg.ai .bub { color: var(--dim); }
+.msg.ai .bub :deep(strong), .msg.ai .bub :deep(.md-h) { color: var(--ink); }
 .reason-mark { font-family: var(--mono); font-size: 10px; color: var(--warp); border: 1px solid var(--warp); border-radius: 4px; padding: 1px 5px; margin-left: 6px; }
 .thread { font-size: 11px; color: var(--warp-hi); margin-top: 8px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 /* end-aligned so the Send button stays put as the textarea grows upward */

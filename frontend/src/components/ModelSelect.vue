@@ -110,7 +110,9 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocClick))
 <style scoped>
 .ms { display: inline-flex; align-items: center; gap: 8px; }
 .mslab { font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--faint-text); }
-.combo { position: relative; display: inline-flex; align-items: center; gap: 6px; }
+/* Wraps and stays inside its container: in Brainstorm's rail the model name plus the boundary tag
+   ran 9px past the edge, which put a horizontal scrollbar across the whole app. */
+.combo { position: relative; display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; max-width: 100%; }
 .cinput {
   background: var(--chip-bg); border: 1px solid var(--line); border-radius: 6px;
   padding: 5px 9px; color: var(--ink); font-size: 12px; width: 190px; cursor: text;
