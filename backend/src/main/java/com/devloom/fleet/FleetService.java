@@ -745,10 +745,32 @@ public class FleetService {
 
     // ---- helpers ----
 
+    /**
+     * A readable title from the prompt's first meaningful line.
+     *
+     * <p>Prompts are often markdown — a handoff artifact is a whole document — and flattening the
+     * lot produced titles like {@code # Agent Handoff — Fix failing CI - **Repo:** sarasnt/…}.
+     * The first heading or sentence is what the run is about; the rest is the brief.
+     */
     private static String titleFrom(String prompt, String repoName) {
-        String p = prompt == null ? "" : prompt.strip().replaceAll("\\s+", " ");
+        String p = prompt == null ? "" : prompt.strip();
         if (p.isBlank()) return "Run · " + repoName;
-        return p.length() > 80 ? p.substring(0, 80) + "…" : p;
+
+        // First line with words in it, which for a markdown brief is its title.
+        String line = p.lines()
+                .map(String::strip)
+                .filter(l -> !l.isBlank() && !l.matches("[-*_=#\\s]+"))
+                .findFirst()
+                .orElse(p);
+
+        String clean = line
+                .replaceAll("^#{1,6}\\s*", "")       // heading marker
+                .replaceAll("\\*\\*(.+?)\\*\\*", "$1") // bold
+                .replaceAll("`([^`]+)`", "$1")        // inline code
+                .replaceAll("\\s+", " ")
+                .strip();
+        if (clean.isBlank()) clean = line;
+        return clean.length() > 80 ? clean.substring(0, 80) + "…" : clean;
     }
 
     private static Dto.AgentRun toDto(AgentRunEntity r) {
