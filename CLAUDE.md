@@ -121,7 +121,7 @@ branch or lands a patch, Discard removes both.
   from `api/index.ts`. Views import from `../api` only.
 - **Jackson**: use `com.fasterxml.jackson` (Jackson 2). Boot 4 also ships `tools.jackson`
   (Jackson 3) — mixing them breaks the build.
-- **Migrations**: Flyway, `backend/src/main/resources/db/migration/`. Next is **V21**.
+- **Migrations**: Flyway, `backend/src/main/resources/db/migration/`. Next is **V22**.
 - **Secrets**: encrypted via `SecretCipher`/`DEVLOOM_SECRET`, stored apart from config
   (`source_credential`, `provider_credential`). They must never enter exports, backups or logs.
 - **Windows/agent**: run `git` with `shell: false` — going through cmd.exe re-splits arguments
