@@ -3,8 +3,11 @@
 // installing/removing local models, per-screen defaults, and CLI switching behavior.
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { storeToRefs } from 'pinia'
-import type { ProvidersData, KeyProvider, InstalledModel } from '../types'
-import { fetchProviders, setProviderKey, clearProviderKey, fetchInstalledModels, removeModel } from '../api'
+import type { ProvidersData, KeyProvider, InstalledModel, AdvancedSettings, ModelAdvanced } from '../types'
+import {
+  fetchProviders, setProviderKey, clearProviderKey, fetchInstalledModels, removeModel,
+  fetchSettings, saveAdvancedSettings, fetchModelAdvanced, saveModelAdvanced,
+} from '../api'
 import { useDashboardStore } from '../stores/dashboard'
 import SettingsTabs from '../components/SettingsTabs.vue'
 import ModelSelect from '../components/ModelSelect.vue'
@@ -77,9 +80,83 @@ function installModel() {
   })
 }
 
+// ---- advanced (sampling + tool loop) ----
+// Kept as strings, blank meaning "shipped default", so leaving a box alone keeps tracking the
+// default instead of freezing today's number into config.
+const adv = ref<AdvancedSettings | null>(null)
+const advBusy = ref(false)
+const advFlash = ref('')
+
+// Per-model overrides, keyed by model name. Blank fields follow the global setting above, which is
+// why the boxes show the effective global value as their placeholder rather than as their value.
+const perModel = ref<Record<string, ModelAdvanced>>({})
+const openModel = ref('')
+const modelDraft = ref<ModelAdvanced>(blankAdvanced())
+const modelBusy = ref('')
+
+function blankAdvanced(): ModelAdvanced {
+  return { groundedTemperature: '', groundedTopP: '', creativeTemperature: '', maxSteps: '' }
+}
+function isCustom(name: string) {
+  const m = perModel.value[name]
+  return !!m && Object.values(m).some((v) => v !== '')
+}
+/** What this model runs at today if its own box is empty: the global setting, else what ships. */
+function globalHint(field: keyof ModelAdvanced) {
+  if (!adv.value) return ''
+  return String(adv.value[field] || adv.value.defaults[field])
+}
+function toggleModel(name: string) {
+  if (openModel.value === name) { openModel.value = ''; return }
+  openModel.value = name
+  modelDraft.value = { ...blankAdvanced(), ...(perModel.value[name] ?? {}) }
+}
+async function saveModel(name: string) {
+  if (modelBusy.value) return
+  modelBusy.value = name
+  try {
+    perModel.value = (await saveModelAdvanced(name, modelDraft.value)).models
+    openModel.value = ''
+  } finally {
+    modelBusy.value = ''
+  }
+}
+async function clearModel(name: string) {
+  modelDraft.value = blankAdvanced()
+  await saveModel(name)
+}
+
+async function loadAdvanced() {
+  try { adv.value = (await fetchSettings()).advanced } catch { adv.value = null }
+  try { perModel.value = (await fetchModelAdvanced()).models } catch { perModel.value = {} }
+}
+async function saveAdvanced() {
+  if (!adv.value || advBusy.value) return
+  advBusy.value = true
+  advFlash.value = ''
+  try {
+    const a = adv.value
+    adv.value = (await saveAdvancedSettings({
+      groundedTemperature: a.groundedTemperature, groundedTopP: a.groundedTopP,
+      creativeTemperature: a.creativeTemperature, maxSteps: a.maxSteps, judgeEnabled: a.judgeEnabled,
+    })).advanced
+    advFlash.value = 'Saved — applies to the next run.'
+  } catch {
+    advFlash.value = 'Could not save.'
+  } finally {
+    advBusy.value = false
+  }
+}
+async function resetAdvanced() {
+  if (!adv.value) return
+  adv.value = { ...adv.value, groundedTemperature: '', groundedTopP: '', creativeTemperature: '', maxSteps: '' }
+  await saveAdvanced()
+}
+
 onMounted(async () => {
   data.value = await fetchProviders()
   loadInstalled()
+  loadAdvanced()
   loading.value = false
 })
 onBeforeUnmount(() => pullEs?.close())
@@ -166,10 +243,49 @@ const usedPct = (p: KeyProvider) =>
 
         <!-- installed models manager -->
         <div class="mlist">
-          <div v-for="m in installed" :key="m.name" class="mrow mono">
-            <span class="mn">{{ m.name }}</span>
-            <span class="msz">{{ gb(m.size) }}</span>
-            <button class="btn ghost mrm" :disabled="pulling !== ''" @click="removeInstalled(m.name)">Remove</button>
+          <div v-for="m in installed" :key="m.name" class="mwrap" :class="{ open: openModel === m.name }">
+            <div class="mrow mono">
+              <span class="mn">{{ m.name }}</span>
+              <span v-if="isCustom(m.name)" class="tag cust mono">tuned</span>
+              <span class="msz">{{ gb(m.size) }}</span>
+              <button class="btn ghost mrm" :disabled="!adv" @click="toggleModel(m.name)">Advanced</button>
+              <button class="btn ghost mrm" :disabled="pulling !== ''" @click="removeInstalled(m.name)">Remove</button>
+            </div>
+
+            <!-- Per-model overrides. Empty = whatever the global Advanced section says. -->
+            <div v-if="openModel === m.name && adv" class="madv">
+              <p class="avail mono madvintro">
+                Settings for <b>{{ m.name }}</b> only. Empty follows the global Advanced section
+                below — the placeholder is what it uses today.
+              </p>
+              <div class="row">
+                <span class="mono lbl">Grounded temperature</span>
+                <input v-model="modelDraft.groundedTemperature" class="keyin tiny mono" :placeholder="globalHint('groundedTemperature')" />
+                <span class="mono hint">Fleet analysis, build failures, judging.</span>
+              </div>
+              <div class="row">
+                <span class="mono lbl">Grounded top-p</span>
+                <input v-model="modelDraft.groundedTopP" class="keyin tiny mono" :placeholder="globalHint('groundedTopP')" />
+                <span class="mono hint">Trims the tail that produces the occasional wild step.</span>
+              </div>
+              <div class="row">
+                <span class="mono lbl">Brainstorm temperature</span>
+                <input v-model="modelDraft.creativeTemperature" class="keyin tiny mono" :placeholder="globalHint('creativeTemperature')" />
+                <span class="mono hint">Higher keeps repeat answers from being identical.</span>
+              </div>
+              <div class="row">
+                <span class="mono lbl">Tool steps per run</span>
+                <input v-model="modelDraft.maxSteps" class="keyin tiny mono" :placeholder="globalHint('maxSteps')" />
+                <span class="mono hint">1–20. A model that wanders wants fewer.</span>
+              </div>
+              <div class="row advact">
+                <button class="btn pri" :disabled="modelBusy === m.name" @click="saveModel(m.name)">
+                  {{ modelBusy === m.name ? 'Saving…' : 'Save' }}
+                </button>
+                <button class="btn ghost" :disabled="modelBusy === m.name" @click="clearModel(m.name)">Use global</button>
+                <button class="btn ghost" @click="openModel = ''">Cancel</button>
+              </div>
+            </div>
           </div>
           <div v-if="!installed.length" class="empty mono">no local models installed</div>
         </div>
@@ -271,6 +387,56 @@ const usedPct = (p: KeyProvider) =>
           </select>
         </div>
       </section>
+
+      <!-- advanced: collapsed, because the defaults are tuned and most people never open this -->
+      <details v-if="adv" class="prov adv">
+        <summary>
+          <span class="dot healthy" aria-hidden="true"></span>
+          <h3>Advanced</h3>
+          <span class="opt mono">· sampling &amp; tool budget</span>
+        </summary>
+        <p class="avail mono advintro">
+          The default for every model that hasn't got its own — set those with <b>Advanced</b> on the
+          model's row. Shipped values were tuned against qwen3-coder and gpt-oss. Leave a box empty
+          to follow the shipped default; out-of-range values are ignored rather than clamped, so a
+          typo doesn't quietly change how a model samples.
+        </p>
+
+        <div class="row">
+          <span class="mono lbl">Grounded temperature</span>
+          <input v-model="adv.groundedTemperature" class="keyin tiny mono" :placeholder="String(adv.defaults.groundedTemperature)" />
+          <span class="mono hint">Fleet analysis, build failures, judging — 0–1, lower is more repeatable.</span>
+        </div>
+        <div class="row">
+          <span class="mono lbl">Grounded top-p</span>
+          <input v-model="adv.groundedTopP" class="keyin tiny mono" :placeholder="String(adv.defaults.groundedTopP)" />
+          <span class="mono hint">Trims the long tail that produces the occasional wild step.</span>
+        </div>
+        <div class="row">
+          <span class="mono lbl">Brainstorm temperature</span>
+          <input v-model="adv.creativeTemperature" class="keyin tiny mono" :placeholder="String(adv.defaults.creativeTemperature)" />
+          <span class="mono hint">Higher keeps the same question from producing the same three ideas.</span>
+        </div>
+        <div class="row">
+          <span class="mono lbl">Tool steps per run</span>
+          <input v-model="adv.maxSteps" class="keyin tiny mono" :placeholder="String(adv.defaults.maxSteps)" />
+          <span class="mono hint">1–20. More room to read a repo; also more room to wander.</span>
+        </div>
+        <div class="row">
+          <span class="mono lbl">Judge each run</span>
+          <label class="tog">
+            <input v-model="adv.judgeEnabled" type="checkbox" />
+            <span class="mono">{{ adv.judgeEnabled ? 'on' : 'off' }}</span>
+          </label>
+          <span class="mono hint">Rules on whether a run did what it was asked. Costs one extra model call.</span>
+        </div>
+
+        <div class="row advact">
+          <button class="btn pri" :disabled="advBusy" @click="saveAdvanced">{{ advBusy ? 'Saving…' : 'Save' }}</button>
+          <button class="btn ghost" :disabled="advBusy" @click="resetAdvanced">Reset to defaults</button>
+          <span v-if="advFlash" class="mono hint">{{ advFlash }}</span>
+        </div>
+      </details>
     </template>
   </main>
 </template>
@@ -320,7 +486,9 @@ const usedPct = (p: KeyProvider) =>
 .btn.ghost { background: transparent; color: var(--dim); border-color: transparent; }
 /* installed models */
 .mlist { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; }
-.mrow { display: flex; align-items: center; gap: 12px; font-size: 12.5px; border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; background: var(--bg); }
+.mwrap { border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+.mwrap.open { border-color: var(--warp); }
+.mrow { display: flex; align-items: center; gap: 12px; font-size: 12.5px; padding: 7px 12px; }
 .mrow .mn { color: var(--ink); }
 .mrow .msz { color: var(--faint-text); margin-left: auto; }
 .mrow .mrm { padding: 3px 9px; }
@@ -330,4 +498,23 @@ const usedPct = (p: KeyProvider) =>
 .pbar i { display: block; height: 100%; background: var(--warp); transition: width 0.3s ease; }
 .pstat { font-size: 11px; color: var(--dim); white-space: nowrap; }
 .pullerr { margin-top: 8px; color: var(--failed, #d66); font-size: 12px; }
+/* advanced */
+.adv summary { display: flex; align-items: center; gap: 10px; cursor: pointer; list-style: none; }
+.adv summary::-webkit-details-marker { display: none; }
+.adv summary::after { content: '▸'; margin-left: auto; color: var(--faint-text); font-size: 12px; }
+.adv[open] summary::after { content: '▾'; }
+.adv summary h3 { font-size: 15px; }
+.adv[open] summary { margin-bottom: 12px; }
+.advintro { margin-bottom: 14px; max-width: 88ch; line-height: 1.55; }
+.keyin.tiny { flex: 0 0 auto; width: 74px; text-align: center; }
+.adv .lbl, .madv .lbl { width: 168px; flex: 0 0 auto; }
+/* per-model panel, hanging off its row so it's obvious which model it belongs to */
+.madv { border-top: 1px solid var(--line); padding: 12px 12px 12px 14px; }
+.madvintro { margin-bottom: 12px; max-width: 80ch; line-height: 1.55; }
+.madvintro b { color: var(--ink); }
+.tag.cust { color: var(--warp-hi); border: 1px solid var(--warp); border-radius: 5px; padding: 1px 6px; font-size: 10px; }
+.hint { color: var(--faint-text); font-size: 11.5px; }
+.tog { display: inline-flex; align-items: center; gap: 6px; width: 74px; justify-content: center; cursor: pointer; }
+.tog span { font-size: 11.5px; color: var(--dim); }
+.advact { margin-top: 14px; }
 </style>

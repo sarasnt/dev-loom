@@ -24,10 +24,36 @@ public class ModelsController {
 
     private static final Logger log = LoggerFactory.getLogger(ModelsController.class);
     private final OllamaAdminService ollama;
+    private final com.devloom.ai.ModelSettings modelSettings;
     private final ExecutorService sse = Executors.newCachedThreadPool();
 
-    public ModelsController(OllamaAdminService ollama) {
+    public ModelsController(OllamaAdminService ollama, com.devloom.ai.ModelSettings modelSettings) {
         this.ollama = ollama;
+        this.modelSettings = modelSettings;
+    }
+
+    /**
+     * Per-model advanced overrides, all in one response: the UI needs to mark which rows are
+     * customised, and one request beats one per installed model.
+     */
+    @GetMapping("/advanced")
+    public Map<String, Object> advanced() {
+        Map<String, Object> byModel = new java.util.LinkedHashMap<>();
+        modelSettings.all().forEach((name, a) -> byModel.put(name, a.toMap()));
+        return Map.of("models", byModel);
+    }
+
+    public record AdvancedBody(String model, String groundedTemperature, String groundedTopP,
+                               String creativeTemperature, String maxSteps) {}
+
+    /** Save one model's overrides. Blank fields fall back to the global setting, not to zero. */
+    @org.springframework.web.bind.annotation.PutMapping("/advanced")
+    public Map<String, Object> setAdvanced(@org.springframework.web.bind.annotation.RequestBody AdvancedBody body) {
+        if (body == null || body.model() == null || body.model().isBlank()) return advanced();
+        modelSettings.save(body.model(), new com.devloom.ai.ModelSettings.Advanced(
+                body.groundedTemperature(), body.groundedTopP(),
+                body.creativeTemperature(), body.maxSteps()));
+        return advanced();
     }
 
     @GetMapping("/installed")
@@ -60,6 +86,9 @@ public class ModelsController {
     /** Remove a model (name may contain a colon, e.g. gpt-oss:20b). */
     @DeleteMapping("/{name}")
     public Map<String, Object> remove(@PathVariable String name) {
+        // Its overrides go with it — otherwise re-pulling the model silently resurrects settings
+        // the user tuned for a version they deleted.
+        modelSettings.save(name, com.devloom.ai.ModelSettings.NONE);
         return Map.of("removed", ollama.delete(name));
     }
 }

@@ -17,8 +17,8 @@ const claudeModels: { value: string | undefined; label: string }[] = [
   { value: 'opus', label: 'Claude Opus' },
   { value: 'haiku', label: 'Claude Haiku' },
 ]
-// Everything else (local Ollama, keyed API models) has no tool loop, so those runs analyse the
-// repo and report back — read-only by construction. claude-cli/claude-code are terminal-only.
+// Everything else (local Ollama, keyed API models) runs DevLoom's own tool loop: it can read a
+// repo, and on an edit run write to it inside a worktree. claude-cli/claude-code are terminal-only.
 const otherModels = computed(() =>
   models.value.filter((m) => !m.startsWith('claude-cli') && !m.startsWith('claude-code')),
 )
@@ -27,7 +27,11 @@ function isCliModel(m: string | undefined) {
   const l = m.toLowerCase()
   return l.startsWith('claude') || l === 'sonnet' || l === 'opus' || l === 'haiku'
 }
-const analysisOnly = computed(() => !isCliModel(form.value.model))
+// Not "can't edit" — measured "usually won't". eval/features.mjs grades written files rather than
+// prose: qwen2.5-coder:7b produced them on the simpler tiers, qwen3-coder:30b described the change
+// every time and wrote nothing, even when told explicitly with the write tool in front of it. That
+// is the afternoon this warning exists to save, and it belongs here, not only in Settings.
+const localEdit = computed(() => !isCliModel(form.value.model) && form.value.permission === 'edit')
 
 const runs = ref<AgentRun[]>([])
 const repos = ref<RepoView[]>([])
@@ -76,10 +80,13 @@ const statusLabel: Record<string, string> = {
 const dlg = ref(false)
 const busy = ref(false)
 const form = ref<RunLaunch>({ repoId: '', prompt: '', model: undefined, permission: 'readonly', allowTests: false, isolate: false })
-// A model without a tool loop can't edit files — snap the permission back so the dialog can't
-// offer something the run would refuse.
+// A local edit run is only allowed in a worktree (the backend rejects it outright otherwise), so
+// choosing one turns the other on rather than letting the dialog offer a launch that would 400.
 watch(() => form.value.model, (m) => {
-  if (!isCliModel(m)) form.value.permission = 'readonly'
+  if (!isCliModel(m) && form.value.permission === 'edit') form.value.isolate = true
+})
+watch(() => form.value.permission, (p) => {
+  if (p === 'edit' && !isCliModel(form.value.model)) form.value.isolate = true
 })
 function openLaunch() {
   form.value = { repoId: repos.value[0]?.id ?? '', prompt: '', model: undefined, permission: 'readonly', allowTests: false, isolate: worktreesDefault.value }
@@ -95,7 +102,7 @@ async function submit() {
     runs.value = [run, ...runs.value]
   } catch {
     flash.value = form.value.permission === 'edit'
-      ? 'Launch failed — an edit run needs a clean working tree (commit or stash first). Worktree isolation lands in a later update.'
+      ? 'Launch failed — an edit run needs a clean working tree (commit or stash first), or turn isolation on.'
       : 'Launch failed — is the host agent running?'
   } finally { busy.value = false }
 }
@@ -323,6 +330,9 @@ const continueModel = computed(() => {
           <span v-if="detail.adherenceNote" class="qpen">{{ detail.adherenceNote }}</span>
           <span v-if="detail.grounded === false" class="qsep">·</span>
           <span v-if="detail.grounded === false" class="qpen">not grounded in what it read</span>
+          <span v-if="detail.retried" class="qsep">·</span>
+          <!-- A rescued run and a first-time-right run are not the same result; say which. -->
+          <span v-if="detail.retried" class="qpen">second attempt — the first missed the task</span>
         </div>
         <div v-if="detail.qualityScore !== null && detail.qualityScore !== undefined" class="quality mono">
           <span class="qval" :class="qualityClass(detail.qualityScore)">{{ detail.qualityScore.toFixed(2) }}</span>
@@ -383,22 +393,27 @@ const continueModel = computed(() => {
           </select>
         </label>
         <p class="hint2 mono">
-          {{ analysisOnly
-            ? 'This model has no tool loop: it reads the repo and reports back, and never edits. It runs in the background — you can navigate away.'
-            : 'Runs headless Claude Code in the repo — can edit files, never pushes.' }}
+          {{ isCliModel(form.model)
+            ? 'Runs headless Claude Code in the repo — can edit files, never pushes.'
+            : 'Runs on your machine through DevLoom’s tool loop: it reads the repo, and on an edit run writes to it in a worktree. Nothing leaves. It runs in the background — you can navigate away.' }}
         </p>
         <div class="fld"><span class="flab mono">Permission</span>
           <div class="perm">
             <label class="pr"><input type="radio" value="readonly" v-model="form.permission" /> Read-only<span class="mono">proposes a plan; writes nothing</span></label>
-            <label class="pr" :class="{ off: analysisOnly }">
-              <input type="radio" value="edit" v-model="form.permission" :disabled="analysisOnly" />
-              Edit in repo<span class="mono">{{ analysisOnly ? 'needs a Claude model' : 'changes files; never pushes/deploys' }}</span>
+            <label class="pr">
+              <input type="radio" value="edit" v-model="form.permission" />
+              Edit in repo<span class="mono">changes files; never pushes/deploys</span>
             </label>
           </div>
         </div>
         <label v-if="form.permission === 'edit'" class="fld ck"><input type="checkbox" v-model="form.allowTests" /> <span>Let it run tests</span></label>
-        <label v-if="form.permission === 'edit'" class="fld ck"><input type="checkbox" v-model="form.isolate" /> <span>Isolate in a worktree<span class="mono hint"> — its own branch; many can run at once</span></span></label>
+        <label v-if="form.permission === 'edit'" class="fld ck"><input type="checkbox" v-model="form.isolate" :disabled="localEdit" /> <span>Isolate in a worktree<span class="mono hint"> — its own branch; many can run at once{{ localEdit ? '; required for a local model' : '' }}</span></span></label>
         <p v-if="form.permission === 'edit' && !form.isolate" class="warn mono">Without isolation the run edits your main checkout, which must be clean.</p>
+        <p v-if="localEdit" class="warn mono">
+          Local models are unreliable at <b>writing</b> code — they often describe the change
+          instead of making it, and qwen3-coder wrote no files at all when measured. The run gets
+          its own branch, so a bad one is discarded rather than landed, but expect to check it.
+        </p>
         <div class="bf">
           <button class="btn ghost" @click="dlg = false">Cancel</button>
           <button class="btn pri" :disabled="busy || !form.repoId || !form.prompt.trim()" @click="submit">{{ busy ? 'Launching…' : 'Launch run ▸' }}</button>

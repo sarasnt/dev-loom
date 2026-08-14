@@ -10,6 +10,14 @@
 // Reports agreement, and separately the two ways it can be wrong. They are not equally bad: a
 // judge that calls good work bad (false alarm) makes the score untrustworthy and trains you to
 // ignore it; one that calls bad work good (missed) leaves you where you were before it existed.
+//
+// Only tasks marked `attemptIsCorrect` are usable here, and this is the subtlest thing in the
+// harness. The judge rules on whether a run ATTEMPTED the task; the battery scores whether it got
+// the answer RIGHT. Those two only coincide when the only way to fail is not to do the work —
+// true for `refusal` (a confabulated region means it didn't check) and false for `reexport`
+// (answering "2" instead of 4 is doing the task and getting it wrong). Scoring the judge on the
+// second kind marks it wrong for being right, which is exactly what it did when the hard tasks
+// landed. Excluded tasks are named in the output rather than silently dropped.
 
 import { materialize } from './fixture.mjs'
 import { TASKS } from './tasks.mjs'
@@ -49,9 +57,14 @@ async function repoId() {
 materialize(FIXTURE_DIR)
 const id = await repoId()
 
+const usable = TASKS.filter((t) => t.attemptIsCorrect)
+const skipped = TASKS.filter((t) => !t.attemptIsCorrect).map((t) => t.id)
+if (skipped.length) console.log(`skipping (a wrong answer there is still an attempt): ${skipped.join(', ')}
+`)
+
 const rows = []
 for (const model of args.models) {
-  for (const task of TASKS) {
+  for (const task of usable) {
     for (let i = 0; i < args.reps; i++) {
       const run = await api('/fleet/runs', {
         method: 'POST',

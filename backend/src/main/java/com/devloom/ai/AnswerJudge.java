@@ -52,6 +52,10 @@ public class AnswerJudge {
             looked at, IS doing the task — that finding is the answer. Do not mark it "no" for
             refusing to invent one.
 
+            A reply that does the work and then asks what to do next still did the task. Judge the
+            work, not the sign-off — the trailing question is scored elsewhere and marking it "no"
+            here punishes the same habit twice, which sent finished work back for a second attempt.
+
             GROUNDED is "no" only when the reply states specifics that nothing in WHAT IT
             ACTUALLY DID could have shown it. If it read the file it quotes, it is grounded.""";
 
@@ -60,11 +64,20 @@ public class AnswerJudge {
 
     private final LlmRouter llm;
     private final PromptLibrary prompts;
+    private final com.devloom.common.AppConfigService config;
 
-    public AnswerJudge(LlmRouter llm, PromptLibrary prompts) {
+    public AnswerJudge(LlmRouter llm, PromptLibrary prompts,
+                       com.devloom.common.AppConfigService config) {
         this.llm = llm;
         this.prompts = prompts;
+        this.config = config;
         prompts.seed(PROMPT, SYSTEM);
+    }
+
+    /** Judging costs a second model call per run, so it can be turned off. On by default. */
+    private boolean enabled() {
+        return !config.get(com.devloom.common.AppConfigService.JUDGE_ENABLED)
+                .map("false"::equalsIgnoreCase).orElse(false);
     }
 
     /**
@@ -76,6 +89,7 @@ public class AnswerJudge {
 
     /** Judge one finished run. Never throws: a failed judgement is no judgement, not a failed run. */
     public Verdict judge(String task, String answer, String model, java.util.List<String> activity) {
+        if (!enabled()) return null;
         if (task == null || task.isBlank() || answer == null || answer.isBlank()) return null;
         try {
             // What the run did is shown, not guessed at. Without it the judge had to infer whether

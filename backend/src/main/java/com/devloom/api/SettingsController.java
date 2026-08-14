@@ -37,7 +37,48 @@ public class SettingsController {
                 config.get(AppConfigService.FLEET_WORKTREES_DEFAULT).map(Boolean::parseBoolean).orElse(true));
         m.put("gitPushProtection", config.get(AppConfigService.GIT_PUSH_PROTECTION).orElse("protected"));
         m.put("gitProtectedPatterns", config.get(AppConfigService.GIT_PROTECTED_PATTERNS).orElse("main, master, develop, dev"));
+        m.put("advanced", advanced());
         return m;
+    }
+
+    /**
+     * Advanced model settings. Blank values mean "shipped default" — the UI shows the default as a
+     * placeholder rather than writing it into config, so raising a default later still reaches
+     * anyone who never touched the box.
+     */
+    private Map<String, Object> advanced() {
+        Map<String, Object> a = new LinkedHashMap<>();
+        a.put("groundedTemperature", config.get(AppConfigService.SAMPLING_GROUNDED_TEMP).orElse(""));
+        a.put("groundedTopP", config.get(AppConfigService.SAMPLING_GROUNDED_TOP_P).orElse(""));
+        a.put("creativeTemperature", config.get(AppConfigService.SAMPLING_CREATIVE_TEMP).orElse(""));
+        a.put("maxSteps", config.get(AppConfigService.TOOL_MAX_STEPS).orElse(""));
+        a.put("judgeEnabled", !config.get(AppConfigService.JUDGE_ENABLED).map("false"::equalsIgnoreCase).orElse(false));
+        a.put("defaults", Map.of(
+                "groundedTemperature", com.devloom.ai.Sampling.GROUNDED_TEMPERATURE,
+                "groundedTopP", com.devloom.ai.Sampling.GROUNDED_TOP_P,
+                "creativeTemperature", com.devloom.ai.Sampling.CREATIVE_TEMPERATURE,
+                "maxSteps", com.devloom.ai.ToolLoop.DEFAULT_MAX_STEPS));
+        return a;
+    }
+
+    public record AdvancedSettings(String groundedTemperature, String groundedTopP,
+                                   String creativeTemperature, String maxSteps, Boolean judgeEnabled) {}
+
+    /** Save advanced model settings. An empty string clears the override back to the shipped default. */
+    @PutMapping("/advanced")
+    public Map<String, Object> setAdvanced(@RequestBody AdvancedSettings body) {
+        if (body != null) {
+            if (body.groundedTemperature() != null) config.set(AppConfigService.SAMPLING_GROUNDED_TEMP, blankToNull(body.groundedTemperature()));
+            if (body.groundedTopP() != null) config.set(AppConfigService.SAMPLING_GROUNDED_TOP_P, blankToNull(body.groundedTopP()));
+            if (body.creativeTemperature() != null) config.set(AppConfigService.SAMPLING_CREATIVE_TEMP, blankToNull(body.creativeTemperature()));
+            if (body.maxSteps() != null) config.set(AppConfigService.TOOL_MAX_STEPS, blankToNull(body.maxSteps()));
+            if (body.judgeEnabled() != null) config.set(AppConfigService.JUDGE_ENABLED, String.valueOf(body.judgeEnabled()));
+        }
+        return get();
+    }
+
+    private static String blankToNull(String s) {
+        return s == null || s.isBlank() ? null : s.trim();
     }
 
     public record GitSettings(String pushProtection, String protectedPatterns) {}

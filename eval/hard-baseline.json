@@ -1,0 +1,352 @@
+{
+  "at": "2026-08-14T09:53:13.683Z",
+  "args": {
+    "models": [
+      "qwen2.5-coder:7b"
+    ],
+    "reps": 3,
+    "tasks": null,
+    "save": "eval/hard-baseline.json",
+    "compare": null
+  },
+  "results": {
+    "qwen2.5-coder:7b": {
+      "version": {
+        "pass": 3,
+        "n": 3,
+        "ms": [
+          2032,
+          2018,
+          2023
+        ],
+        "quality": [
+          1,
+          1,
+          1
+        ],
+        "calls": [
+          1,
+          1,
+          1
+        ],
+        "repeats": [
+          0,
+          0,
+          0
+        ],
+        "penalties": {},
+        "retried": 0,
+        "rescued": 0,
+        "signals": {
+          "endsWithQuestion": 0,
+          "offersMenu": 0,
+          "empty": 0
+        },
+        "samples": []
+      },
+      "export": {
+        "pass": 3,
+        "n": 3,
+        "ms": [
+          2024,
+          2026,
+          2029
+        ],
+        "quality": [
+          1,
+          1,
+          1
+        ],
+        "calls": [
+          1,
+          1,
+          1
+        ],
+        "repeats": [
+          0,
+          0,
+          0
+        ],
+        "penalties": {},
+        "retried": 0,
+        "rescued": 0,
+        "signals": {
+          "endsWithQuestion": 0,
+          "offersMenu": 0,
+          "empty": 0
+        },
+        "samples": []
+      },
+      "count": {
+        "pass": 3,
+        "n": 3,
+        "ms": [
+          2024,
+          2030,
+          2026
+        ],
+        "quality": [
+          1,
+          1,
+          1
+        ],
+        "calls": [
+          0,
+          0,
+          0
+        ],
+        "repeats": [
+          0,
+          0,
+          0
+        ],
+        "penalties": {},
+        "retried": 1,
+        "rescued": 0,
+        "signals": {
+          "endsWithQuestion": 0,
+          "offersMenu": 0,
+          "empty": 0
+        },
+        "samples": []
+      },
+      "crossfile": {
+        "pass": 0,
+        "n": 3,
+        "ms": [
+          4041,
+          2017,
+          2068
+        ],
+        "quality": [
+          1,
+          1,
+          1
+        ],
+        "calls": [
+          1,
+          1,
+          1
+        ],
+        "repeats": [
+          0,
+          0,
+          0
+        ],
+        "penalties": {},
+        "retried": 1,
+        "rescued": 0,
+        "signals": {
+          "endsWithQuestion": 0,
+          "offersMenu": 0,
+          "empty": 0
+        },
+        "samples": [
+          "The file that imports `add` from `math.js` does not exist in the repository.",
+          "No file imports `add` from `math.js`."
+        ]
+      },
+      "bug": {
+        "pass": 3,
+        "n": 3,
+        "ms": [
+          4059,
+          6045,
+          10071
+        ],
+        "quality": [
+          1,
+          1,
+          1
+        ],
+        "calls": [
+          1,
+          1,
+          0
+        ],
+        "repeats": [
+          0,
+          0,
+          0
+        ],
+        "penalties": {},
+        "retried": 2,
+        "rescued": 1,
+        "signals": {
+          "endsWithQuestion": 0,
+          "offersMenu": 0,
+          "empty": 0
+        },
+        "samples": []
+      },
+      "survey": {
+        "pass": 3,
+        "n": 3,
+        "ms": [
+          4048,
+          4069,
+          2018
+        ],
+        "quality": [
+          1,
+          1,
+          1
+        ],
+        "calls": [
+          2,
+          2,
+          2
+        ],
+        "repeats": [
+          0,
+          0,
+          0
+        ],
+        "penalties": {},
+        "retried": 0,
+        "rescued": 0,
+        "signals": {
+          "endsWithQuestion": 0,
+          "offersMenu": 0,
+          "empty": 0
+        },
+        "samples": []
+      },
+      "chain": {
+        "pass": 3,
+        "n": 3,
+        "ms": [
+          4033,
+          4035,
+          6042
+        ],
+        "quality": [
+          1,
+          1,
+          1
+        ],
+        "calls": [
+          3,
+          3,
+          0
+        ],
+        "repeats": [
+          0,
+          0,
+          0
+        ],
+        "penalties": {},
+        "retried": 1,
+        "rescued": 1,
+        "signals": {
+          "endsWithQuestion": 0,
+          "offersMenu": 0,
+          "empty": 0
+        },
+        "samples": []
+      },
+      "seed": {
+        "pass": 3,
+        "n": 3,
+        "ms": [
+          4036,
+          4039,
+          4022
+        ],
+        "quality": [
+          1,
+          1,
+          1
+        ],
+        "calls": [
+          1,
+          1,
+          1
+        ],
+        "repeats": [
+          0,
+          0,
+          0
+        ],
+        "penalties": {},
+        "retried": 0,
+        "rescued": 0,
+        "signals": {
+          "endsWithQuestion": 0,
+          "offersMenu": 0,
+          "empty": 0
+        },
+        "samples": []
+      },
+      "reexport": {
+        "pass": 0,
+        "n": 3,
+        "ms": [
+          2015,
+          2027,
+          2027
+        ],
+        "quality": [
+          1,
+          1,
+          1
+        ],
+        "calls": [
+          1,
+          1,
+          1
+        ],
+        "repeats": [
+          0,
+          0,
+          0
+        ],
+        "penalties": {},
+        "retried": 0,
+        "rescued": 0,
+        "signals": {
+          "endsWithQuestion": 0,
+          "offersMenu": 0,
+          "empty": 0
+        },
+        "samples": [
+          "2",
+          "2"
+        ]
+      },
+      "refusal": {
+        "pass": 3,
+        "n": 3,
+        "ms": [
+          2082,
+          4033,
+          2055
+        ],
+        "quality": [
+          1,
+          1,
+          1
+        ],
+        "calls": [
+          1,
+          1,
+          1
+        ],
+        "repeats": [
+          0,
+          0,
+          0
+        ],
+        "penalties": {},
+        "retried": 0,
+        "rescued": 0,
+        "signals": {
+          "endsWithQuestion": 0,
+          "offersMenu": 0,
+          "empty": 0
+        },
+        "samples": []
+      }
+    }
+  }
+}

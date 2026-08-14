@@ -83,6 +83,10 @@ public class AgentRunEntity {
     @Column(name = "grounded")
     private Boolean grounded;
 
+    /** Whether the judge sent this run back for a second attempt (see FleetService). */
+    @Column(name = "retried", nullable = false)
+    private boolean retried = false;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt = Instant.now();
 
@@ -183,6 +187,8 @@ public class AgentRunEntity {
     public void setAdherenceNote(String v) { this.adherenceNote = v; }
     public Boolean getGrounded() { return grounded; }
     public void setGrounded(Boolean v) { this.grounded = v; }
+    public boolean isRetried() { return retried; }
+    public void setRetried(boolean v) { this.retried = v; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getStartedAt() { return startedAt; }
     public Instant getFinishedAt() { return finishedAt; }

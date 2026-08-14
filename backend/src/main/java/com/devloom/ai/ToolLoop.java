@@ -30,18 +30,49 @@ public class ToolLoop {
 
     private static final Logger log = LoggerFactory.getLogger(ToolLoop.class);
 
-    /** A model that keeps calling tools without concluding must still terminate. */
-    private static final int MAX_STEPS = 6;
+    /**
+     * A model that keeps calling tools without concluding must still terminate. Adjustable
+     * (Settings › Models › Advanced) because the right budget depends on the work: surveying a
+     * repo needs more steps than answering one question, and a model that wanders needs fewer.
+     */
+    public static final int DEFAULT_MAX_STEPS = 6;
 
     private static final com.fasterxml.jackson.databind.ObjectMapper JSON =
             new com.fasterxml.jackson.databind.ObjectMapper();
 
     private final McpTools mcp;
     private final RepoTools repoTools;
+    private final com.devloom.common.AppConfigService config;
+    private final ModelSettings perModel;
 
-    public ToolLoop(McpTools mcp, RepoTools repoTools) {
+    public ToolLoop(McpTools mcp, RepoTools repoTools, com.devloom.common.AppConfigService config,
+                    ModelSettings perModel) {
         this.mcp = mcp;
         this.repoTools = repoTools;
+        this.config = config;
+        this.perModel = perModel;
+    }
+
+    /**
+     * The step budget for this model: its own setting, else the global one, else what ships.
+     * Nonsense values fall through rather than clamp, for the same reason as {@link Sampling}.
+     */
+    private int maxSteps(String model) {
+        Integer own = steps(perModel.get(model).maxSteps());
+        if (own != null) return own;
+        Integer global = config.get(com.devloom.common.AppConfigService.TOOL_MAX_STEPS)
+                .map(ToolLoop::steps).orElse(null);
+        return global != null ? global : DEFAULT_MAX_STEPS;
+    }
+
+    private static Integer steps(String s) {
+        if (s == null || s.isBlank()) return null;
+        try {
+            int n = Integer.parseInt(s.trim());
+            return n >= 1 && n <= 20 ? n : null;
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     /** Whether any tools are currently exposed to non-Claude models. */
@@ -74,17 +105,18 @@ public class ToolLoop {
     }
 
     public String chat(ChatModel model, List<ChatMessage> messages, String repoPath) {
-        return run(blocking(model), messages, repoPath, false, LlmPort.StreamSink.NONE).text();
+        return run(blocking(model), messages, repoPath, false, LlmPort.StreamSink.NONE, null).text();
     }
 
     public Reply run(Turn turn, List<ChatMessage> messages, String repoPath, LlmPort.StreamSink sink) {
-        return run(turn, messages, repoPath, false, sink);
+        return run(turn, messages, repoPath, false, sink, null);
     }
 
+    /** @param modelName the resolved model, so its own step budget applies; null for the global one */
     public Reply run(Turn turn, List<ChatMessage> messages, String repoPath, boolean writable,
-                     LlmPort.StreamSink sink) {
+                     LlmPort.StreamSink sink, String modelName) {
         ToolTelemetry tel = new ToolTelemetry();
-        String text = chat(turn, messages, repoPath, writable, sink, tel);
+        String text = chat(turn, messages, repoPath, writable, sink, tel, modelName);
         return new Reply(text, tel);
     }
 
@@ -96,7 +128,7 @@ public class ToolLoop {
      * @return the model's final text, or {@code null} if it never produced any
      */
     private String chat(Turn turn, List<ChatMessage> messages, String repoPath, boolean writable,
-                        LlmPort.StreamSink sink, ToolTelemetry tel) {
+                        LlmPort.StreamSink sink, ToolTelemetry tel, String modelName) {
         List<McpTools.Tool> tools = new ArrayList<>(repoTools.tools(repoPath, writable));
         tools.addAll(mcp.tools());
         List<ToolSpecification> specs = tools.stream().map(McpTools.Tool::spec).toList();
@@ -110,7 +142,7 @@ public class ToolLoop {
         // we've already run so the loop can say "you have this already" instead of burning steps.
         java.util.Map<String, String> seen = new java.util.LinkedHashMap<>();
         int spinning = 0; // consecutive steps that asked only for things already fetched
-        int maxSteps = MAX_STEPS;
+        int maxSteps = maxSteps(modelName);
         boolean pushedToWrite = false; // the one shove allowed when an edit run hasn't written
         boolean nudged = false; // the one correction allowed for describing calls instead of making them
         for (int step = 0; step < maxSteps; step++) {

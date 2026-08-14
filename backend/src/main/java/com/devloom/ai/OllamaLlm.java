@@ -44,15 +44,17 @@ public class OllamaLlm implements LlmPort {
     private final RestClient http;
     private final ModelMonitor monitor;
     private final ToolLoop toolLoop;
+    private final Sampling sampling;
 
     public OllamaLlm(
             @Value("${devloom.ai.ollama-base-url:http://localhost:11434}") String baseUrl,
             @Value("${devloom.ai.default-model:Qwen3-Coder-30B-A3B}") String defaultModel,
-            ModelMonitor monitor, ToolLoop toolLoop) {
+            ModelMonitor monitor, ToolLoop toolLoop, Sampling sampling) {
         this.defaultModel = defaultModel;
         this.baseUrl = baseUrl;
         this.monitor = monitor;
         this.toolLoop = toolLoop;
+        this.sampling = sampling;
         SimpleClientHttpRequestFactory f = new SimpleClientHttpRequestFactory();
         f.setConnectTimeout(1500);    // fail fast when Ollama isn't there
         f.setReadTimeout(120_000);    // generation can take a while
@@ -93,8 +95,8 @@ public class OllamaLlm implements LlmPort {
                 .listeners(List.of(monitor))
                 // Sampling by feature: grounded work near-greedy, brainstorming warm. Left unset
                 // this ran at the provider default, which made repeat runs disagree with themselves.
-                .temperature(Sampling.temperature(request.feature()))
-                .topP(Sampling.topP(request.feature()))
+                .temperature(sampling.temperature(request.feature(), model))
+                .topP(sampling.topP(request.feature(), model))
                 .build();
         List<ChatMessage> messages = new ArrayList<>();
         if (request.system() != null && !request.system().isBlank()) {
@@ -104,7 +106,7 @@ public class OllamaLlm implements LlmPort {
         // Through the tool loop so the model can actually call any MCP tools the user enabled;
         // with none enabled this is a plain one-shot chat.
         ToolLoop.Reply reply = toolLoop.run(ToolLoop.blocking(chat), messages, request.repoPath(),
-                request.repoWritable(), StreamSink.NONE);
+                request.repoWritable(), StreamSink.NONE, model);
         String text = reply.text() == null ? "" : reply.text();
         log.info("Ollama generate: model={} chars={} {}", model, text.length(), reply.telemetry());
         return new LlmResult(text, model, provider(), true, reply.telemetry());
@@ -124,8 +126,8 @@ public class OllamaLlm implements LlmPort {
                 .modelName(model)
                 .timeout(Duration.ofSeconds(120))
                 .listeners(List.of(monitor))
-                .temperature(Sampling.temperature(request.feature()))
-                .topP(Sampling.topP(request.feature()))
+                .temperature(sampling.temperature(request.feature(), model))
+                .topP(sampling.topP(request.feature(), model))
                 .build();
 
         ToolLoop.Turn turn = (messages, specs) -> {
@@ -167,7 +169,7 @@ public class OllamaLlm implements LlmPort {
             messages.add(SystemMessage.from(request.system()));
         }
         messages.add(UserMessage.from(request.prompt()));
-        ToolLoop.Reply reply = toolLoop.run(turn, messages, request.repoPath(), request.repoWritable(), sink);
+        ToolLoop.Reply reply = toolLoop.run(turn, messages, request.repoPath(), request.repoWritable(), sink, model);
         String text = reply.text() == null ? "" : reply.text();
         log.info("Ollama stream: model={} chars={} {}", model, text.length(), reply.telemetry());
         return new LlmResult(text, model, provider(), true, reply.telemetry());

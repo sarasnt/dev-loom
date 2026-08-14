@@ -99,6 +99,10 @@ export const openBrainstormTerminal = (id: string) =>
   post<TerminalInfo>(`/brainstorm/sessions/${id}/terminal`, {})
 export const fetchInstalledModels = () => get<import('../types').InstalledModel[]>('/models/installed')
 export const removeModel = (name: string) => del<{ removed: boolean }>(`/models/${encodeURIComponent(name)}`)
+type ModelAdvancedMap = { models: Record<string, import('../types').ModelAdvanced> }
+export const fetchModelAdvanced = () => get<ModelAdvancedMap>('/models/advanced')
+export const saveModelAdvanced = (model: string, a: import('../types').ModelAdvanced) =>
+  put<ModelAdvancedMap>('/models/advanced', { model, ...a })
 export const fetchSettings = () => get<SettingsData>('/settings')
 export const saveTerminalWorkdir = (path: string) =>
   put<SettingsData>('/settings/terminal-workdir', { path })
@@ -210,6 +214,9 @@ export const saveFleetSettings = (worktreesDefault: boolean) =>
   put<import('../types').SettingsData>('/settings/fleet', { worktreesDefault })
 export const saveGitSettings = (pushProtection: string, protectedPatterns: string) =>
   put<import('../types').SettingsData>('/settings/git', { pushProtection, protectedPatterns })
+
+export const saveAdvancedSettings = (b: Partial<Omit<import('../types').AdvancedSettings, 'defaults'>>) =>
+  put<SettingsData>('/settings/advanced', b)
 export const repoPushProtection = (id: string) =>
   get<import('../types').PushProtection>(`/repos/${id}/push-protection`)
 export const setRepoPushProtection = (id: string, mode: string, patterns: string) =>

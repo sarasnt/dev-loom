@@ -11,6 +11,15 @@ public class AppConfigService {
 
     /** Default working directory for claude-cli terminal sessions not bound to a repo. */
     public static final String TERMINAL_WORKDIR = "terminal.workdir";
+
+    /** Advanced model settings (Settings › Models › Advanced) — see Sampling and ToolLoop. */
+    public static final String SAMPLING_GROUNDED_TEMP = "sampling.grounded.temperature";
+    public static final String SAMPLING_GROUNDED_TOP_P = "sampling.grounded.topP";
+    public static final String SAMPLING_CREATIVE_TEMP = "sampling.creative.temperature";
+    public static final String TOOL_MAX_STEPS = "tools.maxSteps";
+    public static final String JUDGE_ENABLED = "judge.enabled";
+    /** Per-model overrides of the above, one JSON row per model name. See {@code ModelSettings}. */
+    public static final String MODEL_ADVANCED_PREFIX = "model.advanced.";
     /** Snoozed work-item ext ids (hidden from Today), newline-separated. */
     public static final String TODAY_SNOOZED = "today.snoozed";
     /** User-desired Ollama models (re-pulled on startup so they survive a fresh volume). */
@@ -107,6 +116,17 @@ public class AppConfigService {
                 .map(v -> new java.util.LinkedHashSet<>(java.util.Arrays.stream(v.split("\n"))
                         .map(String::trim).filter(s -> !s.isBlank()).toList()))
                 .orElseGet(java.util.LinkedHashSet::new);
+    }
+
+    /** Every key under a prefix, for settings stored one row per subject (e.g. per model). */
+    public java.util.Map<String, String> byPrefix(String prefix) {
+        java.util.Map<String, String> m = new java.util.LinkedHashMap<>();
+        for (AppConfigEntity e : repo.findAll()) {
+            if (e.getKey() != null && e.getKey().startsWith(prefix) && e.getValue() != null) {
+                m.put(e.getKey().substring(prefix.length()), e.getValue());
+            }
+        }
+        return m;
     }
 
     @Transactional

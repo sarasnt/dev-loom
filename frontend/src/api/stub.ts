@@ -141,26 +141,40 @@ export function fetchInstalledModels(): Promise<import('../types').InstalledMode
 export function removeModel(_name: string): Promise<{ removed: boolean }> {
   return delay({ removed: false })
 }
+type ModelAdvancedMap = { models: Record<string, import('../types').ModelAdvanced> }
+export function fetchModelAdvanced(): Promise<ModelAdvancedMap> {
+  return delay({ models: {} })
+}
+export function saveModelAdvanced(
+  model: string,
+  a: import('../types').ModelAdvanced,
+): Promise<ModelAdvancedMap> {
+  return delay({ models: { [model]: a } })
+}
 const NOTIFY_STUB = {
   enabled: false, digestTime: '08:30', quietStart: '22:00', quietEnd: '08:00',
   urgentCi: true, urgentReview: true, prWaitHours: 24,
 }
+const ADVANCED_STUB: import('../types').AdvancedSettings = {
+  groundedTemperature: '', groundedTopP: '', creativeTemperature: '', maxSteps: '', judgeEnabled: true,
+  defaults: { groundedTemperature: 0.1, groundedTopP: 0.9, creativeTemperature: 0.7, maxSteps: 6 },
+}
 export function fetchSettings(): Promise<import('../types').SettingsData> {
-  return delay({ terminalWorkdir: '', repoDirs: [], notify: NOTIFY_STUB, fleetWorktreesDefault: true, gitPushProtection: 'protected' as const, gitProtectedPatterns: 'main, master, develop, dev' })
+  return delay({ terminalWorkdir: '', repoDirs: [], notify: NOTIFY_STUB, fleetWorktreesDefault: true, gitPushProtection: 'protected' as const, gitProtectedPatterns: 'main, master, develop, dev', advanced: ADVANCED_STUB })
 }
 export function saveTerminalWorkdir(path: string): Promise<import('../types').SettingsData> {
-  return delay({ terminalWorkdir: path, repoDirs: [], notify: NOTIFY_STUB, fleetWorktreesDefault: true, gitPushProtection: 'protected' as const, gitProtectedPatterns: 'main, master, develop, dev' })
+  return delay({ terminalWorkdir: path, repoDirs: [], notify: NOTIFY_STUB, fleetWorktreesDefault: true, gitPushProtection: 'protected' as const, gitProtectedPatterns: 'main, master, develop, dev', advanced: ADVANCED_STUB })
 }
 export function addRepoDir(path: string): Promise<import('../types').SettingsData> {
-  return delay({ terminalWorkdir: '', repoDirs: [path], notify: NOTIFY_STUB, fleetWorktreesDefault: true, gitPushProtection: 'protected' as const, gitProtectedPatterns: 'main, master, develop, dev' })
+  return delay({ terminalWorkdir: '', repoDirs: [path], notify: NOTIFY_STUB, fleetWorktreesDefault: true, gitPushProtection: 'protected' as const, gitProtectedPatterns: 'main, master, develop, dev', advanced: ADVANCED_STUB })
 }
 export function removeRepoDir(): Promise<import('../types').SettingsData> {
-  return delay({ terminalWorkdir: '', repoDirs: [], notify: NOTIFY_STUB, fleetWorktreesDefault: true, gitPushProtection: 'protected' as const, gitProtectedPatterns: 'main, master, develop, dev' })
+  return delay({ terminalWorkdir: '', repoDirs: [], notify: NOTIFY_STUB, fleetWorktreesDefault: true, gitPushProtection: 'protected' as const, gitProtectedPatterns: 'main, master, develop, dev', advanced: ADVANCED_STUB })
 }
 export function saveNotificationSettings(
   b: Partial<import('../types').NotifySettings>,
 ): Promise<import('../types').SettingsData> {
-  return delay({ terminalWorkdir: '', repoDirs: [], notify: { ...NOTIFY_STUB, ...b }, fleetWorktreesDefault: true, gitPushProtection: 'protected' as const, gitProtectedPatterns: 'main, master, develop, dev' })
+  return delay({ terminalWorkdir: '', repoDirs: [], notify: { ...NOTIFY_STUB, ...b }, fleetWorktreesDefault: true, gitPushProtection: 'protected' as const, gitProtectedPatterns: 'main, master, develop, dev', advanced: ADVANCED_STUB })
 }
 export function testNotification(): Promise<{ ok: boolean; error?: string }> {
   return delay({ ok: false, error: 'offline' })
@@ -391,10 +405,10 @@ export function deleteRun() { return delay({ deleted: '' }) }
 export function applyRun() { return delay(null as unknown as import('../types').AgentRun) }
 export function discardRun() { return delay(null as unknown as import('../types').AgentRun) }
 export function saveFleetSettings() {
-  return delay({ terminalWorkdir: '', repoDirs: [], notify: NOTIFY_STUB, fleetWorktreesDefault: true, gitPushProtection: 'protected' as const, gitProtectedPatterns: 'main, master, develop, dev' })
+  return delay({ terminalWorkdir: '', repoDirs: [], notify: NOTIFY_STUB, fleetWorktreesDefault: true, gitPushProtection: 'protected' as const, gitProtectedPatterns: 'main, master, develop, dev', advanced: ADVANCED_STUB })
 }
 export function saveGitSettings() {
-  return delay({ terminalWorkdir: '', repoDirs: [], notify: NOTIFY_STUB, fleetWorktreesDefault: true, gitPushProtection: 'protected' as const, gitProtectedPatterns: 'main, master, develop, dev' })
+  return delay({ terminalWorkdir: '', repoDirs: [], notify: NOTIFY_STUB, fleetWorktreesDefault: true, gitPushProtection: 'protected' as const, gitProtectedPatterns: 'main, master, develop, dev', advanced: ADVANCED_STUB })
 }
 export function repoPushProtection() {
   return delay({ mode: 'protected' as const, patterns: 'main, master, develop, dev', overridden: false, globalMode: 'protected' as const })
@@ -441,4 +455,9 @@ export function setSkillsForModels(): Promise<import('../types').Capabilities> {
 }
 export function setMcpForModels(): Promise<import('../types').Capabilities> {
   return delay({ mcp: [], skills: [], plugins: [], skillsForModels: [], mcpForModels: [], agentUp: false, error: 'offline' })
+}
+export function saveAdvancedSettings(
+  b: Partial<Omit<import('../types').AdvancedSettings, 'defaults'>>,
+): Promise<import('../types').SettingsData> {
+  return delay({ terminalWorkdir: '', repoDirs: [], notify: NOTIFY_STUB, fleetWorktreesDefault: true, gitPushProtection: 'protected' as const, gitProtectedPatterns: 'main, master, develop, dev', advanced: { ...ADVANCED_STUB, ...b } })
 }

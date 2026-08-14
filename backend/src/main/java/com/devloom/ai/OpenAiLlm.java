@@ -31,13 +31,15 @@ public class OpenAiLlm implements LlmPort {
     private final CredentialStore credentials;
     private final ModelMonitor monitor;
     private final ToolLoop toolLoop;
+    private final Sampling sampling;
     private final String baseUrl;
 
-    public OpenAiLlm(CredentialStore credentials, ModelMonitor monitor, ToolLoop toolLoop,
+    public OpenAiLlm(CredentialStore credentials, ModelMonitor monitor, ToolLoop toolLoop, Sampling sampling,
                      @Value("${devloom.ai.openai-base-url:https://api.openai.com}") String baseUrl) {
         this.credentials = credentials;
         this.monitor = monitor;
         this.toolLoop = toolLoop;
+        this.sampling = sampling;
         // LangChain4j expects the base ending at /v1; our config holds the host root.
         this.baseUrl = baseUrl.endsWith("/v1") ? baseUrl : baseUrl + "/v1";
     }
@@ -69,8 +71,8 @@ public class OpenAiLlm implements LlmPort {
                 .listeners(List.of(monitor))
                 // Sampling by feature: grounded work near-greedy, brainstorming warm. Left unset
                 // this ran at the provider default, which made repeat runs disagree with themselves.
-                .temperature(Sampling.temperature(request.feature()))
-                .topP(Sampling.topP(request.feature()))
+                .temperature(sampling.temperature(request.feature(), model))
+                .topP(sampling.topP(request.feature(), model))
                 .build();
         List<ChatMessage> messages = new ArrayList<>();
         if (request.system() != null && !request.system().isBlank()) {
@@ -80,7 +82,7 @@ public class OpenAiLlm implements LlmPort {
         // Through the tool loop, like the local adapter: a paid model that cannot read the repo
         // it was asked about is no more useful than a local one that cannot.
         ToolLoop.Reply reply = toolLoop.run(ToolLoop.blocking(chat), messages, request.repoPath(),
-                request.repoWritable(), StreamSink.NONE);
+                request.repoWritable(), StreamSink.NONE, model);
         String text = reply.text() == null ? "" : reply.text();
         log.info("OpenAI generate: model={} chars={}", model, text.length());
         return new LlmResult(text, model, provider(), true, reply.telemetry());

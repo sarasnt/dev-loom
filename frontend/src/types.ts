@@ -394,6 +394,28 @@ export interface SettingsData {
   fleetWorktreesDefault: boolean // default: isolate edit runs in a git worktree
   gitPushProtection: 'off' | 'all' | 'protected' // global push guardrail
   gitProtectedPatterns: string // comma/newline list of protected-branch regexes
+  advanced: AdvancedSettings // sampling + tool-loop knobs (Settings › Models › Advanced)
+}
+
+// Advanced model settings. Every string is "" when unset, meaning the shipped default applies —
+// which is why `defaults` travels with them: the UI shows those as placeholders rather than values,
+// so a box left alone keeps tracking the default instead of freezing today's number.
+export interface AdvancedSettings {
+  groundedTemperature: string
+  groundedTopP: string
+  creativeTemperature: string
+  maxSteps: string
+  judgeEnabled: boolean
+  defaults: { groundedTemperature: number; groundedTopP: number; creativeTemperature: number; maxSteps: number }
+}
+
+// One model's overrides of the same knobs. Blank means "follow the global setting", so the three
+// levels (model → global → shipped) each stay visible as the placeholder for the one below.
+export interface ModelAdvanced {
+  groundedTemperature: string
+  groundedTopP: string
+  creativeTemperature: string
+  maxSteps: string
 }
 
 // Effective push protection for one repo (its override, or the global default).
@@ -476,6 +498,7 @@ export interface AgentRun {
   adherenceScore: number | null // did it do what was asked (AnswerJudge): 1 / 0.5 / 0
   adherenceNote: string | null  // the judge's one line
   grounded: boolean | null      // stays within what it actually looked at
+  retried: boolean              // the judge sent it back for a second attempt
   toolCalls: number | null
   toolRepeats: number | null
 }

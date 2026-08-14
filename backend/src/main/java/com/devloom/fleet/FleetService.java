@@ -187,7 +187,7 @@ public class FleetService {
     /**
      * Whether a model runs through the Claude Code CLI (`claude -p`, the agentic path that can
      * edit files). Null = the CLI default. Everything else — local Ollama models, OpenAI models —
-     * goes through {@link #launchLocal}, which can analyse a repo but not edit it.
+     * goes through {@link #launchLocal}, which reads and (in a worktree) writes via its own loop.
      */
     private static boolean usesClaudeCli(String model) {
         if (model == null || model.isBlank()) return true;
@@ -196,8 +196,9 @@ public class FleetService {
     }
 
     /**
-     * Background run on a non-CLI model (local Ollama, or a keyed API model). These have no
-     * agentic tool loop, so they <em>analyse</em> the repo and report back — they never edit it.
+     * Background run on a non-CLI model (local Ollama, or a keyed API model). These run the
+     * in-house tool loop ({@link com.devloom.ai.ToolLoop}) with the repo tools, so they read the
+     * repository and, on an edit run, write to it — inside a worktree, enforced below.
      * The work runs on a pool thread, so navigating away (or closing the tab) doesn't stop it;
      * the board shows it running and flips it to review when the model answers.
      */
@@ -284,16 +285,32 @@ public class FleetService {
             // Judged on the ORIGINAL request, not the assembled prompt — the repo summary and the
             // closing instructions are ours, and grading the model on our own scaffolding would
             // reward it for answering us rather than the user.
-            com.devloom.ai.AnswerJudge.Verdict verdict = judge.judge(prompt, text, model,
-                    r.telemetry() == null ? java.util.List.of() : r.telemetry().activity());
+            // For an edit run there is nothing to have an opinion about: the tool loop recorded
+            // whether a file was written. Asked to judge one anyway, a small model read the
+            // covering note ("I've updated src/cart.js — let me know if you need anything else")
+            // and ruled the guard had never been added, while the guard was sitting in the
+            // worktree. A checked fact outranks a judged one, and skipping the call is free.
+            int writes = r.telemetry() == null ? 0 : r.telemetry().writes();
+            boolean wrote = writes > 0;
+            com.devloom.ai.AnswerJudge.Verdict verdict = wrote
+                    ? new com.devloom.ai.AnswerJudge.Verdict(1.0, true,
+                            writes + (writes == 1 ? " file written" : " files written") + " — recorded, not judged")
+                    : judge.judge(prompt, text, model,
+                            r.telemetry() == null ? java.util.List.of() : r.telemetry().activity());
 
             // One retry, and only on a clear miss. The judge was measured against eval/ before
             // being wired to anything: it agrees with the known answers 6/7 and has never called
             // bad work good. So a "no" is worth acting on, while its occasional false alarm costs
             // one extra run rather than a wrong result. Bounded at one — a model that missed twice
             // won't find it on a third pass, and an open loop just burns the machine.
-            if (verdict != null && verdict.adherence() != null && verdict.adherence() == 0.0) {
+            // A retry is safe for an answer and not for a file: an edit run that already wrote is
+            // not repeatable, because the first attempt's changes are on disk and a "second attempt,
+            // kept only if better" would be writing over work that landed. Read-only runs have no
+            // such problem, which is where the retry earns its keep.
+            boolean retried = false;
+            if (!wrote && verdict != null && verdict.adherence() != null && verdict.adherence() == 0.0) {
                 log.info("Run {} missed the task ({}) — retrying once", id, verdict.note());
+                retried = true;
                 String retryPrompt = full
                         + "\n\nA previous attempt was rejected: " + verdict.note()
                         + "\nIt replied:\n" + clip(text, 1_200)
@@ -308,14 +325,14 @@ public class FleetService {
                 if (second != null && second.adherence() != null && second.adherence() > 0.0) {
                     finishLocal(id, text2.replace("[DEVLOOM:INPUT]", "").stripTrailing(), null, false,
                             r2.telemetry(),
-                            com.devloom.ai.RunQuality.score(r2.telemetry(), text2, true, edit), second);
+                            com.devloom.ai.RunQuality.score(r2.telemetry(), text2, true, edit), second, true);
                     return;
                 }
                 log.info("Run {} missed it again — keeping the first attempt", id);
             }
             finishLocal(id, text.replace("[DEVLOOM:INPUT]", "").stripTrailing(), null, false,
                     r.telemetry(), com.devloom.ai.RunQuality.score(r.telemetry(), text, true, edit),
-                    verdict);
+                    verdict, retried);
         } catch (Exception e) {
             finishLocal(id, null, e.getMessage() == null ? "run failed" : e.getMessage(), false);
         }
@@ -323,12 +340,12 @@ public class FleetService {
 
     /** Persist a local run's outcome (runs on a pool thread — the repository save opens its own tx). */
     private void finishLocal(Long id, String result, String error, boolean needsInput) {
-        finishLocal(id, result, error, needsInput, null, null, null);
+        finishLocal(id, result, error, needsInput, null, null, null, false);
     }
 
     private void finishLocal(Long id, String result, String error, boolean needsInput,
                              com.devloom.ai.ToolTelemetry tel, com.devloom.ai.RunQuality.Score score,
-                             com.devloom.ai.AnswerJudge.Verdict verdict) {
+                             com.devloom.ai.AnswerJudge.Verdict verdict, boolean retried) {
         AgentRunEntity run = runs.findById(id).orElse(null);
         if (run == null) return;
         if ("canceled".equals(run.getStatus())) return; // the user let go of it while it ran
@@ -343,6 +360,7 @@ public class FleetService {
             run.setQualityScore(java.math.BigDecimal.valueOf(score.value()));
             run.setQualityNotes(score.summary());
         }
+        run.setRetried(retried);
         // Whether it did the thing, which is a different question from how tidily it went about it.
         if (verdict != null && verdict.adherence() != null) {
             run.setAdherenceScore(java.math.BigDecimal.valueOf(verdict.adherence()));
@@ -839,7 +857,7 @@ public class FleetService {
                 r.getQualityScore() == null ? null : r.getQualityScore().doubleValue(),
                 r.getQualityNotes(), r.getToolCalls(), r.getToolRepeats(),
                 r.getAdherenceScore() == null ? null : r.getAdherenceScore().doubleValue(),
-                r.getAdherenceNote(), r.getGrounded());
+                r.getAdherenceNote(), r.getGrounded(), r.isRetried());
     }
 
     private static String iso(Instant t) { return t == null ? null : t.toString(); }

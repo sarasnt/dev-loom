@@ -91,6 +91,10 @@ async function runOnce(repoId, model, prompt) {
         notes: r.qualityNotes ?? '',
         toolCalls: r.toolCalls ?? 0,
         toolRepeats: r.toolRepeats ?? 0,
+        // Did the judge send it back? A rescued run and a first-time-right run both read as
+        // "pass" without this, which would make the retry loop unfalsifiable.
+        retried: !!r.retried,
+        adherence: typeof r.adherenceScore === 'number' ? r.adherenceScore : null,
       }
     }
     await sleep(2000)
@@ -136,6 +140,7 @@ for (const model of args.models) {
   results[model] = {}
   for (const task of tasks) {
     const row = { pass: 0, n: 0, ms: [], quality: [], calls: [], repeats: [], penalties: {},
+                  retried: 0, rescued: 0,
                   signals: { endsWithQuestion: 0, offersMenu: 0, empty: 0 }, samples: [] }
     for (let i = 0; i < args.reps; i++) {
       let out
@@ -157,8 +162,14 @@ for (const model of args.models) {
         const m = part.trim().match(/^([a-z-]+)\s+-/)
         if (m) row.penalties[m[1]] = (row.penalties[m[1]] ?? 0) + 1
       }
+      if (out.retried) {
+        row.retried++
+        // Kept only when the second attempt scored above zero, so anything positive here is a
+        // run the loop pulled back from a miss.
+        if (typeof out.adherence === 'number' && out.adherence > 0) row.rescued++
+      }
       for (const [name, fn] of Object.entries(SIGNALS)) if (fn(text)) row.signals[name]++
-      if (!ok && row.samples.length < 2) row.samples.push((out.error ?? text).slice(0, 200))
+      if (!ok && row.samples.length < 2) row.samples.push((out.error ?? text).slice(0, 700))
       process.stdout.write(`  ${model} ${task.id} ${i + 1}/${args.reps} ${ok ? 'pass' : 'FAIL'}\n`)
     }
     results[model][task.id] = row
@@ -170,7 +181,7 @@ for (const model of args.models) {
 console.log('\n' + '='.repeat(78))
 for (const model of args.models) {
   console.log(`\n${model}`)
-  console.log('  task        correct   quality  calls  rpt   penalties')
+  console.log('  task        correct   quality  calls  rpt  retry   penalties')
   let totalPass = 0, totalN = 0
   const allQuality = []
   const allPenalties = {}
@@ -181,12 +192,25 @@ for (const model of args.models) {
     for (const [k, v] of Object.entries(r.penalties)) allPenalties[k] = (allPenalties[k] ?? 0) + v
     const q = r.quality.length ? (r.quality.reduce((a, b) => a + b, 0) / r.quality.length) : null
     const pen = Object.entries(r.penalties).map(([k, v]) => `${k}x${v}`).join(' ')
+    const retry = r.retried ? `${r.rescued}/${r.retried}` : '—'
     console.log(`  ${task.id.padEnd(11)} ${`${r.pass}/${r.n}`.padEnd(9)} ${(q === null ? '—' : q.toFixed(2)).padStart(6)}`
-      + `  ${String(avg(r.calls)).padStart(5)}  ${String(avg(r.repeats)).padStart(3)}   ${pen}`)
+      + `  ${String(avg(r.calls)).padStart(5)}  ${String(avg(r.repeats)).padStart(3)}  ${retry.padStart(5)}   ${pen}`)
   }
   const q = allQuality.length ? (allQuality.reduce((a, b) => a + b, 0) / allQuality.length) : null
+  const retried = tasks.reduce((n, t) => n + results[model][t.id].retried, 0)
+  const rescued = tasks.reduce((n, t) => n + results[model][t.id].rescued, 0)
   console.log(`  ${'OVERALL'.padEnd(11)} ${`${totalPass}/${totalN}`.padEnd(9)} ${(q === null ? '—' : q.toFixed(2)).padStart(6)}`
     + `   (correct ${pct(totalPass, totalN)})`)
+  // "retry" is the judge sending a run back; "rescued" is that second attempt being kept because
+  // it scored better. Retries that changed nothing are the price of the ones that did.
+  if (retried) console.log(`  retries:    ${retried} fired, ${rescued} rescued (${pct(rescued, retried)})`)
+  // What a failure actually said. Without this a 0/4 is indistinguishable from a broken check —
+  // which has happened here more than once, and cost more than printing two lines ever will.
+  for (const task of tasks) {
+    for (const s of results[model][task.id].samples) {
+      console.log(`  ↳ ${task.id}: ${JSON.stringify(s).slice(0, 700)}`)
+    }
+  }
   if (Object.keys(allPenalties).length) {
     console.log('  penalties:  ' + Object.entries(allPenalties).sort((a, b) => b[1] - a[1])
       .map(([k, v]) => `${k} x${v}`).join('  ·  '))
