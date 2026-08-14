@@ -891,6 +891,79 @@ async function repoWrite(dir, { file, content } = {}) {
 }
 
 /**
+ * The check a repository already defines for itself — its test script, or failing that whatever
+ * proves the code still builds.
+ *
+ * <p>Chosen from the repo's own manifest, never from the model: a run that could name the command
+ * could name any command, and this executes on your machine with your permissions. The backend
+ * only calls it when the user ticked "let it run tests" on an edit run.
+ */
+function detectCheck(dir) {
+  const at = (f) => path.join(dir, f)
+  const exists = (f) => { try { return fs.existsSync(at(f)) } catch { return false } }
+  if (exists('package.json')) {
+    let pkg = {}
+    try { pkg = JSON.parse(fs.readFileSync(at('package.json'), 'utf8')) } catch { /* unreadable */ }
+    const s = pkg.scripts || {}
+    // `npm test` on a package with no test script exits 1 with "missing script", which would read
+    // as a failing build. Only claim a check when the repo actually declares one.
+    if (s.test) return { cmd: 'npm', args: ['test', '--silent'], label: 'npm test' }
+    if (s.build) return { cmd: 'npm', args: ['run', 'build', '--silent'], label: 'npm run build' }
+    return null
+  }
+  if (exists('go.mod')) return { cmd: 'go', args: ['test', './...'], label: 'go test ./...' }
+  if (exists('Cargo.toml')) return { cmd: 'cargo', args: ['test', '--quiet'], label: 'cargo test' }
+  if (exists('pyproject.toml') || exists('setup.py') || exists('pytest.ini')) {
+    return { cmd: 'pytest', args: ['-q'], label: 'pytest -q' }
+  }
+  if (exists('pom.xml')) return { cmd: 'mvn', args: ['-q', '-B', 'test'], label: 'mvn test' }
+  if (exists('build.gradle') || exists('build.gradle.kts')) {
+    return { cmd: 'gradle', args: ['test', '--quiet'], label: 'gradle test' }
+  }
+  return null
+}
+
+/**
+ * Run that check and report how it went.
+ *
+ * <p>This is the half of an edit run that was missing: a model wrote a file and nothing ever
+ * executed it, so "it made the change" and "the change works" were the same claim. Never throws —
+ * a check that cannot run is reported as not run, which is different from a check that failed, and
+ * conflating them would turn a missing toolchain into a broken build.
+ */
+async function repoVerify(dir, { timeoutMs } = {}) {
+  if (!dir || !fs.existsSync(dir)) return { ran: false, why: 'directory not found' }
+  // Only inside a repository — this spawns the repo's own tooling, and a mistyped path should not
+  // start a build in whatever directory it happens to land in.
+  const inRepo = await run('git', ['rev-parse', '--is-inside-work-tree'], { cwd: dir, shell: false, timeoutMs: 8000 })
+  if (inRepo.code !== 0) return { ran: false, why: 'not a git repository' }
+
+  const check = detectCheck(dir)
+  if (!check) return { ran: false, why: 'no test or build script found' }
+  // npm/mvn/gradle are .cmd shims on Windows, so these keep the default shell — same reason the
+  // claude and gh calls do. No user or model input reaches the argument list.
+  const r = await run(check.cmd, check.args, { cwd: dir, timeoutMs: Math.min(Number(timeoutMs) || 300_000, 600_000) })
+  if (r.code === -1) return { ran: false, why: `${check.cmd} is not installed`, command: check.label }
+  return {
+    ran: true,
+    command: check.label,
+    ok: r.code === 0,
+    exitCode: r.code,
+    output: clipOutput(`${r.out}\n${r.err}`.trim()),
+  }
+}
+
+/**
+ * Keep both ends. A compiler puts the error first and "BUILD FAILED" last; a test runner puts the
+ * summary last and the stack in the middle. Keeping only one end loses the message half the time.
+ */
+function clipOutput(s, head = 2_000, tail = 3_000) {
+  const t = (s || '').replace(/\r\n/g, '\n').trim()
+  if (t.length <= head + tail) return t
+  return `${t.slice(0, head)}\n… ${t.length - head - tail} characters omitted …\n${t.slice(-tail)}`
+}
+
+/**
  * Search the repo's tracked files. `git grep` rather than a directory walk for the same reason
  * `ls-files` is used above: it never descends into `.git` or ignored directories.
  */
@@ -1402,6 +1475,10 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/repos/write') {
       const { path: p, file, content } = await readBody(req)
       return json(res, 200, await repoWrite(p, { file, content }))
+    }
+    if (req.method === 'POST' && url.pathname === '/repos/verify') {
+      const { path: p, timeoutMs } = await readBody(req)
+      return json(res, 200, await repoVerify(p, { timeoutMs }))
     }
     if (req.method === 'POST' && url.pathname === '/repos/grep') {
       const { path: p, query, glob, max } = await readBody(req)

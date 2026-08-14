@@ -220,6 +220,19 @@ public class HostAgentClient {
         return post("/repos/write", body);
     }
 
+    /**
+     * Run the repository's own check (its test script, else its build) and report the outcome.
+     *
+     * <p>The command comes from the repo's manifest, never from the model, and this only runs when
+     * the user allowed tests on an edit run — it executes the repository's code on their machine.
+     */
+    public Map<String, Object> verify(String path, int timeoutMs) {
+        Map<String, Object> body = new java.util.HashMap<>();
+        body.put("path", path);
+        body.put("timeoutMs", timeoutMs);
+        return post("/repos/verify", body);
+    }
+
     /** A pull request's diff via the logged-in gh CLI. */
     public Map<String, Object> prDiff(String path, String number, int maxBytes) {
         Map<String, Object> body = new java.util.HashMap<>();

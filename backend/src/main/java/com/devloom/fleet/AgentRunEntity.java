@@ -87,6 +87,20 @@ public class AgentRunEntity {
     @Column(name = "retried", nullable = false)
     private boolean retried = false;
 
+    /** Whether the repo's own check passed against what an edit run wrote — null if never run. */
+    @Column(name = "verify_status")
+    private String verifyStatus;
+
+    @Column(name = "verify_command")
+    private String verifyCommand;
+
+    @Column(name = "verify_output", columnDefinition = "text")
+    private String verifyOutput;
+
+    /** The check failed, the model was handed the failure, and the second attempt passed. */
+    @Column(name = "verify_fixed", nullable = false)
+    private boolean verifyFixed = false;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt = Instant.now();
 
@@ -189,6 +203,14 @@ public class AgentRunEntity {
     public void setGrounded(Boolean v) { this.grounded = v; }
     public boolean isRetried() { return retried; }
     public void setRetried(boolean v) { this.retried = v; }
+    public String getVerifyStatus() { return verifyStatus; }
+    public void setVerifyStatus(String v) { this.verifyStatus = v; }
+    public String getVerifyCommand() { return verifyCommand; }
+    public void setVerifyCommand(String v) { this.verifyCommand = v; }
+    public String getVerifyOutput() { return verifyOutput; }
+    public void setVerifyOutput(String v) { this.verifyOutput = v; }
+    public boolean isVerifyFixed() { return verifyFixed; }
+    public void setVerifyFixed(boolean v) { this.verifyFixed = v; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getStartedAt() { return startedAt; }
     public Instant getFinishedAt() { return finishedAt; }

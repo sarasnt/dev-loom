@@ -245,7 +245,8 @@ public class FleetService {
         final String prompt = body.prompt();
         final String model = body.model();
         final String dir = cwd;
-        pool.submit(() -> runLocal(id, dir, prompt, model, edit));
+        final boolean allowTests = body.allowTests();
+        pool.submit(() -> runLocal(id, dir, prompt, model, edit, allowTests));
         audit.record("fleet_launch", repo.getPath(),
                 "local · " + model + " · " + (edit ? "edit · isolated · " : "readonly · ") + title);
         return toDto(run);
@@ -253,10 +254,11 @@ public class FleetService {
 
     /** Executes a local/API analysis run off-request and records its outcome. */
     private void runLocal(Long id, String path, String prompt, String model) {
-        runLocal(id, path, prompt, model, false);
+        runLocal(id, path, prompt, model, false, false);
     }
 
-    private void runLocal(Long id, String path, String prompt, String model, boolean edit) {
+    private void runLocal(Long id, String path, String prompt, String model, boolean edit,
+                          boolean allowTests) {
         try {
             // No needs-input marker here on purpose: a one-shot analysis has no channel to answer
             // through, so flagging it would offer the user an action they can't take. If the model
@@ -285,18 +287,29 @@ public class FleetService {
             // Judged on the ORIGINAL request, not the assembled prompt — the repo summary and the
             // closing instructions are ours, and grading the model on our own scaffolding would
             // reward it for answering us rather than the user.
-            // For an edit run there is nothing to have an opinion about: the tool loop recorded
-            // whether a file was written. Asked to judge one anyway, a small model read the
-            // covering note ("I've updated src/cart.js — let me know if you need anything else")
-            // and ruled the guard had never been added, while the guard was sitting in the
-            // worktree. A checked fact outranks a judged one, and skipping the call is free.
+            // Two signals, and each is wrong on its own. The judge alone read a covering note
+            // ("I've updated src/cart.js — let me know if you need anything else") and ruled the
+            // guard had never been added, while the guard sat in the worktree. The write alone
+            // called it a success when a model, asked to add a service fee, wrote an unrelated
+            // change instead: a file was written, the tests passed, and nothing was done.
+            //
+            // So a write is evidence that something real happened, not that the right thing did.
+            // Together: wrote and the judge agrees → yes; wrote but the judge doesn't → partly,
+            // which is exactly what "it changed something, but maybe not what you asked" means.
             int writes = r.telemetry() == null ? 0 : r.telemetry().writes();
             boolean wrote = writes > 0;
-            com.devloom.ai.AnswerJudge.Verdict verdict = wrote
-                    ? new com.devloom.ai.AnswerJudge.Verdict(1.0, true,
-                            writes + (writes == 1 ? " file written" : " files written") + " — recorded, not judged")
-                    : judge.judge(prompt, text, model,
-                            r.telemetry() == null ? java.util.List.of() : r.telemetry().activity());
+            com.devloom.ai.AnswerJudge.Verdict judged = judge.judge(prompt, text, model,
+                    r.telemetry() == null ? java.util.List.of() : r.telemetry().activity());
+            com.devloom.ai.AnswerJudge.Verdict verdict = judged;
+            if (wrote) {
+                String files = writes + (writes == 1 ? " file written" : " files written");
+                boolean agrees = judged != null && judged.adherence() != null && judged.adherence() > 0.0;
+                verdict = agrees
+                        ? new com.devloom.ai.AnswerJudge.Verdict(1.0, true, files + " · " + judged.note())
+                        : new com.devloom.ai.AnswerJudge.Verdict(0.5, true,
+                                files + ", but not clearly the change asked for"
+                                        + (judged == null ? "" : " · " + judged.note()));
+            }
 
             // One retry, and only on a clear miss. The judge was measured against eval/ before
             // being wired to anything: it agrees with the known answers 6/7 and has never called
@@ -325,27 +338,95 @@ public class FleetService {
                 if (second != null && second.adherence() != null && second.adherence() > 0.0) {
                     finishLocal(id, text2.replace("[DEVLOOM:INPUT]", "").stripTrailing(), null, false,
                             r2.telemetry(),
-                            com.devloom.ai.RunQuality.score(r2.telemetry(), text2, true, edit), second, true);
+                            com.devloom.ai.RunQuality.score(r2.telemetry(), text2, true, edit), second, true, null);
                     return;
                 }
                 log.info("Run {} missed it again — keeping the first attempt", id);
             }
+            // Write, then run, then read the failure, then fix. Until this existed an edit run
+            // ended at "the model wrote a file", and whether the file worked was left to whoever
+            // opened the branch — which is the whole reason a local model's edit was a gamble.
+            Verify check = wrote && allowTests ? verify(id, path, prompt, system, model, edit) : null;
+
             finishLocal(id, text.replace("[DEVLOOM:INPUT]", "").stripTrailing(), null, false,
                     r.telemetry(), com.devloom.ai.RunQuality.score(r.telemetry(), text, true, edit),
-                    verdict, retried);
+                    verdict, retried, check);
         } catch (Exception e) {
             finishLocal(id, null, e.getMessage() == null ? "run failed" : e.getMessage(), false);
         }
     }
 
+    /**
+     * The outcome of running the repository's own check against what an edit run wrote.
+     *
+     * @param status  "passed", "failed", or "skipped" when there was no check to run
+     * @param command what was run, or why nothing was
+     * @param output  the tail of the failure, kept so the branch can be judged without checking out
+     * @param fixed   the check failed, the model was given the failure, and the retry passed
+     */
+    private record Verify(String status, String command, String output, boolean fixed) {}
+
+    /**
+     * Run the repo's check; on failure, hand the model its own failure output and let it try once.
+     *
+     * <p>One attempt, for the same reason the answer retry is bounded at one: a model that cannot
+     * read a stack trace and fix it will not manage it on the third pass, and an open loop against
+     * a test suite burns the machine rather than the budget. The fix runs in the same worktree, so
+     * a failed fix leaves a branch you discard — nothing has landed anywhere.
+     */
+    private Verify verify(Long id, String dir, String prompt, String system, String model, boolean edit) {
+        Map<String, Object> first = safeVerify(dir);
+        if (first == null) return null;
+        if (!Boolean.TRUE.equals(first.get("ran"))) {
+            // A missing toolchain is not a failing build, and recording it as one would teach you
+            // to ignore the field.
+            return new Verify("skipped", str(first.get("why")), null, false);
+        }
+        String command = str(first.get("command"));
+        if (Boolean.TRUE.equals(first.get("ok"))) return new Verify("passed", command, null, false);
+
+        String output = str(first.get("output"));
+        log.info("Run {} wrote files but `{}` failed — handing back the output once", id, command);
+        String fixPrompt = repoContext(dir)
+                + "\n\nYou already changed this repository for this task:\n" + clip(prompt, 1_000)
+                + "\n\nRunning `" + command + "` now fails:\n\n" + clip(output, 4_000)
+                + "\n\nRead the files you changed and fix them so that check passes."
+                + " Call repo_write_file with the corrected contents. Do not reply with the code.";
+        try {
+            llm.generate(new com.devloom.ai.LlmPort.LlmRequest("fleet", system, fixPrompt, model, dir, edit));
+        } catch (Exception e) {
+            log.debug("Fix attempt for run {} failed to complete: {}", id, e.toString());
+            return new Verify("failed", command, output, false);
+        }
+        Map<String, Object> second = safeVerify(dir);
+        if (second != null && Boolean.TRUE.equals(second.get("ran")) && Boolean.TRUE.equals(second.get("ok"))) {
+            return new Verify("passed", command, null, true);
+        }
+        // Report the SECOND failure: the first is already stale, and showing it would send you
+        // looking for an error the current files no longer produce.
+        String stillFailing = second == null ? output : str(second.getOrDefault("output", output));
+        return new Verify("failed", command, stillFailing, false);
+    }
+
+    /** Never throws: an agent that is down means the check did not run, not that the run failed. */
+    private Map<String, Object> safeVerify(String dir) {
+        try {
+            return agent.verify(dir, 300_000);
+        } catch (Exception e) {
+            log.debug("Verify unavailable for {}: {}", dir, e.toString());
+            return null;
+        }
+    }
+
     /** Persist a local run's outcome (runs on a pool thread — the repository save opens its own tx). */
     private void finishLocal(Long id, String result, String error, boolean needsInput) {
-        finishLocal(id, result, error, needsInput, null, null, null, false);
+        finishLocal(id, result, error, needsInput, null, null, null, false, null);
     }
 
     private void finishLocal(Long id, String result, String error, boolean needsInput,
                              com.devloom.ai.ToolTelemetry tel, com.devloom.ai.RunQuality.Score score,
-                             com.devloom.ai.AnswerJudge.Verdict verdict, boolean retried) {
+                             com.devloom.ai.AnswerJudge.Verdict verdict, boolean retried,
+                             Verify check) {
         AgentRunEntity run = runs.findById(id).orElse(null);
         if (run == null) return;
         if ("canceled".equals(run.getStatus())) return; // the user let go of it while it ran
@@ -361,6 +442,12 @@ public class FleetService {
             run.setQualityNotes(score.summary());
         }
         run.setRetried(retried);
+        if (check != null) {
+            run.setVerifyStatus(check.status());
+            run.setVerifyCommand(check.command());
+            run.setVerifyOutput(check.output());
+            run.setVerifyFixed(check.fixed());
+        }
         // Whether it did the thing, which is a different question from how tidily it went about it.
         if (verdict != null && verdict.adherence() != null) {
             run.setAdherenceScore(java.math.BigDecimal.valueOf(verdict.adherence()));
@@ -857,7 +944,8 @@ public class FleetService {
                 r.getQualityScore() == null ? null : r.getQualityScore().doubleValue(),
                 r.getQualityNotes(), r.getToolCalls(), r.getToolRepeats(),
                 r.getAdherenceScore() == null ? null : r.getAdherenceScore().doubleValue(),
-                r.getAdherenceNote(), r.getGrounded(), r.isRetried());
+                r.getAdherenceNote(), r.getGrounded(), r.isRetried(),
+                r.getVerifyStatus(), r.getVerifyCommand(), r.getVerifyOutput(), r.isVerifyFixed());
     }
 
     private static String iso(Instant t) { return t == null ? null : t.toString(); }

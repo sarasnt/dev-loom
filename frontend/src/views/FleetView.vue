@@ -169,6 +169,13 @@ async function discardIsolated(r: AgentRun) {
 function adherenceLabel(v: number): string {
   return v >= 1 ? 'yes' : v > 0 ? 'partly' : 'no'
 }
+// "fixed it" is worth saying out loud: the check failed, the model was handed the failure, and
+// the second attempt passed — a different result from having got it right first time.
+function verifyLabel(r: AgentRun): string {
+  if (r.verifyStatus === 'passed') return r.verifyFixed ? 'check passed, after a fix' : 'check passed'
+  if (r.verifyStatus === 'failed') return 'check still failing'
+  return 'no check to run'
+}
 // Bands, not a gradient: a run either did the job cleanly, wobbled, or went wrong.
 function qualityClass(score: number): string {
   return score >= 0.9 ? 'good' : score >= 0.6 ? 'ok' : 'bad'
@@ -324,6 +331,18 @@ const continueModel = computed(() => {
 
         <!-- How it went about the work, distinct from whether the answer is right — which only you
              can judge. A clean run is unremarkable, so only the imperfect ones say why. -->
+        <!-- The one line here that isn't an opinion: the repo's own check, run against what the
+             model wrote. A failure is shown with its output so the branch can be judged from
+             here rather than by checking it out. -->
+        <div v-if="detail.verifyStatus" class="quality mono">
+          <span class="qval" :class="detail.verifyStatus === 'passed' ? 'good' : detail.verifyStatus === 'failed' ? 'bad' : 'mid'">
+            {{ detail.verifyStatus === 'passed' ? '✓' : detail.verifyStatus === 'failed' ? '✕' : '–' }}
+          </span>
+          <span class="qlab">{{ verifyLabel(detail) }}</span>
+          <span v-if="detail.verifyCommand" class="qpen">{{ detail.verifyCommand }}</span>
+        </div>
+        <pre v-if="detail.verifyStatus === 'failed' && detail.verifyOutput" class="vout mono">{{ detail.verifyOutput }}</pre>
+
         <div v-if="detail.adherenceScore !== null && detail.adherenceScore !== undefined" class="quality mono">
           <span class="qval" :class="qualityClass(detail.adherenceScore)">{{ adherenceLabel(detail.adherenceScore) }}</span>
           <span class="qlab">did the task</span>
@@ -481,6 +500,9 @@ button.run:hover { border-color: var(--warp); }
 .qval.good { color: var(--ok, #6ea87f); }
 .qval.ok { color: var(--warp-hi); }
 .qval.bad { color: var(--danger, #c96a5b); }
+.qval.mid { color: var(--faint-text); }
+/* The check output is evidence, so it keeps its own shape rather than being reflowed as prose. */
+.vout { margin: 6px 0 10px; padding: 10px 12px; background: var(--bg); border: 1px solid var(--line); border-left: 2px solid var(--danger, #c96a5b); border-radius: 0 8px 8px 0; font-size: 11.5px; line-height: 1.5; color: var(--dim); max-height: 260px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
 .qlab { letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint-text); }
 .qsep { color: var(--faint-text); }
 .qpen { color: var(--warp-hi); }

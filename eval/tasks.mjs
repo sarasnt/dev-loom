@@ -1,6 +1,6 @@
 // The battery: questions with one right answer each, shared by run.mjs (which scores the model)
 // and judge.mjs (which scores the judge against these same known answers).
-import { TRACKED_FILE_COUNT } from './fixture.mjs'
+import { TRACKED_FILE_COUNT, TRACKED_FILE_WORD } from './fixture.mjs'
 
 // `attemptIsCorrect: false` means a wrong answer here is still an attempt, so eval/judge.mjs must
 // not score the judge on it — see the header there.
@@ -24,7 +24,7 @@ export const TASKS = [
     attemptIsCorrect: true,
     prompt: 'How many files are tracked in this git repository? Answer with the number.',
     // Spelled or digit, but it must not be a count of .git internals.
-    check: (a) => new RegExp(`\\b(${TRACKED_FILE_COUNT}|six)\\b`, 'i').test(a),
+    check: (a) => new RegExp(`\\b(${TRACKED_FILE_COUNT}|${TRACKED_FILE_WORD})\\b`, 'i').test(a),
     why: 'the file list is in context — a model reaching for a directory tool gets .git noise instead',
   },
   {

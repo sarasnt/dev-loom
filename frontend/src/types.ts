@@ -499,6 +499,10 @@ export interface AgentRun {
   adherenceNote: string | null  // the judge's one line
   grounded: boolean | null      // stays within what it actually looked at
   retried: boolean              // the judge sent it back for a second attempt
+  verifyStatus: 'passed' | 'failed' | 'skipped' | null // the repo's own check, run against what it wrote
+  verifyCommand: string | null  // what ran, or why nothing did
+  verifyOutput: string | null   // the failure, so the branch can be judged without checking it out
+  verifyFixed: boolean          // it failed, the model was handed the output, and the retry passed
   toolCalls: number | null
   toolRepeats: number | null
 }

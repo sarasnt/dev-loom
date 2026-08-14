@@ -20,12 +20,33 @@ A tiny shopping-cart module used to evaluate DevLoom's model harness.
 Nothing here is deployed; it exists to be read and reasoned about.
 `,
 
+  // The test script is what lets this fixture measure the verify loop: an edit run can be checked
+  // by running the repo's own tests instead of by reading its covering note. Node's built-in
+  // runner, so the fixture still needs no npm install to be useful.
   'package.json': JSON.stringify({
     name: 'loom-eval-fixture',
     version: '2.4.1',
     type: 'module',
     main: 'src/index.js',
+    scripts: { test: 'node --test' },
   }, null, 2) + '\n',
+
+  'test/cart.test.js': `import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { total, averagePrice } from '../src/cart.js'
+
+test('total sums the prices', () => {
+  assert.equal(total([{ price: 2 }, { price: 4 }]), 6)
+})
+
+test('total of an empty cart is 0', () => {
+  assert.equal(total([]), 0)
+})
+
+test('averagePrice divides by the number of items', () => {
+  assert.equal(averagePrice([{ price: 2 }, { price: 4 }]), 3)
+})
+`,
 
   'src/math.js': `export const PI = 3.14159
 
@@ -53,7 +74,11 @@ export { PI, add } from './math.js'
 }
 
 /** Facts the harness scores against, derived from FILES so they cannot drift apart. */
-export const TRACKED_FILE_COUNT = Object.keys(FILES).length // 6
+export const TRACKED_FILE_COUNT = Object.keys(FILES).length
+/** Spelled out, because a model asked for a count often writes the word. Derived, so it can't drift. */
+export const TRACKED_FILE_WORD =
+  ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'][TRACKED_FILE_COUNT]
+  ?? String(TRACKED_FILE_COUNT)
 
 /** Write the fixture to `dir` as a clean git repo, replacing whatever was there. */
 export function materialize(dir) {
