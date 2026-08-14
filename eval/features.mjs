@@ -18,7 +18,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-const API = process.env.DEVLOOM_API ?? 'http://localhost:8080/api/v1'
+const API = process.env.DEVLOOM_API ?? 'http://localhost/api/v1'
 
 /**
  * The ladder. Tier is about working memory, not lines of code:

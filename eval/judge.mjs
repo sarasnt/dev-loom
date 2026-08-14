@@ -24,7 +24,7 @@ import { TASKS } from './tasks.mjs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 
-const API = process.env.DEVLOOM_API ?? 'http://localhost:8080/api/v1'
+const API = process.env.DEVLOOM_API ?? 'http://localhost/api/v1'
 const FIXTURE_DIR = process.env.DEVLOOM_EVAL_DIR
   ?? join(homedir(), 'Documents', 'projects', 'devloom-eval-fixture')
 

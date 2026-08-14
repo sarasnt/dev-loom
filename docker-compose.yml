@@ -44,7 +44,7 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/devloom
       SPRING_DATASOURCE_USERNAME: devloom
       SPRING_DATASOURCE_PASSWORD: devloom
-      DEVLOOM_CORS_ORIGINS: http://localhost:8088,http://localhost:5173,http://localhost:5174
+      DEVLOOM_CORS_ORIGINS: http://localhost,http://localhost:8088,http://localhost:5173,http://localhost:5174,http://mycompanion-devloom.dev,http://portal.mycompanion-devloom.dev,http://api.mycompanion-devloom.dev
       DEVLOOM_AI_PROVIDER: ${DEVLOOM_AI_PROVIDER:-stub}
       DEVLOOM_OLLAMA_URL: http://ollama:11434
       # Master secret for encrypting app-stored API keys (also settable in backend/.env).
@@ -59,8 +59,10 @@ services:
     # Make host.docker.internal resolve on Linux/Debian too (Docker Desktop provides it already).
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    ports:
-      - "8080:8080"
+    # Internal only — reached through the edge proxy, so a busy 8080 on your machine is
+    # not a reason DevLoom cannot start. Publish it again if you want direct access.
+    expose:
+      - "8080"
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8080/actuator/health || exit 1"]
       interval: 10s
@@ -74,8 +76,23 @@ services:
         VITE_API_BASE: /api/v1
     depends_on:
       - backend
+    expose:
+      - "80"
+
+  # ---- the only container that publishes a port ----
+  # Routes by hostname: portal.<domain> and the bare domain to the SPA, api.<domain> to the
+  # API. Needs the names in your hosts file (see edge/nginx.conf); http://localhost keeps
+  # working regardless, because the portal server is also the default_server.
+  edge:
+    image: nginx:1.27-alpine
+    depends_on:
+      - frontend
+      - backend
+    volumes:
+      - ./edge/nginx.conf:/etc/nginx/conf.d/default.conf:ro
     ports:
-      - "8088:80"
+      - "${DEVLOOM_HTTP_PORT:-80}:80"
+    restart: unless-stopped
 
   # ---- optional: local models (profile "ai") ----
   ollama:

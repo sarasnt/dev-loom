@@ -14,8 +14,9 @@ in `SPEC.md` (product/technical), `UI-SPEC.md` + `DESIGN.md` (design system), `d
 
 | Process | Where | Why it exists |
 | --- | --- | --- |
-| `frontend` | Docker (nginx, :8088) | Vue 3 SPA, static build |
-| `backend` | Docker (Spring Boot, :8080) | API, DB, model routing |
+| `edge` | Docker (nginx, **:80**) | The only published port; routes by hostname |
+| `frontend` | Docker (nginx, internal) | Vue 3 SPA, static build |
+| `backend` | Docker (Spring Boot, internal) | API, DB, model routing |
 | **host agent** | **Your machine** (Node, 127.0.0.1:8765) | Everything a container can't reach |
 
 The backend runs in a container, so it **cannot** touch your filesystem, your git repos, your
@@ -58,7 +59,9 @@ need the agent process restarted (kill the listener on 8765, start it again).
 
 There is **no unit-test harness** in this project. Verification is: `vue-tsc --noEmit`, the
 containerized `mvn compile`, then exercising the real running app with `curl`
-(`http://localhost:8080/api/v1/...`) and the browser (`http://localhost:8088`). Prefer proving a
+(`http://localhost/api/v1/...`) and the browser (`http://localhost`). Only `edge` publishes a
+port — 8080 and 8088 are no longer reachable from the host, and `mycompanion-devloom.dev`,
+`api.` and `portal.` resolve too once the hosts entry exists. Prefer proving a
 change against live data over asserting it works.
 
 **Model behaviour has its own harness** (`eval/`) because it can't be checked by reading the diff:
@@ -121,7 +124,7 @@ branch or lands a patch, Discard removes both.
   from `api/index.ts`. Views import from `../api` only.
 - **Jackson**: use `com.fasterxml.jackson` (Jackson 2). Boot 4 also ships `tools.jackson`
   (Jackson 3) — mixing them breaks the build.
-- **Migrations**: Flyway, `backend/src/main/resources/db/migration/`. Next is **V22**.
+- **Migrations**: Flyway, `backend/src/main/resources/db/migration/`. Next is **V24**.
 - **Secrets**: encrypted via `SecretCipher`/`DEVLOOM_SECRET`, stored apart from config
   (`source_credential`, `provider_credential`). They must never enter exports, backups or logs.
 - **Windows/agent**: run `git` with `shell: false` — going through cmd.exe re-splits arguments

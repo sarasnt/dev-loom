@@ -35,9 +35,13 @@ This is the thing to understand first.
 
 | Process | Where it runs | Why |
 | --- | --- | --- |
-| `frontend` | Docker, nginx on **:8088** | Vue 3 SPA |
-| `backend` | Docker, Spring Boot on **:8080** | API, database, model routing |
+| `edge` | Docker, nginx on **:80** | The only published port — routes by hostname |
+| `frontend` | Docker, nginx (internal) | Vue 3 SPA |
+| `backend` | Docker, Spring Boot (internal) | API, database, model routing |
 | **host agent** | **Your machine**, Node on 127.0.0.1:**8765** | Everything a container cannot reach |
+
+Only the edge publishes a port, so a busy 8080 or 5432 on your machine is no longer a reason
+DevLoom won't start. Change the one it does publish with `DEVLOOM_HTTP_PORT` if 80 is taken.
 
 The backend runs in a container, so it *cannot* touch your filesystem, your git repositories, your
 `claude` CLI, your `~/.claude` config, or raise a desktop notification. All of that goes through
@@ -66,7 +70,26 @@ docker compose --profile obs up -d
 node agent/devloom-agent.mjs
 ```
 
-Then open **http://localhost:8088**. The API is on http://localhost:8080/api/v1.
+Then open **http://localhost**. The API is on http://localhost/api/v1.
+
+### Using the domain names
+
+Add them to your hosts file — on Windows, in an **Administrator** PowerShell:
+
+```powershell
+Add-Content -Path "$env:WINDIR\System32\drivers\etc\hosts" -Encoding ascii `
+  -Value "127.0.0.1 mycompanion-devloom.dev api.mycompanion-devloom.dev portal.mycompanion-devloom.dev"
+```
+
+| URL | Serves |
+| --- | --- |
+| `http://mycompanion-devloom.dev` | the app |
+| `http://portal.mycompanion-devloom.dev` | the app |
+| `http://api.mycompanion-devloom.dev/api/v1/…` | the API on its own name |
+
+Nothing is registered publicly and nothing leaves the machine — these names mean something only
+because your hosts file says so. `http://localhost` keeps working either way, so the entry is
+optional.
 
 Code changes do not appear until you rebuild — the frontend is a static build and the backend is a
 jar:
