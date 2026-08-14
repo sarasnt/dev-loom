@@ -210,5 +210,7 @@ docs/        connector specs, deployment, feature specs and plans
   local model therefore always get their own git worktree and branch, so a bad one is discarded
   rather than landed.
 - A local edit run's work is never executed — there is no write → run tests → fix loop yet.
-- Jira support targets **Data Center / on-premises**, not Jira Cloud.
+- Jira **Data Center / on-premises** works (PAT + REST v2). Jira **Cloud** is implemented — a
+  separate deployment using Basic `email:apiToken`, REST v3 and ADF flattening — but it calls
+  `/rest/api/3/search`, which Atlassian removed; it needs porting to `/rest/api/3/search/jql`.
 - Streaming is implemented for local models; remote providers still answer in one piece.
