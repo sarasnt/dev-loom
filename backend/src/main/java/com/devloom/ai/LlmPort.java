@@ -55,18 +55,32 @@ public interface LlmPort {
      * @param repoPath the repository this request is about, or null. Present, it turns on the
      *                 built-in repo tools ({@link RepoTools}) for the turn — which is what lets a
      *                 model actually read the code it is being asked about.
+     * @param schema   constrain the reply to this JSON shape, or null for prose. Adapters that
+     *                 can't constrain simply ignore it, so every caller keeps a prose fallback —
+     *                 the schema removes a failure mode, it must never add one.
      */
     record LlmRequest(String feature, String system, String prompt, String model, String repoPath,
-                      boolean repoWritable) {
+                      boolean repoWritable, dev.langchain4j.model.chat.request.json.JsonSchema schema) {
 
         /** For features with no repository in play (brainstorming a topic, a build log). */
         public LlmRequest(String feature, String system, String prompt, String model) {
-            this(feature, system, prompt, model, null, false);
+            this(feature, system, prompt, model, null, false, null);
         }
 
         /** Repo-scoped and read-only — the default for anything that only needs to understand code. */
         public LlmRequest(String feature, String system, String prompt, String model, String repoPath) {
-            this(feature, system, prompt, model, repoPath, false);
+            this(feature, system, prompt, model, repoPath, false, null);
+        }
+
+        /** The pre-schema shape, kept so existing call sites don't churn. */
+        public LlmRequest(String feature, String system, String prompt, String model, String repoPath,
+                          boolean repoWritable) {
+            this(feature, system, prompt, model, repoPath, repoWritable, null);
+        }
+
+        /** The same request, with its reply constrained to {@code s}. */
+        public LlmRequest withSchema(dev.langchain4j.model.chat.request.json.JsonSchema s) {
+            return new LlmRequest(feature, system, prompt, model, repoPath, repoWritable, s);
         }
     }
 

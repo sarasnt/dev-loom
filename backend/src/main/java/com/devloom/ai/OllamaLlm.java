@@ -21,6 +21,8 @@ import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.request.ChatRequest;
+import dev.langchain4j.model.chat.request.ResponseFormat;
+import dev.langchain4j.model.chat.request.ResponseFormatType;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.model.ollama.OllamaChatModel;
@@ -94,7 +96,7 @@ public class OllamaLlm implements LlmPort {
         // that a smaller model's true limit may have already pulled below).
         int window = numCtx(model);
         // Route through LangChain4j so ModelMonitor (a ChatModelListener) observes the call.
-        OllamaChatModel chat = OllamaChatModel.builder()
+        var builder = OllamaChatModel.builder()
                 .baseUrl(baseUrl)
                 .modelName(model)
                 .timeout(Duration.ofSeconds(120))
@@ -104,13 +106,29 @@ public class OllamaLlm implements LlmPort {
                 .temperature(sampling.temperature(request.feature(), model))
                 .topP(sampling.topP(request.feature(), model))
                 .seed(sampling.seed(request.feature()))
-                .numCtx(window)
-                .build();
+                .numCtx(window);
+        if (request.schema() != null) {
+            builder.responseFormat(ResponseFormat.builder()
+                    .type(ResponseFormatType.JSON)
+                    .jsonSchema(request.schema())
+                    .build());
+        }
+        OllamaChatModel chat = builder.build();
         List<ChatMessage> messages = new ArrayList<>();
         if (request.system() != null && !request.system().isBlank()) {
             messages.add(SystemMessage.from(request.system()));
         }
         messages.add(UserMessage.from(request.prompt()));
+        // A schema'd request skips the tool loop entirely: constrained JSON output and tool-call
+        // turns are mutually exclusive (the grammar would strangle a tool call mid-JSON), and
+        // every schema consumer is a single-shot classification, not an agentic turn.
+        if (request.schema() != null) {
+            List<ChatMessage> plain = new ArrayList<>(messages);
+            String json = chat.chat(dev.langchain4j.model.chat.request.ChatRequest.builder()
+                    .messages(plain).build()).aiMessage().text();
+            log.info("Ollama generate (schema): model={} chars={}", model, json == null ? 0 : json.length());
+            return new LlmResult(json == null ? "" : json, model, provider(), true, null);
+        }
         // Through the tool loop so the model can actually call any MCP tools the user enabled;
         // with none enabled this is a plain one-shot chat.
         ToolLoop.Reply reply = toolLoop.run(ToolLoop.blocking(chat), messages, request.repoPath(),
