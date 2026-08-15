@@ -46,7 +46,9 @@ export const TASKS = [
   },
   {
     id: 'survey',
-    attemptIsCorrect: true,
+    // A partial listing is an attempt the judge fairly grades "partly" — the check demands
+    // completeness, so failing it doesn't mean the work was skipped.
+    attemptIsCorrect: false,
     // Deliberately the expensive one: it can't be done in a single read, so it exercises the
     // multi-step path where weak models start repeating themselves or run out of budget. The
     // check is loose on purpose — this task exists to stress the loop, and the penalties in the
