@@ -77,21 +77,50 @@ Then open **http://localhost**. The API is on http://localhost/api/v1.
 
 ### Using the domain names
 
-Two one-time steps, both needing an **Administrator** PowerShell. They are not optional for a
-`.dev` name: `.dev` is on the HSTS preload list built into every major browser, so the browser
-rewrites the address to `https://` before it sends anything — and an HSTS domain gives you no
-"proceed anyway" button for an untrusted certificate. Without both steps the names simply do not
-load. (`http://localhost` needs neither and always works.)
+Two one-time steps: make the names resolve, and trust the CA. Neither is optional for a `.dev`
+name. `.dev` is on the HSTS preload list built into every major browser, so the address is
+rewritten to `https://` before the request is sent, and an HSTS domain gives you no "proceed
+anyway" button for an untrusted certificate — without both steps the names simply do not load.
+
+`http://localhost` needs neither and always works, so you can skip this entirely.
+
+Generate the certificate first:
+
+```bash
+sh edge/make-certs.sh
+```
+
+**Windows** — in an **Administrator** PowerShell, from the repo root:
 
 ```powershell
-# 1. make the names resolve to this machine
 Add-Content -Path "$env:WINDIR\System32\drivers\etc\hosts" -Encoding ascii `
   -Value "127.0.0.1 mycompanion-devloom.dev api.mycompanion-devloom.dev portal.mycompanion-devloom.dev"
 
-# 2. trust the local CA (generate it first with: sh edge/make-certs.sh)
-Import-Certificate -FilePath .\edge\certs\devloom-local-ca.crt `
-  -CertStoreLocation Cert:\LocalMachine\Root
+Import-Certificate -FilePath .\edge\certs\devloom-local-ca.crt -CertStoreLocation Cert:\LocalMachine\Root
 ```
+
+**Debian / Ubuntu** — the system store covers curl and most tools, but Chrome, Chromium and
+Firefox each keep their own (NSS), which is why the third step exists and why skipping it looks
+like "curl works, the browser doesn't":
+
+```bash
+echo "127.0.0.1 mycompanion-devloom.dev api.mycompanion-devloom.dev portal.mycompanion-devloom.dev"   | sudo tee -a /etc/hosts
+
+# system store — the file must keep a .crt extension or update-ca-certificates ignores it
+sudo cp edge/certs/devloom-local-ca.crt /usr/local/share/ca-certificates/devloom-local-ca.crt
+sudo update-ca-certificates
+
+# browsers (NSS). Chrome/Chromium:
+sudo apt install -y libnss3-tools
+certutil -d sql:$HOME/.pki/nssdb -A -t "C,," -n "DevLoom Local CA" -i edge/certs/devloom-local-ca.crt
+
+# Firefox keeps one store per profile:
+for prof in ~/.mozilla/firefox/*/; do
+  certutil -d sql:"$prof" -A -t "C,," -n "DevLoom Local CA" -i edge/certs/devloom-local-ca.crt
+done
+```
+
+Restart the browser afterwards — the trust store is read at startup.
 
 | URL | Serves |
 | --- | --- |
@@ -100,8 +129,16 @@ Import-Certificate -FilePath .\edge\certs\devloom-local-ca.crt `
 | `https://api.mycompanion-devloom.dev/api/v1/…` | the API on its own name |
 
 The CA is generated on your machine, its key never leaves `edge/certs/` (gitignored), and it can
-only vouch for these names. Nothing is registered publicly — the names mean something only because
-your hosts file says so.
+only vouch for these names. Nothing is registered publicly — they mean something only because your
+hosts file says so.
+
+Two things that look like failures and are not:
+
+- **Windows `curl` fails with `CRYPT_E_NO_REVOCATION_CHECK`** while the browser is happy. Schannel
+  insists on checking revocation, and a local CA publishes no CRL. Pass `--ssl-no-revoke`.
+- **Node ignores the OS trust store.** If you point `eval/` or a script at the https API, set
+  `NODE_EXTRA_CA_CERTS=edge/certs/devloom-local-ca.crt`. The default `http://localhost/api/v1`
+  needs nothing.
 
 ## Configuration
 
