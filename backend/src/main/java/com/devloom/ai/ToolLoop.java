@@ -38,7 +38,10 @@ public class ToolLoop {
     public static final int DEFAULT_MAX_STEPS = 6;
 
     /**
-     * The context window requested from Ollama when the model's own limit doesn't cap it lower.
+     * The default for the context window {@link OllamaLlm} sends and the settings screen shows,
+     * used when the model's own limit doesn't cap it lower. The loop itself never reads this
+     * constant — it receives the effective window per call as {@code contextWindow}, computed
+     * once by the caller so the same figure goes to Ollama and to the budget check here.
      * 8192 (double Ollama's default) because the KV cache grows linearly with the window — a
      * larger default risks VRAM on shared cards, and anyone with headroom can raise it in
      * Settings › Models › Advanced.
@@ -125,18 +128,6 @@ public class ToolLoop {
 
     /** The answer, plus what the model did to arrive at it. */
     public record Reply(String text, ToolTelemetry telemetry) {}
-
-    public String chat(ChatModel model, List<ChatMessage> messages) {
-        return chat(model, messages, null);
-    }
-
-    public String chat(ChatModel model, List<ChatMessage> messages, String repoPath) {
-        return run(blocking(model), messages, repoPath, false, LlmPort.StreamSink.NONE, null, null).text();
-    }
-
-    public Reply run(Turn turn, List<ChatMessage> messages, String repoPath, LlmPort.StreamSink sink) {
-        return run(turn, messages, repoPath, false, sink, null, null);
-    }
 
     /**
      * @param modelName the resolved model, so its own step budget applies; null for the global one
@@ -229,7 +220,8 @@ public class ToolLoop {
                     // Fed back as a plain message: a tool-result message without a matching
                     // structured call confuses some chat templates.
                     messages.add(dev.langchain4j.data.message.UserMessage.from(
-                            "Result of " + req.name() + ":\n" + withBudget(o.text(), stepsLeft)));
+                            "Result of " + req.name() + ":\n"
+                                    + fitBudget(messages, withBudget(o.text(), stepsLeft), tel, contextWindow)));
                 }
             } else {
                 messages.add(ai);

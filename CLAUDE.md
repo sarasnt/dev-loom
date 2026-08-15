@@ -68,8 +68,9 @@ change against live data over asserting it works.
 local models vary run to run, so a prompt or tool change looks like whatever the last attempt did.
 `node eval/run.mjs --models <m> --reps 3 --save x.json` runs a battery of questions with known
 answers through the real `/fleet/runs` path and scores them; `--compare x.json` diffs pass rates.
-Change anything in `ai/` (prompts, tools, sampling) and re-run it — a claim of improvement without
-a moved pass rate is a guess.
+Every battery also appends to `eval/history.jsonl`, and `node eval/trend.mjs` flags regressions
+across runs. Change anything in `ai/` (prompts, tools, sampling) and re-run it — a claim of
+improvement without a moved pass rate is a guess.
 
 Two different numbers, and they measure different things. **Correctness** is the eval's own regex
 check on the answer. **Run quality** (`RunQuality`) scores the *process* — repeated calls, invented

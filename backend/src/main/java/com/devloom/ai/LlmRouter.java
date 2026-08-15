@@ -150,8 +150,11 @@ public class LlmRouter {
             String system = "claude-code".equals(port.provider())
                     ? request.system()
                     : skills.applyTo(request.system(), request.prompt());
+            // The 7-arg canonical form: the router re-targets the model but must never strip what
+            // the caller asked for, and the 6-arg overload silently nulls the schema.
             LlmPort.LlmRequest req = new LlmPort.LlmRequest(
-                    request.feature(), system, request.prompt(), model, request.repoPath(), request.repoWritable());
+                    request.feature(), system, request.prompt(), model, request.repoPath(),
+                    request.repoWritable(), request.schema());
             long t0 = System.currentTimeMillis();
             try {
                 LlmPort.LlmResult result = port.generate(req, sink);

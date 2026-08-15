@@ -91,27 +91,35 @@ public class OllamaAdminService {
      */
     public int contextLength(String model) {
         if (model == null || model.isBlank()) return 0;
-        return ctxCache.computeIfAbsent(model, m -> {
-            try {
-                Map<String, Object> info = http.post().uri("/api/show")
-                        .header("Content-Type", "application/json")
-                        .body(Map.of("model", m))
-                        .retrieve().body(MAP);
-                Object mi = info == null ? null : info.get("model_info");
-                if (mi instanceof Map<?, ?> map) {
-                    for (Map.Entry<?, ?> e : map.entrySet()) {
-                        // The key is arch-prefixed ("qwen3moe.context_length"), so match the suffix.
-                        if (String.valueOf(e.getKey()).endsWith(".context_length")
-                                && e.getValue() instanceof Number n) {
-                            return n.intValue();
-                        }
+        Integer cached = ctxCache.get(model);
+        if (cached != null) return cached;
+        int probed = probeContextLength(model);
+        // Only cache a real answer — caching 0 would pin a model to "unknown" for the process
+        // lifetime after one transient /api/show hiccup, forever after under-serving its window.
+        if (probed > 0) ctxCache.put(model, probed);
+        return probed;
+    }
+
+    private int probeContextLength(String model) {
+        try {
+            Map<String, Object> info = http.post().uri("/api/show")
+                    .header("Content-Type", "application/json")
+                    .body(Map.of("model", model))
+                    .retrieve().body(MAP);
+            Object mi = info == null ? null : info.get("model_info");
+            if (mi instanceof Map<?, ?> map) {
+                for (Map.Entry<?, ?> e : map.entrySet()) {
+                    // The key is arch-prefixed ("qwen3moe.context_length"), so match the suffix.
+                    if (String.valueOf(e.getKey()).endsWith(".context_length")
+                            && e.getValue() instanceof Number n) {
+                        return n.intValue();
                     }
                 }
-            } catch (Exception e) {
-                log.debug("/api/show {} failed: {}", m, e.getMessage());
             }
-            return 0;
-        });
+        } catch (Exception e) {
+            log.debug("/api/show {} failed: {}", model, e.getMessage());
+        }
+        return 0;
     }
 
     /** Remove a model from Ollama and from the desired set. */

@@ -59,6 +59,10 @@ public class AnswerJudge {
             looked at, IS doing the task — that finding is the answer. Do not mark it "no" for
             refusing to invent one.
 
+            A reply in exactly the requested format — a bare number or name when the request
+            says to answer with just that — IS doing the task. Brevity the request asked for
+            is not missing context.
+
             A reply that does the work and then asks what to do next still did the task. Judge the
             work, not the sign-off — the trailing question is scored elsewhere and marking it "no"
             here punishes the same habit twice, which sent finished work back for a second attempt.

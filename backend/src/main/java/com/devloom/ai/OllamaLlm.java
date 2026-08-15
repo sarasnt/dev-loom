@@ -90,6 +90,8 @@ public class OllamaLlm implements LlmPort {
     @Override
     public LlmResult generate(LlmRequest request, StreamSink sink) {
         String model = resolveModel(request.model());
+        // A schema'd request is not constrained on the streaming path — no caller streams one
+        // today, and the port contract lets adapters ignore the schema entirely.
         if (sink != StreamSink.NONE) return streaming(request, model, sink);
         // Computed once: the same window goes to Ollama (so it actually allocates it) and to the
         // tool loop (so a tool result is budgeted against what was really requested, not a cap
@@ -124,8 +126,10 @@ public class OllamaLlm implements LlmPort {
         // every schema consumer is a single-shot classification, not an agentic turn.
         if (request.schema() != null) {
             List<ChatMessage> plain = new ArrayList<>(messages);
-            String json = chat.chat(dev.langchain4j.model.chat.request.ChatRequest.builder()
-                    .messages(plain).build()).aiMessage().text();
+            ChatResponse resp = chat.chat(dev.langchain4j.model.chat.request.ChatRequest.builder()
+                    .messages(plain).build());
+            var ai = resp.aiMessage();
+            String json = ai == null ? null : ai.text();
             log.info("Ollama generate (schema): model={} chars={}", model, json == null ? 0 : json.length());
             return new LlmResult(json == null ? "" : json, model, provider(), true, null);
         }
