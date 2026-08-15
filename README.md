@@ -74,31 +74,31 @@ Then open **http://localhost**. The API is on http://localhost/api/v1.
 
 ### Using the domain names
 
-Add them to your hosts file — on Windows, in an **Administrator** PowerShell:
+Two one-time steps, both needing an **Administrator** PowerShell. They are not optional for a
+`.dev` name: `.dev` is on the HSTS preload list built into every major browser, so the browser
+rewrites the address to `https://` before it sends anything — and an HSTS domain gives you no
+"proceed anyway" button for an untrusted certificate. Without both steps the names simply do not
+load. (`http://localhost` needs neither and always works.)
 
 ```powershell
+# 1. make the names resolve to this machine
 Add-Content -Path "$env:WINDIR\System32\drivers\etc\hosts" -Encoding ascii `
   -Value "127.0.0.1 mycompanion-devloom.dev api.mycompanion-devloom.dev portal.mycompanion-devloom.dev"
+
+# 2. trust the local CA (generate it first with: sh edge/make-certs.sh)
+Import-Certificate -FilePath .\edge\certs\devloom-local-ca.crt `
+  -CertStoreLocation Cert:\LocalMachine\Root
 ```
 
 | URL | Serves |
 | --- | --- |
-| `http://mycompanion-devloom.dev` | the app |
-| `http://portal.mycompanion-devloom.dev` | the app |
-| `http://api.mycompanion-devloom.dev/api/v1/…` | the API on its own name |
+| `https://mycompanion-devloom.dev` | the app |
+| `https://portal.mycompanion-devloom.dev` | the app |
+| `https://api.mycompanion-devloom.dev/api/v1/…` | the API on its own name |
 
-Nothing is registered publicly and nothing leaves the machine — these names mean something only
-because your hosts file says so. `http://localhost` keeps working either way, so the entry is
-optional.
-
-Code changes do not appear until you rebuild — the frontend is a static build and the backend is a
-jar:
-
-```bash
-docker compose up -d --build backend frontend
-```
-
----
+The CA is generated on your machine, its key never leaves `edge/certs/` (gitignored), and it can
+only vouch for these names. Nothing is registered publicly — the names mean something only because
+your hosts file says so.
 
 ## Configuration
 
