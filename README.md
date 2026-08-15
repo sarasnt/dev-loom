@@ -35,13 +35,13 @@ This is the thing to understand first.
 
 | Process | Where it runs | Why |
 | --- | --- | --- |
-| `edge` | Docker, nginx on **:80** | The only published port — routes by hostname |
+| `edge` | Docker, nginx on **:80 / :443** | The only published ports — routes by hostname, terminates TLS |
 | `frontend` | Docker, nginx (internal) | Vue 3 SPA |
 | `backend` | Docker, Spring Boot (internal) | API, database, model routing |
 | **host agent** | **Your machine**, Node on 127.0.0.1:**8765** | Everything a container cannot reach |
 
-Only the edge publishes a port, so a busy 8080 or 5432 on your machine is no longer a reason
-DevLoom won't start. Change the one it does publish with `DEVLOOM_HTTP_PORT` if 80 is taken.
+Only the edge publishes anything, so a busy 8080 or 5432 on your machine is no longer a reason
+DevLoom won't start. Move the two it does use with `DEVLOOM_HTTP_PORT` / `DEVLOOM_HTTPS_PORT`.
 
 The backend runs in a container, so it *cannot* touch your filesystem, your git repositories, your
 `claude` CLI, your `~/.claude` config, or raise a desktop notification. All of that goes through
@@ -59,7 +59,10 @@ node agent/devloom-agent.mjs     # foreground; `npm install` in agent/ only for 
 ## Quick start
 
 ```bash
-# core stack: database + backend + frontend
+# a local CA + certificate for the .dev names (once; uses Docker, installs nothing)
+sh edge/make-certs.sh
+
+# core stack: database + backend + frontend + edge
 docker compose up -d --build
 
 # optionally add local models (Ollama) and observability (Langfuse)
@@ -109,7 +112,7 @@ required to start: with no connectors configured the app runs and shows empty st
 | --- | --- |
 | `DEVLOOM_SECRET` | Master key for encrypting provider API keys at rest (AES-GCM). Required before you can save keys from the UI; keep it stable, rotating it invalidates stored keys |
 | `DEVLOOM_GITHUB_TOKEN` | GitHub connector (a read-only fine-grained PAT is enough) |
-| `DEVLOOM_JIRA_*` | Jira **Data Center / on-premises** (PAT + REST v2 — not Jira Cloud's OAuth) |
+| `DEVLOOM_JIRA_*` | Jira **Data Center / on-premises** (PAT + REST v2). Cloud is configured per instance in Settings › Sources |
 | `DEVLOOM_NOTION_TOKEN` | Notion connector |
 | `DEVLOOM_OLLAMA_URL` | Local models |
 | `DEVLOOM_LANGFUSE_*` | Trace and score export |
