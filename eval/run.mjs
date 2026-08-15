@@ -13,7 +13,7 @@
 //
 // Needs the app running (backend on :8080) and the host agent up.
 
-import { readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync, appendFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { materialize } from './fixture.mjs'
@@ -216,6 +216,27 @@ for (const model of args.models) {
       .map(([k, v]) => `${k} x${v}`).join('  ·  '))
   }
 }
+
+// Every battery leaves a row behind, so pass rates have a history instead of a memory. This is
+// what lets trend.mjs say "this task regressed" — a hand-saved baseline only answers questions
+// someone remembered to ask.
+const historyRow = {
+  at: new Date().toISOString(),
+  reps: args.reps,
+  tasks: tasks.map((t) => t.id),
+  models: Object.fromEntries(args.models.map((m) => {
+    const rows = Object.entries(results[m])
+    return [m, {
+      pass: rows.reduce((n, [, r]) => n + r.pass, 0),
+      n: rows.reduce((n, [, r]) => n + r.n, 0),
+      retried: rows.reduce((n, [, r]) => n + r.retried, 0),
+      rescued: rows.reduce((n, [, r]) => n + r.rescued, 0),
+      tasks: Object.fromEntries(rows.map(([id, r]) => [id, `${r.pass}/${r.n}`])),
+    }]
+  })),
+}
+appendFileSync(join(import.meta.dirname, 'history.jsonl'), JSON.stringify(historyRow) + '\n')
+console.log('history  → eval/history.jsonl')
 
 if (args.save) {
   writeFileSync(args.save, JSON.stringify({ at: new Date().toISOString(), args, results }, null, 2))
