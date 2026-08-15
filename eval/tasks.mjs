@@ -29,7 +29,8 @@ export const TASKS = [
   },
   {
     id: 'crossfile',
-    attemptIsCorrect: true,
+    // A model can search, conclude "nothing imports it", and be wrong — attempted, not skipped.
+    attemptIsCorrect: false,
     prompt: 'Which file imports `add` from math.js? Answer with the file path.',
     check: (a) => /cart\.js/.test(a) && !/index\.js/.test(a.replace(/[\s\S]*cart\.js/, '')),
     why: 'needs two files related to each other, not one file read',
