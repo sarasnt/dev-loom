@@ -16,6 +16,8 @@ public class AppConfigService {
     public static final String SAMPLING_GROUNDED_TEMP = "sampling.grounded.temperature";
     public static final String SAMPLING_GROUNDED_TOP_P = "sampling.grounded.topP";
     public static final String SAMPLING_CREATIVE_TEMP = "sampling.creative.temperature";
+    /** Fixed sampling seed for grounded work ("" = random). An instrument, not a default. */
+    public static final String SAMPLING_SEED = "sampling.grounded.seed";
     public static final String TOOL_MAX_STEPS = "tools.maxSteps";
     public static final String JUDGE_ENABLED = "judge.enabled";
     /** Per-model overrides of the above, one JSON row per model name. See {@code ModelSettings}. */

@@ -73,6 +73,25 @@ public class Sampling {
     }
 
     /**
+     * A fixed seed for grounded features, or null to leave the sampler random. Off by default:
+     * re-running a failed analysis is partly a way to harvest variance, and a pinned seed would
+     * make every re-run fail identically. Never applies to brainstorm — a seeded brainstorm
+     * produces the same three ideas every time, which is the failure the creative band exists
+     * to avoid.
+     */
+    public Integer seed(String feature) {
+        if (feature == null || !grounded(feature)) return null;
+        return config.get(AppConfigService.SAMPLING_SEED).map(v -> {
+            try {
+                int n = Integer.parseInt(v.trim());
+                return n >= 0 ? n : null;   // a negative seed is a typo, not a request
+            } catch (NumberFormatException e) {
+                return null;
+            }
+        }).orElse(null);
+    }
+
+    /**
      * This model's override, else the global setting, else what ships. Anything unparseable or
      * outside [0,1] falls through to the next level rather than being clamped: a temperature of 5
      * in the box is a mistake, and silently running at 1.0 would hide it.

@@ -139,6 +139,7 @@ async function saveAdvanced() {
     adv.value = (await saveAdvancedSettings({
       groundedTemperature: a.groundedTemperature, groundedTopP: a.groundedTopP,
       creativeTemperature: a.creativeTemperature, maxSteps: a.maxSteps, judgeEnabled: a.judgeEnabled,
+      seed: a.seed,
     })).advanced
     advFlash.value = 'Saved — applies to the next run.'
   } catch {
@@ -149,7 +150,7 @@ async function saveAdvanced() {
 }
 async function resetAdvanced() {
   if (!adv.value) return
-  adv.value = { ...adv.value, groundedTemperature: '', groundedTopP: '', creativeTemperature: '', maxSteps: '' }
+  adv.value = { ...adv.value, groundedTemperature: '', groundedTopP: '', creativeTemperature: '', maxSteps: '', seed: '' }
   await saveAdvanced()
 }
 
@@ -421,6 +422,11 @@ const usedPct = (p: KeyProvider) =>
           <span class="mono lbl">Tool steps per run</span>
           <input v-model="adv.maxSteps" class="keyin tiny mono" :placeholder="String(adv.defaults.maxSteps)" />
           <span class="mono hint">1–20. More room to read a repo; also more room to wander.</span>
+        </div>
+        <div class="row">
+          <span class="mono lbl">Grounded seed</span>
+          <input v-model="adv.seed" class="keyin tiny mono" placeholder="random" />
+          <span class="mono hint">Pins grounded sampling for reproducibility. Empty = random; never applies to Brainstorm.</span>
         </div>
         <div class="row">
           <span class="mono lbl">Judge each run</span>

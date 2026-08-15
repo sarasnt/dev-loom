@@ -97,6 +97,7 @@ public class OllamaLlm implements LlmPort {
                 // this ran at the provider default, which made repeat runs disagree with themselves.
                 .temperature(sampling.temperature(request.feature(), model))
                 .topP(sampling.topP(request.feature(), model))
+                .seed(sampling.seed(request.feature()))
                 .build();
         List<ChatMessage> messages = new ArrayList<>();
         if (request.system() != null && !request.system().isBlank()) {
@@ -128,6 +129,7 @@ public class OllamaLlm implements LlmPort {
                 .listeners(List.of(monitor))
                 .temperature(sampling.temperature(request.feature(), model))
                 .topP(sampling.topP(request.feature(), model))
+                .seed(sampling.seed(request.feature()))
                 .build();
 
         ToolLoop.Turn turn = (messages, specs) -> {

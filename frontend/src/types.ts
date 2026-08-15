@@ -405,6 +405,7 @@ export interface AdvancedSettings {
   groundedTopP: string
   creativeTemperature: string
   maxSteps: string
+  seed: string // fixed sampling seed for grounded work; "" = random (the default)
   judgeEnabled: boolean
   defaults: { groundedTemperature: number; groundedTopP: number; creativeTemperature: number; maxSteps: number }
 }

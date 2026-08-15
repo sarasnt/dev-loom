@@ -156,7 +156,7 @@ const NOTIFY_STUB = {
   urgentCi: true, urgentReview: true, prWaitHours: 24,
 }
 const ADVANCED_STUB: import('../types').AdvancedSettings = {
-  groundedTemperature: '', groundedTopP: '', creativeTemperature: '', maxSteps: '', judgeEnabled: true,
+  groundedTemperature: '', groundedTopP: '', creativeTemperature: '', maxSteps: '', seed: '', judgeEnabled: true,
   defaults: { groundedTemperature: 0.1, groundedTopP: 0.9, creativeTemperature: 0.7, maxSteps: 6 },
 }
 export function fetchSettings(): Promise<import('../types').SettingsData> {
