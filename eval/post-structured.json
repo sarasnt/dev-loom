@@ -1,0 +1,351 @@
+{
+  "at": "2026-08-15T15:29:22.128Z",
+  "args": {
+    "models": [
+      "qwen2.5-coder:7b"
+    ],
+    "reps": 3,
+    "tasks": null,
+    "save": "eval/post-structured.json",
+    "compare": "eval/hard-baseline.json"
+  },
+  "results": {
+    "qwen2.5-coder:7b": {
+      "version": {
+        "pass": 3,
+        "n": 3,
+        "ms": [
+          2039,
+          2022,
+          2024
+        ],
+        "quality": [
+          1,
+          1,
+          1
+        ],
+        "calls": [
+          1,
+          1,
+          1
+        ],
+        "repeats": [
+          0,
+          0,
+          0
+        ],
+        "penalties": {},
+        "retried": 0,
+        "rescued": 0,
+        "signals": {
+          "endsWithQuestion": 0,
+          "offersMenu": 0,
+          "empty": 0
+        },
+        "samples": []
+      },
+      "export": {
+        "pass": 3,
+        "n": 3,
+        "ms": [
+          2088,
+          2027,
+          2036
+        ],
+        "quality": [
+          1,
+          1,
+          1
+        ],
+        "calls": [
+          1,
+          1,
+          1
+        ],
+        "repeats": [
+          0,
+          0,
+          0
+        ],
+        "penalties": {},
+        "retried": 0,
+        "rescued": 0,
+        "signals": {
+          "endsWithQuestion": 0,
+          "offersMenu": 0,
+          "empty": 0
+        },
+        "samples": []
+      },
+      "count": {
+        "pass": 3,
+        "n": 3,
+        "ms": [
+          2025,
+          2026,
+          2030
+        ],
+        "quality": [
+          1,
+          1,
+          1
+        ],
+        "calls": [
+          0,
+          0,
+          0
+        ],
+        "repeats": [
+          0,
+          0,
+          0
+        ],
+        "penalties": {},
+        "retried": 1,
+        "rescued": 1,
+        "signals": {
+          "endsWithQuestion": 0,
+          "offersMenu": 0,
+          "empty": 0
+        },
+        "samples": []
+      },
+      "crossfile": {
+        "pass": 3,
+        "n": 3,
+        "ms": [
+          2022,
+          2027,
+          2023
+        ],
+        "quality": [
+          1,
+          1,
+          1
+        ],
+        "calls": [
+          1,
+          1,
+          1
+        ],
+        "repeats": [
+          0,
+          0,
+          0
+        ],
+        "penalties": {},
+        "retried": 0,
+        "rescued": 0,
+        "signals": {
+          "endsWithQuestion": 0,
+          "offersMenu": 0,
+          "empty": 0
+        },
+        "samples": []
+      },
+      "bug": {
+        "pass": 3,
+        "n": 3,
+        "ms": [
+          4079,
+          6058,
+          4040
+        ],
+        "quality": [
+          1,
+          1,
+          1
+        ],
+        "calls": [
+          1,
+          1,
+          1
+        ],
+        "repeats": [
+          0,
+          0,
+          0
+        ],
+        "penalties": {},
+        "retried": 1,
+        "rescued": 0,
+        "signals": {
+          "endsWithQuestion": 0,
+          "offersMenu": 0,
+          "empty": 0
+        },
+        "samples": []
+      },
+      "survey": {
+        "pass": 2,
+        "n": 3,
+        "ms": [
+          2025,
+          8057,
+          4097
+        ],
+        "quality": [
+          1,
+          1,
+          1
+        ],
+        "calls": [
+          4,
+          2,
+          2
+        ],
+        "repeats": [
+          0,
+          0,
+          0
+        ],
+        "penalties": {},
+        "retried": 1,
+        "rescued": 0,
+        "signals": {
+          "endsWithQuestion": 0,
+          "offersMenu": 0,
+          "empty": 0
+        },
+        "samples": [
+          "It appears that there are no JavaScript files in the `src/` directory based on the provided file list and search results. If you believe there should be JavaScript files, please double-check the repository contents or provide more details about what you're looking for."
+        ]
+      },
+      "chain": {
+        "pass": 3,
+        "n": 3,
+        "ms": [
+          4134,
+          4042,
+          4102
+        ],
+        "quality": [
+          1,
+          1,
+          1
+        ],
+        "calls": [
+          2,
+          3,
+          3
+        ],
+        "repeats": [
+          0,
+          0,
+          0
+        ],
+        "penalties": {},
+        "retried": 0,
+        "rescued": 0,
+        "signals": {
+          "endsWithQuestion": 0,
+          "offersMenu": 0,
+          "empty": 0
+        },
+        "samples": []
+      },
+      "seed": {
+        "pass": 3,
+        "n": 3,
+        "ms": [
+          4098,
+          4072,
+          4038
+        ],
+        "quality": [
+          1,
+          1,
+          1
+        ],
+        "calls": [
+          1,
+          1,
+          1
+        ],
+        "repeats": [
+          0,
+          0,
+          0
+        ],
+        "penalties": {},
+        "retried": 0,
+        "rescued": 0,
+        "signals": {
+          "endsWithQuestion": 0,
+          "offersMenu": 0,
+          "empty": 0
+        },
+        "samples": []
+      },
+      "reexport": {
+        "pass": 0,
+        "n": 3,
+        "ms": [
+          2026,
+          2022,
+          2025
+        ],
+        "quality": [
+          1,
+          1,
+          1
+        ],
+        "calls": [
+          1,
+          1,
+          1
+        ],
+        "repeats": [
+          0,
+          0,
+          0
+        ],
+        "penalties": {},
+        "retried": 0,
+        "rescued": 0,
+        "signals": {
+          "endsWithQuestion": 0,
+          "offersMenu": 0,
+          "empty": 0
+        },
+        "samples": [
+          "2",
+          "2"
+        ]
+      },
+      "refusal": {
+        "pass": 3,
+        "n": 3,
+        "ms": [
+          2031,
+          2021,
+          4048
+        ],
+        "quality": [
+          1,
+          1,
+          1
+        ],
+        "calls": [
+          1,
+          1,
+          2
+        ],
+        "repeats": [
+          0,
+          0,
+          0
+        ],
+        "penalties": {},
+        "retried": 0,
+        "rescued": 0,
+        "signals": {
+          "endsWithQuestion": 0,
+          "offersMenu": 0,
+          "empty": 0
+        },
+        "samples": []
+      }
+    }
+  }
+}

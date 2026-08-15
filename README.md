@@ -180,13 +180,21 @@ Around whichever model you pick:
   It resolves aliased tool names, notices a model re-fetching what it already has, and terminates.
 - **Sampling** (`ai/Sampling`) — two bands, because one number would have to be wrong for one of
   them: grounded work (repo analysis, build diagnosis, judging) samples near-greedily, brainstorming
-  stays warm. Adjustable globally and **per model** in Settings › Models › Advanced.
+  stays warm. An optional **seed** pins grounded sampling for reproducibility (off by default —
+  re-running exists partly to harvest variance). Adjustable globally and **per model** in
+  Settings › Models › Advanced.
+- **Context window** — every Ollama call sends a real `num_ctx` (the configured cap bounded by the
+  model's own limit), and the tool loop budgets the conversation against the same window, clipping
+  tool results with a note instead of letting Ollama silently truncate the system prompt off the
+  front. Remote providers are exempt: their windows are huge and they fail loudly.
 - **Prompts** (`ai/PromptLibrary`) — served from Langfuse when configured so a prompt can be edited
   without a rebuild; the compiled-in constant is the fallback and is what ships.
 - **Scoring — two axes, deliberately kept apart.** `RunQuality` scores the *process* (repeated
   calls, invented tool names, hitting the step cap, ending on a question). `AnswerJudge` rules on
-  whether the run *did the thing it was asked*. A run can be a clean 1.00 and still wrong, which is
-  the point of not merging them. Both are exported to Langfuse.
+  whether the run *did the thing it was asked* — its verdict is **schema-constrained JSON** on
+  local models (the shape is guaranteed by decoding, so a malformed reply can't silently drop a
+  verdict), with the prose parse kept as the fallback for remote models. A run can be a clean 1.00
+  and still wrong, which is the point of not merging them. Both are exported to Langfuse.
 - **Repair** — when the judge says a read-only run missed the task, it gets one more attempt, kept
   only if it scored better. Edit runs that already wrote a file are excluded: their changes are on
   disk and a second pass would write over work that landed.
@@ -201,7 +209,11 @@ node eval/run.mjs --models qwen2.5-coder:7b --reps 3 --save baseline.json
 node eval/run.mjs --models qwen2.5-coder:7b --reps 3 --compare baseline.json
 node eval/judge.mjs --models qwen2.5-coder:7b --reps 2    # does the judge agree with the truth?
 node eval/features.mjs                                    # a feature ladder, graded on files written
+node eval/trend.mjs                                       # pass rates over time; flags regressions
 ```
+
+Every battery appends a row to `eval/history.jsonl`, so a regression shows up as a `▼` in the
+trend instead of depending on someone remembering to compare baselines.
 
 It reports correctness, run quality, penalties by name, and how often the retry fired and rescued
 a run. Change anything in `ai/` and re-run it — a claim of improvement without a moved pass rate

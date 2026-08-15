@@ -1,1 +1,2 @@
 {"at":"2026-08-15T14:24:31.459Z","reps":1,"tasks":["version"],"models":{"qwen2.5-coder:7b":{"pass":1,"n":1,"retried":0,"rescued":0,"tasks":{"version":"1/1"}}}}
+{"at":"2026-08-15T15:29:22.127Z","reps":3,"tasks":["version","export","count","crossfile","bug","survey","chain","seed","reexport","refusal"],"models":{"qwen2.5-coder:7b":{"pass":26,"n":30,"retried":3,"rescued":1,"tasks":{"version":"3/3","export":"3/3","count":"3/3","crossfile":"3/3","bug":"3/3","survey":"2/3","chain":"3/3","seed":"3/3","reexport":"0/3","refusal":"3/3"}}}}
