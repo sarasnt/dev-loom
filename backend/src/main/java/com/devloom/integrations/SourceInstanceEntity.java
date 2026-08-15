@@ -65,6 +65,33 @@ public class SourceInstanceEntity {
     public void setName(String name) { this.name = name; }
     public String getBaseUrl() { return baseUrl; }
     public void setBaseUrl(String baseUrl) { this.baseUrl = baseUrl; }
+    /**
+     * The non-secret setup fields, as submitted. Anything a connector needs that is NOT a
+     * credential lives here — an account email, a project filter — because the secret store
+     * deliberately keeps only secrets, and a field that is neither the base URL nor a secret
+     * used to be dropped between the setup form and the connector.
+     */
+    public java.util.Map<String, String> config() {
+        if (configJson == null || configJson.isBlank()) return java.util.Map.of();
+        try {
+            return CONFIG.readValue(configJson,
+                    new com.fasterxml.jackson.core.type.TypeReference<java.util.Map<String, String>>() {});
+        } catch (Exception e) {
+            return java.util.Map.of();   // a corrupt row must not take the source down
+        }
+    }
+
+    public void setConfig(java.util.Map<String, String> values) {
+        try {
+            configJson = values == null || values.isEmpty() ? null : CONFIG.writeValueAsString(values);
+        } catch (Exception e) {
+            configJson = null;
+        }
+    }
+
+    private static final com.fasterxml.jackson.databind.ObjectMapper CONFIG =
+            new com.fasterxml.jackson.databind.ObjectMapper();
+
     public String getConfigJson() { return configJson; }
     public void setConfigJson(String configJson) { this.configJson = configJson; }
     public boolean isEnabled() { return enabled; }

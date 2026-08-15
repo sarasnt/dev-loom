@@ -28,6 +28,9 @@ public class JiraConnector implements SourceConnector {
     private static final ParameterizedTypeReference<Map<String, Object>> MAP =
             new ParameterizedTypeReference<>() {};
 
+    /** Same question on both deployments: what is assigned to me, most recently touched first. */
+    private static final String JQL = "assignee = currentUser() ORDER BY updated DESC";
+
     private final int maxIssues;
 
     public JiraConnector(@Value("${devloom.jira.max-issues:25}") int maxIssues) {
@@ -56,25 +59,39 @@ public class JiraConnector implements SourceConnector {
         String baseUrl = inst.getBaseUrl();
         boolean cloud = "cloud".equalsIgnoreCase(inst.getDeployment());
         RestClient http = RestClient.builder().baseUrl(baseUrl).build();
-        String apiPath = cloud ? "/rest/api/3/search" : "/rest/api/2/search";
-        String authHeader = cloud
-                ? "Basic " + Base64.getEncoder().encodeToString(
-                        (secrets.getOrDefault("email", "") + ":" + secrets.getOrDefault("apiToken", ""))
-                                .getBytes(StandardCharsets.UTF_8))
-                : "Bearer " + secrets.getOrDefault("pat", "");
+        String authHeader = authHeader(inst, secrets, cloud);
         try {
-            Map<String, Object> root = http.get()
-                    .uri(uri -> uri.path(apiPath)
-                            .queryParam("jql", "assignee = currentUser() ORDER BY updated DESC")
-                            .queryParam("maxResults", maxIssues)
-                            // *navigable = standard + custom fields; expand=names → field display names.
-                            .queryParam("fields", "*navigable")
-                            .queryParam("expand", "names")
-                            .build())
-                    .header("Authorization", authHeader)
-                    .header("Accept", "application/json")
-                    .retrieve()
-                    .body(MAP);
+            // The two deployments diverged in 2025: Atlassian removed GET /rest/api/3/search on
+            // Cloud — it answers 410 telling you to migrate — in favour of POST search/jql, which
+            // takes the same query as a body and pages by cursor instead of offset. Data Center
+            // still serves REST v2 the old way, so this is a genuine fork rather than a version
+            // bump. Both still accept "*navigable" and expand=names, so the custom-field metadata
+            // below survives the move.
+            Map<String, Object> root = cloud
+                    ? http.post()
+                            .uri("/rest/api/3/search/jql")
+                            .header("Authorization", authHeader)
+                            .header("Accept", "application/json")
+                            .header("Content-Type", "application/json")
+                            .body(Map.of(
+                                    "jql", JQL,
+                                    "maxResults", maxIssues,
+                                    "fields", List.of("*navigable"),
+                                    "expand", "names"))
+                            .retrieve()
+                            .body(MAP)
+                    : http.get()
+                            .uri(uri -> uri.path("/rest/api/2/search")
+                                    .queryParam("jql", JQL)
+                                    .queryParam("maxResults", maxIssues)
+                                    // *navigable = standard + custom fields; expand=names → labels.
+                                    .queryParam("fields", "*navigable")
+                                    .queryParam("expand", "names")
+                                    .build())
+                            .header("Authorization", authHeader)
+                            .header("Accept", "application/json")
+                            .retrieve()
+                            .body(MAP);
 
             List<WorkItemEntity> out = new ArrayList<>();
             List<?> issues = root == null ? List.of() : asList(root.get("issues"));
@@ -89,6 +106,43 @@ public class JiraConnector implements SourceConnector {
             log.warn("Jira sync failed [{}] ({}): {}", inst.getName(), baseUrl, e.getMessage());
             throw new IllegalStateException("Jira fetch failed", e);
         }
+    }
+
+    /**
+     * Cloud is Basic {@code email:apiToken}; the email is a setup field, not a secret, so it comes
+     * from the instance config. It used to be read from the secret map, where non-secret fields
+     * never arrive — which produced Basic ":token", an unauthenticated request, and a cheerful
+     * 200 with zero issues. Falls back to the secret map so an instance saved the old way still
+     * works.
+     */
+    private static String authHeader(SourceInstanceEntity inst, Map<String, String> secrets, boolean cloud) {
+        if (!cloud) return "Bearer " + secrets.getOrDefault("pat", "");
+        String email = inst.config().getOrDefault("email", secrets.getOrDefault("email", ""));
+        return "Basic " + Base64.getEncoder().encodeToString(
+                (email + ":" + secrets.getOrDefault("apiToken", "")).getBytes(StandardCharsets.UTF_8));
+    }
+
+    /**
+     * "The request worked" is not evidence of anything here: Jira Cloud answers an unauthenticated
+     * search with 200 and an empty list, so the default test (fetch without throwing) passed while
+     * the credentials were being ignored. Ask who we are instead — anonymous has no accountId.
+     */
+    @Override
+    public boolean test(SourceInstanceEntity inst, Map<String, String> secrets) {
+        if ("cloud".equalsIgnoreCase(inst.getDeployment())) {
+            Map<String, Object> me = RestClient.builder().baseUrl(inst.getBaseUrl()).build()
+                    .get().uri("/rest/api/3/myself")
+                    .header("Authorization", authHeader(inst, secrets, true))
+                    .header("Accept", "application/json")
+                    .retrieve().body(MAP);
+            String accountId = me == null ? "" : str(me, "accountId");
+            if (accountId.isBlank()) {
+                throw new IllegalStateException("Jira accepted the request but did not recognise the "
+                        + "credentials — check the account email and API token.");
+            }
+        }
+        fetch(inst, secrets);
+        return true;
     }
 
     private WorkItemEntity map(Map<String, Object> issue, Map<String, Object> names, String source, int order, String baseUrl) {

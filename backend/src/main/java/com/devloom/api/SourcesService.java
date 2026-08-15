@@ -60,8 +60,10 @@ public class SourcesService {
         SourceConnector connector = require(req.type());
         Map<String, String> fields = req.fields() == null ? Map.of() : req.fields();
         String baseUrl = blankToNull(fields.get("baseUrl"));
-        SourceInstanceEntity inst = instances.save(
-                SourceInstanceEntity.of(req.type(), req.deployment(), req.name(), baseUrl, null));
+        SourceInstanceEntity inst = SourceInstanceEntity.of(
+                req.type(), req.deployment(), req.name(), baseUrl, null);
+        inst.setConfig(configFrom(connector, req.deployment(), fields));
+        inst = instances.save(inst);
         saveSecrets(inst, connector, req.deployment(), fields);
         audit.record("source_add", inst.getName(), "type=" + inst.getType());
         try {
@@ -81,6 +83,11 @@ public class SourcesService {
         Map<String, String> fields = req.fields();
         if (fields != null) {
             if (fields.containsKey("baseUrl")) inst.setBaseUrl(blankToNull(fields.get("baseUrl")));
+            // Merge rather than replace: an edit that only re-enters the token must not wipe the
+            // account email that came with the original setup.
+            Map<String, String> merged = new LinkedHashMap<>(inst.config());
+            merged.putAll(configFrom(connector, inst.getDeployment(), fields));
+            inst.setConfig(merged);
             // Only (re)write secrets if any secret field was actually provided.
             if (hasAnySecret(connector, inst.getDeployment(), fields)) {
                 saveSecrets(inst, connector, inst.getDeployment(), fields);
@@ -111,6 +118,7 @@ public class SourcesService {
                     req.type(), req.deployment(),
                     req.name() == null || req.name().isBlank() ? "test" : req.name(),
                     blankToNull(fields.get("baseUrl")), null);
+            transientInst.setConfig(configFrom(connector, req.deployment(), fields));
             connector.test(transientInst, secretsFrom(connector, req.deployment(), fields));
             return Map.of("ok", true);
         } catch (Exception e) {
@@ -131,6 +139,26 @@ public class SourcesService {
         if (!secrets.isEmpty()) {
             credentials.save(inst.getId(), secrets);
         }
+    }
+
+    /**
+     * The mirror of {@link #secretsFrom}: everything the descriptor declares that is NOT a secret,
+     * minus baseUrl (which has its own column). These used to be discarded, so a connector needing
+     * a non-secret value — Jira Cloud's account email, half of its Basic auth — silently received
+     * nothing and authenticated as nobody.
+     */
+    private Map<String, String> configFrom(SourceConnector connector, String deployment,
+                                           Map<String, String> fields) {
+        Map<String, String> out = new LinkedHashMap<>();
+        for (SetupDescriptor.Deployment d : connector.describe().deployments()) {
+            if (deployment != null && !d.id().equalsIgnoreCase(deployment)) continue;
+            for (SetupDescriptor.Field f : d.fields()) {
+                if (f.secret() || "baseUrl".equals(f.key())) continue;
+                String v = fields.get(f.key());
+                if (v != null && !v.isBlank()) out.put(f.key(), v.strip());
+            }
+        }
+        return out;
     }
 
     /** Pull the secret-typed fields (per the descriptor) out of the submitted field map. */
