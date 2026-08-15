@@ -79,6 +79,41 @@ public class OllamaAdminService {
         return installed().stream().map(m -> String.valueOf(m.get("name"))).toList();
     }
 
+    /** model → context length, cached — /api/show is slow and the answer never changes. */
+    private final java.util.concurrent.ConcurrentHashMap<String, Integer> ctxCache =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    /**
+     * The model's true context length from /api/show, or 0 when unknown. Needed because Ollama
+     * ignores a model's capability and serves its own default window (4096) unless each request
+     * says otherwise — and when a conversation exceeds it, Ollama truncates from the FRONT, so
+     * the system prompt is the first thing silently lost.
+     */
+    public int contextLength(String model) {
+        if (model == null || model.isBlank()) return 0;
+        return ctxCache.computeIfAbsent(model, m -> {
+            try {
+                Map<String, Object> info = http.post().uri("/api/show")
+                        .header("Content-Type", "application/json")
+                        .body(Map.of("model", m))
+                        .retrieve().body(MAP);
+                Object mi = info == null ? null : info.get("model_info");
+                if (mi instanceof Map<?, ?> map) {
+                    for (Map.Entry<?, ?> e : map.entrySet()) {
+                        // The key is arch-prefixed ("qwen3moe.context_length"), so match the suffix.
+                        if (String.valueOf(e.getKey()).endsWith(".context_length")
+                                && e.getValue() instanceof Number n) {
+                            return n.intValue();
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                log.debug("/api/show {} failed: {}", m, e.getMessage());
+            }
+            return 0;
+        });
+    }
+
     /** Remove a model from Ollama and from the desired set. */
     public boolean delete(String model) {
         try {

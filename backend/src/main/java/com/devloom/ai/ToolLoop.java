@@ -37,6 +37,14 @@ public class ToolLoop {
      */
     public static final int DEFAULT_MAX_STEPS = 6;
 
+    /**
+     * The context window requested from Ollama when the model's own limit doesn't cap it lower.
+     * 8192 (double Ollama's default) because the KV cache grows linearly with the window — a
+     * larger default risks VRAM on shared cards, and anyone with headroom can raise it in
+     * Settings › Models › Advanced.
+     */
+    public static final int DEFAULT_NUM_CTX = 8_192;
+
     private static final com.fasterxml.jackson.databind.ObjectMapper JSON =
             new com.fasterxml.jackson.databind.ObjectMapper();
 
@@ -73,6 +81,24 @@ public class ToolLoop {
         } catch (NumberFormatException e) {
             return null;
         }
+    }
+
+    /** Rough token estimate. chars/3 errs high on purpose: overflow truncates silently from the
+     *  front of the conversation, over-clipping is visible in the result. */
+    static int estTokens(CharSequence s) {
+        return s == null ? 0 : s.length() / 3;
+    }
+
+    /** The configured window cap, or the shipped default; nonsense falls through, same as maxSteps. */
+    public int numCtx() {
+        return config.get(com.devloom.common.AppConfigService.MODEL_NUM_CTX).map(v -> {
+            try {
+                int n = Integer.parseInt(v.trim());
+                return n >= 2_048 && n <= 262_144 ? n : DEFAULT_NUM_CTX;
+            } catch (NumberFormatException e) {
+                return DEFAULT_NUM_CTX;
+            }
+        }).orElse(DEFAULT_NUM_CTX);
     }
 
     /** Whether any tools are currently exposed to non-Claude models. */
@@ -207,7 +233,8 @@ public class ToolLoop {
                     tel.did(activity(req));   // the evidence a judge needs to rule on grounding
                     Outcome o = runTool(req, repoPath, seen, tel);
                     allRepeats &= o.repeat();
-                    messages.add(ToolExecutionResultMessage.from(req, withBudget(o.text(), stepsLeft)));
+                    messages.add(ToolExecutionResultMessage.from(req,
+                            fitBudget(messages, withBudget(o.text(), stepsLeft), tel)));
                 }
             }
 
@@ -267,7 +294,7 @@ public class ToolLoop {
             java.util.Map<String, String> seen = new java.util.LinkedHashMap<>();
             for (ToolExecutionRequest req : ai.toolExecutionRequests()) {
                 Outcome o = runTool(req, repoPathOf(messages), seen, tel);
-                messages.add(ToolExecutionResultMessage.from(req, o.text()));
+                messages.add(ToolExecutionResultMessage.from(req, fitBudget(messages, o.text(), tel)));
             }
             return text(turn.run(messages, List.of()));
         }
@@ -310,6 +337,26 @@ public class ToolLoop {
             case RepoTools.WRITE -> detail == null ? "writing a file" : "writing " + detail;
             default -> detail == null ? req.name() : req.name() + " · " + detail;
         };
+    }
+
+    /**
+     * Fit a tool result into what's left of the window. Without this, six steps of file reads
+     * walk straight past num_ctx and Ollama silently drops the front of the conversation — the
+     * system prompt first, then the task. Clipping the newest result instead keeps the model's
+     * instructions intact and tells it what happened, which beats it silently forgetting who it
+     * is. The floor keeps a clipped result useful; the estimate errs high (see estTokens).
+     */
+    private String fitBudget(List<ChatMessage> messages, String result, ToolTelemetry tel) {
+        if (result == null) return null;
+        int used = 0;
+        for (ChatMessage m : messages) used += estTokens(m.toString());
+        int left = numCtx() - 2_048 - used;               // reserve room for the answer itself
+        int allowedChars = Math.max(1_500, left * 3);
+        if (result.length() <= allowedChars) return result;
+        tel.did("clipping a tool result to fit the context window");
+        return result.substring(0, allowedChars)
+                + "\n[clipped " + (result.length() - allowedChars)
+                + " characters to fit the context window — ask for a narrower range if you need more]";
     }
 
     /**

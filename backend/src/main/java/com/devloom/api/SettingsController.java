@@ -52,19 +52,21 @@ public class SettingsController {
         a.put("groundedTopP", config.get(AppConfigService.SAMPLING_GROUNDED_TOP_P).orElse(""));
         a.put("creativeTemperature", config.get(AppConfigService.SAMPLING_CREATIVE_TEMP).orElse(""));
         a.put("seed", config.get(AppConfigService.SAMPLING_SEED).orElse(""));
+        a.put("numCtx", config.get(AppConfigService.MODEL_NUM_CTX).orElse(""));
         a.put("maxSteps", config.get(AppConfigService.TOOL_MAX_STEPS).orElse(""));
         a.put("judgeEnabled", !config.get(AppConfigService.JUDGE_ENABLED).map("false"::equalsIgnoreCase).orElse(false));
         a.put("defaults", Map.of(
                 "groundedTemperature", com.devloom.ai.Sampling.GROUNDED_TEMPERATURE,
                 "groundedTopP", com.devloom.ai.Sampling.GROUNDED_TOP_P,
                 "creativeTemperature", com.devloom.ai.Sampling.CREATIVE_TEMPERATURE,
-                "maxSteps", com.devloom.ai.ToolLoop.DEFAULT_MAX_STEPS));
+                "maxSteps", com.devloom.ai.ToolLoop.DEFAULT_MAX_STEPS,
+                "numCtx", com.devloom.ai.ToolLoop.DEFAULT_NUM_CTX));
         return a;
     }
 
     public record AdvancedSettings(String groundedTemperature, String groundedTopP,
                                    String creativeTemperature, String maxSteps, Boolean judgeEnabled,
-                                   String seed) {}
+                                   String seed, String numCtx) {}
 
     /** Save advanced model settings. An empty string clears the override back to the shipped default. */
     @PutMapping("/advanced")
@@ -74,6 +76,7 @@ public class SettingsController {
             if (body.groundedTopP() != null) config.set(AppConfigService.SAMPLING_GROUNDED_TOP_P, blankToNull(body.groundedTopP()));
             if (body.creativeTemperature() != null) config.set(AppConfigService.SAMPLING_CREATIVE_TEMP, blankToNull(body.creativeTemperature()));
             if (body.seed() != null) config.set(AppConfigService.SAMPLING_SEED, blankToNull(body.seed()));
+            if (body.numCtx() != null) config.set(AppConfigService.MODEL_NUM_CTX, blankToNull(body.numCtx()));
             if (body.maxSteps() != null) config.set(AppConfigService.TOOL_MAX_STEPS, blankToNull(body.maxSteps()));
             if (body.judgeEnabled() != null) config.set(AppConfigService.JUDGE_ENABLED, String.valueOf(body.judgeEnabled()));
         }

@@ -406,8 +406,9 @@ export interface AdvancedSettings {
   creativeTemperature: string
   maxSteps: string
   seed: string // fixed sampling seed for grounded work; "" = random (the default)
+  numCtx: string // context window (num_ctx) sent to Ollama; "" = the shipped default
   judgeEnabled: boolean
-  defaults: { groundedTemperature: number; groundedTopP: number; creativeTemperature: number; maxSteps: number }
+  defaults: { groundedTemperature: number; groundedTopP: number; creativeTemperature: number; maxSteps: number; numCtx: number }
 }
 
 // One model's overrides of the same knobs. Blank means "follow the global setting", so the three

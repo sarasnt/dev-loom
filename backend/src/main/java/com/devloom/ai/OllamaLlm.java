@@ -45,16 +45,18 @@ public class OllamaLlm implements LlmPort {
     private final ModelMonitor monitor;
     private final ToolLoop toolLoop;
     private final Sampling sampling;
+    private final OllamaAdminService admin;
 
     public OllamaLlm(
             @Value("${devloom.ai.ollama-base-url:http://localhost:11434}") String baseUrl,
             @Value("${devloom.ai.default-model:Qwen3-Coder-30B-A3B}") String defaultModel,
-            ModelMonitor monitor, ToolLoop toolLoop, Sampling sampling) {
+            ModelMonitor monitor, ToolLoop toolLoop, Sampling sampling, OllamaAdminService admin) {
         this.defaultModel = defaultModel;
         this.baseUrl = baseUrl;
         this.monitor = monitor;
         this.toolLoop = toolLoop;
         this.sampling = sampling;
+        this.admin = admin;
         SimpleClientHttpRequestFactory f = new SimpleClientHttpRequestFactory();
         f.setConnectTimeout(1500);    // fail fast when Ollama isn't there
         f.setReadTimeout(120_000);    // generation can take a while
@@ -98,6 +100,7 @@ public class OllamaLlm implements LlmPort {
                 .temperature(sampling.temperature(request.feature(), model))
                 .topP(sampling.topP(request.feature(), model))
                 .seed(sampling.seed(request.feature()))
+                .numCtx(numCtx(model))
                 .build();
         List<ChatMessage> messages = new ArrayList<>();
         if (request.system() != null && !request.system().isBlank()) {
@@ -130,6 +133,7 @@ public class OllamaLlm implements LlmPort {
                 .temperature(sampling.temperature(request.feature(), model))
                 .topP(sampling.topP(request.feature(), model))
                 .seed(sampling.seed(request.feature()))
+                .numCtx(numCtx(model))
                 .build();
 
         ToolLoop.Turn turn = (messages, specs) -> {
@@ -193,6 +197,15 @@ public class OllamaLlm implements LlmPort {
             // unreachable → treated as no models available
         }
         return List.of();
+    }
+
+    /** The window to request: the configured cap, but never above what the model actually has. */
+    private int numCtx(String model) {
+        int cap = toolLoop.numCtx();
+        int hard = admin.contextLength(model);
+        int n = hard > 0 ? Math.min(cap, hard) : cap;
+        log.debug("num_ctx for {}: {} (cap {}, model limit {})", model, n, cap, hard);
+        return n;
     }
 
     /** Use the requested/default model if it's actually pulled; otherwise the first available. */

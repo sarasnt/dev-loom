@@ -18,6 +18,8 @@ public class AppConfigService {
     public static final String SAMPLING_CREATIVE_TEMP = "sampling.creative.temperature";
     /** Fixed sampling seed for grounded work ("" = random). An instrument, not a default. */
     public static final String SAMPLING_SEED = "sampling.grounded.seed";
+    /** Context window cap sent to Ollama as num_ctx ("" = the shipped default; see ToolLoop). */
+    public static final String MODEL_NUM_CTX = "model.numCtx";
     public static final String TOOL_MAX_STEPS = "tools.maxSteps";
     public static final String JUDGE_ENABLED = "judge.enabled";
     /** Per-model overrides of the above, one JSON row per model name. See {@code ModelSettings}. */
