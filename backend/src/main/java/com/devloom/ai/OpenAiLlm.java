@@ -81,8 +81,12 @@ public class OpenAiLlm implements LlmPort {
         messages.add(UserMessage.from(request.prompt()));
         // Through the tool loop, like the local adapter: a paid model that cannot read the repo
         // it was asked about is no more useful than a local one that cannot.
+        // No context window to budget against: OpenAI's window is 128K+ tokens — far larger than
+        // any tool-loop conversation here — and it fails loudly (an API error) on overflow rather
+        // than Ollama's silent front-truncation, so clipping a tool result would only lose it
+        // information for no safety benefit.
         ToolLoop.Reply reply = toolLoop.run(ToolLoop.blocking(chat), messages, request.repoPath(),
-                request.repoWritable(), StreamSink.NONE, model);
+                request.repoWritable(), StreamSink.NONE, model, null);
         String text = reply.text() == null ? "" : reply.text();
         log.info("OpenAI generate: model={} chars={}", model, text.length());
         return new LlmResult(text, model, provider(), true, reply.telemetry());

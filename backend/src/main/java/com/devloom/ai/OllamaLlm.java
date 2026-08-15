@@ -89,6 +89,10 @@ public class OllamaLlm implements LlmPort {
     public LlmResult generate(LlmRequest request, StreamSink sink) {
         String model = resolveModel(request.model());
         if (sink != StreamSink.NONE) return streaming(request, model, sink);
+        // Computed once: the same window goes to Ollama (so it actually allocates it) and to the
+        // tool loop (so a tool result is budgeted against what was really requested, not a cap
+        // that a smaller model's true limit may have already pulled below).
+        int window = numCtx(model);
         // Route through LangChain4j so ModelMonitor (a ChatModelListener) observes the call.
         OllamaChatModel chat = OllamaChatModel.builder()
                 .baseUrl(baseUrl)
@@ -100,7 +104,7 @@ public class OllamaLlm implements LlmPort {
                 .temperature(sampling.temperature(request.feature(), model))
                 .topP(sampling.topP(request.feature(), model))
                 .seed(sampling.seed(request.feature()))
-                .numCtx(numCtx(model))
+                .numCtx(window)
                 .build();
         List<ChatMessage> messages = new ArrayList<>();
         if (request.system() != null && !request.system().isBlank()) {
@@ -110,7 +114,7 @@ public class OllamaLlm implements LlmPort {
         // Through the tool loop so the model can actually call any MCP tools the user enabled;
         // with none enabled this is a plain one-shot chat.
         ToolLoop.Reply reply = toolLoop.run(ToolLoop.blocking(chat), messages, request.repoPath(),
-                request.repoWritable(), StreamSink.NONE, model);
+                request.repoWritable(), StreamSink.NONE, model, window);
         String text = reply.text() == null ? "" : reply.text();
         log.info("Ollama generate: model={} chars={} {}", model, text.length(), reply.telemetry());
         return new LlmResult(text, model, provider(), true, reply.telemetry());
@@ -125,6 +129,9 @@ public class OllamaLlm implements LlmPort {
      * call can't be executed), so this streams within a turn and blocks between turns.
      */
     private LlmResult streaming(LlmRequest request, String model, StreamSink sink) {
+        // See the blocking path above: one computed window, sent to Ollama and passed to the
+        // tool loop, so both agree on what's actually available.
+        int window = numCtx(model);
         OllamaStreamingChatModel chat = OllamaStreamingChatModel.builder()
                 .baseUrl(baseUrl)
                 .modelName(model)
@@ -133,7 +140,7 @@ public class OllamaLlm implements LlmPort {
                 .temperature(sampling.temperature(request.feature(), model))
                 .topP(sampling.topP(request.feature(), model))
                 .seed(sampling.seed(request.feature()))
-                .numCtx(numCtx(model))
+                .numCtx(window)
                 .build();
 
         ToolLoop.Turn turn = (messages, specs) -> {
@@ -175,7 +182,7 @@ public class OllamaLlm implements LlmPort {
             messages.add(SystemMessage.from(request.system()));
         }
         messages.add(UserMessage.from(request.prompt()));
-        ToolLoop.Reply reply = toolLoop.run(turn, messages, request.repoPath(), request.repoWritable(), sink, model);
+        ToolLoop.Reply reply = toolLoop.run(turn, messages, request.repoPath(), request.repoWritable(), sink, model, window);
         String text = reply.text() == null ? "" : reply.text();
         log.info("Ollama stream: model={} chars={} {}", model, text.length(), reply.telemetry());
         return new LlmResult(text, model, provider(), true, reply.telemetry());

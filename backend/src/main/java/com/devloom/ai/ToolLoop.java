@@ -131,18 +131,24 @@ public class ToolLoop {
     }
 
     public String chat(ChatModel model, List<ChatMessage> messages, String repoPath) {
-        return run(blocking(model), messages, repoPath, false, LlmPort.StreamSink.NONE, null).text();
+        return run(blocking(model), messages, repoPath, false, LlmPort.StreamSink.NONE, null, null).text();
     }
 
     public Reply run(Turn turn, List<ChatMessage> messages, String repoPath, LlmPort.StreamSink sink) {
-        return run(turn, messages, repoPath, false, sink, null);
+        return run(turn, messages, repoPath, false, sink, null, null);
     }
 
-    /** @param modelName the resolved model, so its own step budget applies; null for the global one */
+    /**
+     * @param modelName the resolved model, so its own step budget applies; null for the global one
+     * @param contextWindow the window this adapter actually sends for this call, so a tool result
+     *                      can be budgeted against what's real rather than a shared guess; null for
+     *                      a provider whose window is far larger than any tool-loop conversation and
+     *                      whose overflow fails loudly instead of silently truncating (skips clipping)
+     */
     public Reply run(Turn turn, List<ChatMessage> messages, String repoPath, boolean writable,
-                     LlmPort.StreamSink sink, String modelName) {
+                     LlmPort.StreamSink sink, String modelName, Integer contextWindow) {
         ToolTelemetry tel = new ToolTelemetry();
-        String text = chat(turn, messages, repoPath, writable, sink, tel, modelName);
+        String text = chat(turn, messages, repoPath, writable, sink, tel, modelName, contextWindow);
         return new Reply(text, tel);
     }
 
@@ -154,7 +160,7 @@ public class ToolLoop {
      * @return the model's final text, or {@code null} if it never produced any
      */
     private String chat(Turn turn, List<ChatMessage> messages, String repoPath, boolean writable,
-                        LlmPort.StreamSink sink, ToolTelemetry tel, String modelName) {
+                        LlmPort.StreamSink sink, ToolTelemetry tel, String modelName, Integer contextWindow) {
         List<McpTools.Tool> tools = new ArrayList<>(repoTools.tools(repoPath, writable));
         tools.addAll(mcp.tools());
         List<ToolSpecification> specs = tools.stream().map(McpTools.Tool::spec).toList();
@@ -234,7 +240,7 @@ public class ToolLoop {
                     Outcome o = runTool(req, repoPath, seen, tel);
                     allRepeats &= o.repeat();
                     messages.add(ToolExecutionResultMessage.from(req,
-                            fitBudget(messages, withBudget(o.text(), stepsLeft), tel)));
+                            fitBudget(messages, withBudget(o.text(), stepsLeft), tel, contextWindow)));
                 }
             }
 
@@ -260,7 +266,7 @@ public class ToolLoop {
                 }
                 log.info("Tool loop stopped early — {} repeated tool steps with nothing new", spinning);
                 tel.stoppedSpinning();
-                return finalAnswer(turn, messages, specs, tel, writable,
+                return finalAnswer(turn, messages, specs, tel, writable, contextWindow,
                         "You are repeating tool calls you have already made, which returns nothing new."
                                 + " Stop calling tools and answer now from the results above.");
             }
@@ -269,7 +275,7 @@ public class ToolLoop {
         // budget ran out — a truthful "I couldn't finish" beats an invented answer.
         log.info("Tool loop hit the {}-step cap", maxSteps);
         tel.hitStepCap();
-        return finalAnswer(turn, messages, specs, tel, writable,
+        return finalAnswer(turn, messages, specs, tel, writable, contextWindow,
                 "You have used all available tool steps. Answer now using only the tool results above.");
     }
 
@@ -279,7 +285,7 @@ public class ToolLoop {
      * word we give it is "answer" while it holds no means of doing the job it was sent to do.
      */
     private String finalAnswer(Turn turn, List<ChatMessage> messages, List<ToolSpecification> specs,
-                               ToolTelemetry tel, boolean writable, String instruction) {
+                               ToolTelemetry tel, boolean writable, Integer contextWindow, String instruction) {
         boolean owesAWrite = writable && tel.writes() == 0;
         messages.add(dev.langchain4j.data.message.UserMessage.from(owesAWrite
                 ? "Nothing has been written yet, so the task is not done. Write the file now with"
@@ -294,7 +300,8 @@ public class ToolLoop {
             java.util.Map<String, String> seen = new java.util.LinkedHashMap<>();
             for (ToolExecutionRequest req : ai.toolExecutionRequests()) {
                 Outcome o = runTool(req, repoPathOf(messages), seen, tel);
-                messages.add(ToolExecutionResultMessage.from(req, fitBudget(messages, o.text(), tel)));
+                messages.add(ToolExecutionResultMessage.from(req,
+                        fitBudget(messages, o.text(), tel, contextWindow)));
             }
             return text(turn.run(messages, List.of()));
         }
@@ -345,12 +352,17 @@ public class ToolLoop {
      * system prompt first, then the task. Clipping the newest result instead keeps the model's
      * instructions intact and tells it what happened, which beats it silently forgetting who it
      * is. The floor keeps a clipped result useful; the estimate errs high (see estTokens).
+     *
+     * <p>{@code contextWindow} is null for a provider that isn't Ollama: its real window is
+     * 128K+ tokens, and it fails loudly (an API error) rather than silently dropping the front of
+     * the conversation on overflow — clipping there would be a quality regression, not a safety
+     * net, so nothing is clipped.
      */
-    private String fitBudget(List<ChatMessage> messages, String result, ToolTelemetry tel) {
-        if (result == null) return null;
+    private String fitBudget(List<ChatMessage> messages, String result, ToolTelemetry tel, Integer contextWindow) {
+        if (contextWindow == null || result == null) return result;
         int used = 0;
         for (ChatMessage m : messages) used += estTokens(m.toString());
-        int left = numCtx() - 2_048 - used;               // reserve room for the answer itself
+        int left = contextWindow - 2_048 - used;           // reserve room for the answer itself
         int allowedChars = Math.max(1_500, left * 3);
         if (result.length() <= allowedChars) return result;
         tel.did("clipping a tool result to fit the context window");
