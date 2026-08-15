@@ -1,4 +1,4 @@
-﻿// Pass rates over time, from the history run.mjs appends. A saved baseline answers the question
+// Pass rates over time, from the history run.mjs appends. A saved baseline answers the question
 // you remembered to ask; this answers the one you forgot: "did anything get worse since last week?"
 //
 //   node eval/trend.mjs                 # eval/history.jsonl
