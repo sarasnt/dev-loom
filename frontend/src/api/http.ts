@@ -74,7 +74,10 @@ async function put<T>(path: string, body: unknown): Promise<T> {
 }
 
 export const fetchToday = () => get<TodayData>('/today')
-export const snoozeToday = (id: string) => post<TodayData>(`/today/snooze/${encodeURIComponent(id)}`, {})
+// Body-carried id: PR ext ids contain a slash, which Tomcat rejects when path-encoded — the
+// same trap handled/plan hit. Snooze silently no-oped on every PR card until this moved.
+export const snoozeToday = (id: string) => post<TodayData>('/today/snooze', { id })
+export const unsnoozeToday = (id: string) => post<TodayData>('/today/unsnooze', { id })
 // The id goes in the body: a GitHub ext id is owner/repo#123, and an encoded slash in the path is
 // rejected outright by the server, so these returned 400 for every PR and build.
 export const toggleHandled = (id: string) => post<TodayData>('/today/handled', { id })

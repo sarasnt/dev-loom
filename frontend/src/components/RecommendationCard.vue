@@ -83,6 +83,9 @@ function togglePlan(item: Recommendation) { store.planItem(item.id) }
         :class="['chip', c.tone && c.tone !== 'neutral' ? c.tone : '']"
         >{{ c.label }}</Mono
       >
+      <!-- Plan as visible state, not just a button label — pressing "+ Plan" otherwise looks
+           like it did nothing until you find the Briefing tab. -->
+      <Mono v-if="item.planned" class="chip plannedchip">planned</Mono>
     </div>
 
     <!-- Why: the priority signals + evidence behind the ranking -->
@@ -146,6 +149,7 @@ function togglePlan(item: Recommendation) { store.planItem(item.id) }
   border-radius: 5px; padding: 3px 7px; background: var(--chip-bg);
 }
 .chip.warn { color: var(--warp-hi); border-color: var(--warp); }
+.chip.plannedchip { color: var(--warp-hi); border-color: var(--warp); background: var(--warp-weft); }
 .chip.fail { color: var(--chip-fail); border-color: var(--failed); }
 .chip.stale { color: var(--chip-stale); border-color: var(--stale); }
 .whybox { margin-top: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); padding: 10px 12px; font-size: 11.5px; color: var(--dim); }

@@ -31,6 +31,7 @@ const TODAY: TodayData = {
   boundary: { mode: 'local', label: 'On your machine' },
   everythingCount: 0,
   snoozedCount: 0,
+  snoozed: [],
   next: [],
   briefing: { newItems: [], resolved: [], needsYou: [], plan: [] },
 }
@@ -44,6 +45,9 @@ export function fetchToday(): Promise<TodayData> {
   return delay(TODAY, 300)
 }
 export function snoozeToday(_id: string): Promise<TodayData> {
+  return delay(TODAY, 150)
+}
+export function unsnoozeToday(_id: string): Promise<TodayData> {
   return delay(TODAY, 150)
 }
 export function toggleHandled(_id: string): Promise<TodayData> {

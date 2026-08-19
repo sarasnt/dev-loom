@@ -1,11 +1,25 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { storeToRefs } from 'pinia'
+import { useRouter } from 'vue-router'
 import { useDashboardStore } from '../stores/dashboard'
 import WarpList from '../components/WarpList.vue'
 
 const store = useDashboardStore()
+const router = useRouter()
 const { today, loading, error } = storeToRefs(store)
+
+// A 43-item "new" list is a dump, not a briefing. Show a taste; the full list lives in Work.
+const NEW_CAP = 6
+const newCapped = computed(() => today.value?.briefing.newItems.slice(0, NEW_CAP) ?? [])
+const newOverflow = computed(() => Math.max(0, (today.value?.briefing.newItems.length ?? 0) - NEW_CAP))
+// On a machine's first sync everything is "new", which makes the diff meaningless — say so
+// instead of presenting the entire backlog as this morning's news.
+const firstSync = computed(() => {
+  const t = today.value
+  return !!t && t.briefing.newItems.length > 0 && t.briefing.newItems.length >= t.everythingCount
+})
+const snoozedOpen = ref(false)
 
 // Today has two lenses: Briefing (the morning framing) and Triage (the full ranked list). The
 // last explicit choice wins; otherwise default to Briefing in the morning, Triage later.
@@ -71,22 +85,43 @@ onMounted(() => store.load())
         <WarpList :items="today.next" />
 
         <div class="more">
-          <span>▸ Everything ({{ today.everythingCount }})</span>
-          <span>▸ Snoozed ({{ today.snoozedCount }})</span>
+          <button class="morelink" @click="router.push('/work')">▸ Everything ({{ today.everythingCount }})</button>
+          <button class="morelink" :disabled="!today.snoozedCount" :aria-expanded="snoozedOpen" @click="snoozedOpen = !snoozedOpen">
+            {{ snoozedOpen ? '▾' : '▸' }} Snoozed ({{ today.snoozedCount }})
+          </button>
         </div>
+        <ul v-if="snoozedOpen && today.snoozed.length" class="donelist snoozelist">
+          <li v-for="r in today.snoozed" :key="r.id" class="doneitem">
+            <span class="donetitle">{{ r.title }}</span>
+            <span class="donesrc mono">{{ r.source }}</span>
+            <button class="unsnooze mono" @click="store.unsnoozeItem(r.id)">unsnooze</button>
+          </li>
+        </ul>
       </template>
 
-      <!-- BRIEFING: the morning framing — needs-you, since-yesterday, today's plan -->
+      <!-- BRIEFING: the morning framing. Plan first — "what did I decide to do today" is the
+           question this view exists to answer; it used to sit BELOW the since-yesterday list,
+           which on a fresh machine was 43 cards deep, so the two tabs looked identical. -->
       <template v-else>
+        <div class="sectlab"><span class="eyebrow">Today's plan</span></div>
+        <WarpList v-if="today.briefing.plan.length" :items="today.briefing.plan" />
+        <div v-else class="subhead mono quiet">nothing planned yet — pick items with “+ Plan” in Triage</div>
+
         <template v-if="today.briefing.needsYou.length">
           <div class="sectlab"><span class="eyebrow">Needs you now</span></div>
           <WarpList :items="today.briefing.needsYou" />
         </template>
 
         <div class="sectlab"><span class="eyebrow">Since yesterday</span></div>
-        <template v-if="today.briefing.newItems.length">
+        <div v-if="firstSync" class="subhead mono quiet">
+          first sync on this machine — everything is “new”, so there is no diff to show yet
+        </div>
+        <template v-else-if="today.briefing.newItems.length">
           <div class="subhead mono">New ({{ today.briefing.newItems.length }})</div>
-          <WarpList :items="today.briefing.newItems" />
+          <WarpList :items="newCapped" />
+          <button v-if="newOverflow" class="morelink overflow" @click="router.push('/work')">
+            ▸ and {{ newOverflow }} more — see Work
+          </button>
         </template>
         <!-- Resolved is acknowledgement, not work. As full cards it was most of the briefing —
              sixteen closed tickets, each offering "+ Plan" and "Handled" on something already
@@ -109,13 +144,6 @@ onMounted(() => store.load())
           nothing new since your last briefing
         </div>
 
-        <template v-if="today.briefing.plan.length">
-          <div class="sectlab"><span class="eyebrow">Today's plan</span></div>
-          <WarpList :items="today.briefing.plan" />
-        </template>
-
-        <div v-if="!today.briefing.needsYou.length && !today.briefing.newItems.length && !today.briefing.plan.length"
-             class="mono emptybrief">Nothing needs you yet — enjoy the quiet. Add items to your plan from Triage.</div>
       </template>
     </template>
   </main>
@@ -157,8 +185,14 @@ a.donetitle:hover { color: var(--ink); text-decoration: underline; }
 .subhead.quiet { color: var(--faint-text); text-transform: none; letter-spacing: 0; font-size: 12px; }
 .emptybrief { color: var(--faint-text); font-size: 13px; padding: 18px 0; }
 
-.more { display: flex; gap: 20px; margin-top: 16px; color: var(--faint-text); font-size: 13px; }
-.more span { cursor: pointer; }
+.more { display: flex; gap: 20px; margin-top: 16px; }
+.morelink { background: none; border: 0; padding: 0; color: var(--faint-text); font-size: 13px; cursor: pointer; }
+.morelink:hover:not(:disabled) { color: var(--ink); }
+.morelink:disabled { cursor: default; opacity: 0.6; }
+.morelink.overflow { margin: 2px 0 14px; }
+.snoozelist { margin-top: 10px; }
+.unsnooze { background: none; border: 1px solid var(--line); border-radius: 5px; padding: 1px 8px; font-size: 10.5px; color: var(--dim); cursor: pointer; }
+.unsnooze:hover { border-color: var(--warp); color: var(--ink); }
 
 /* states */
 .skel {

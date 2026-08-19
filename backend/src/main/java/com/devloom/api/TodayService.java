@@ -61,6 +61,11 @@ public class TodayService {
         appConfig.snooze(extId);
     }
 
+    /** Bring a snoozed item back into Today. */
+    public void unsnooze(String extId) {
+        appConfig.unsnooze(extId);
+    }
+
     /** A candidate before ranking: the source item + the signals that score it. */
     private record Candidate(WorkItemEntity item, List<SignalComponent> signals) {}
 
@@ -91,12 +96,17 @@ public class TodayService {
                     "");
         }
 
-        int snoozedCount = (int) everything.stream().filter(w -> snoozed.contains(w.getExtId())).count();
+        // The snoozed items themselves, not just their count — a "Snoozed (3)" label that can't
+        // show or undo what it counts is a button that does nothing, which is against house rules.
+        List<Dto.Recommendation> snoozedRecs = everything.stream()
+                .filter(w -> snoozed.contains(w.getExtId()))
+                .map(this::recFor)
+                .toList();
         return new Dto.Today(
                 workspace, user, NOW.format(Instant.now()),
                 changed, syncState(all), model(),
                 new Dto.Boundary("local", "On your machine"),
-                next, all.size(), snoozedCount, briefing.build(this::recFor));
+                next, all.size(), snoozedRecs.size(), snoozedRecs, briefing.build(this::recFor));
     }
 
     // ---- signals ---------------------------------------------------------------

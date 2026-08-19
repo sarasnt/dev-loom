@@ -8,6 +8,7 @@ const api = useStub ? stub : http
 
 export const fetchToday = api.fetchToday
 export const snoozeToday = api.snoozeToday
+export const unsnoozeToday = api.unsnoozeToday
 export const toggleHandled = api.toggleHandled
 export const togglePlan = api.togglePlan
 export const fetchWork = api.fetchWork

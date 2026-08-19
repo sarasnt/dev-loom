@@ -71,6 +71,7 @@ export interface TodayData {
   next: Recommendation[]
   everythingCount: number
   snoozedCount: number
+  snoozed: Recommendation[] // the snoozed items themselves, so the count can be shown and undone
   briefing: Briefing
 }
 

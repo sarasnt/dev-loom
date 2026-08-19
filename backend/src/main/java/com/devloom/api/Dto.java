@@ -33,7 +33,7 @@ public final class Dto {
     public record Today(
             String workspace, String user, String now, Changed changed, Sync sync,
             Model model, Boundary boundary, List<Recommendation> next,
-            int everythingCount, int snoozedCount, Briefing briefing) {}
+            int everythingCount, int snoozedCount, List<Recommendation> snoozed, Briefing briefing) {}
 
     // ---- Work ----
     public record WorkRow(

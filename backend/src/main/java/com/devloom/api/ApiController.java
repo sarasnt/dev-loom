@@ -115,10 +115,21 @@ public class ApiController {
         return todayService.today();
     }
 
-    /** Snooze a Today card (hide it from the list). */
-    @PostMapping("/today/snooze/{id}")
-    public Dto.Today snooze(@PathVariable String id) {
-        todayService.snooze(id);
+    /**
+     * Snooze a Today card (hide it from the list). Body-carried id like handled/plan below and
+     * for the same reason — this one kept the id in the path long after the other two were fixed,
+     * so Snooze silently did nothing on every PR card (their ext ids contain a slash).
+     */
+    @PostMapping("/today/snooze")
+    public Dto.Today snooze(@RequestBody Dto.ItemRef body) {
+        todayService.snooze(body.id());
+        return todayService.today();
+    }
+
+    /** Bring a snoozed item back. */
+    @PostMapping("/today/unsnooze")
+    public Dto.Today unsnooze(@RequestBody Dto.ItemRef body) {
+        todayService.unsnooze(body.id());
         return todayService.today();
     }
 
