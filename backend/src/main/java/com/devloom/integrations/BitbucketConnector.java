@@ -127,6 +127,7 @@ public class BitbucketConnector implements SourceConnector {
                     .retrieve().body(MAP);
             List<WorkItemEntity> out = new ArrayList<>();
             int order = 10;
+            java.util.Set<String> buildShas = new java.util.HashSet<>();
             for (Object o : asList(resp == null ? null : resp.get("values"))) {
                 Map<String, Object> pr = asMap(o);
                 String id = str(pr, "id");
@@ -141,6 +142,16 @@ public class BitbucketConnector implements SourceConnector {
                     if (!url.isBlank()) break;
                 }
                 out.add(prItem(id, title, state, repo, source, order++, url));
+
+                // A red build on this PR becomes its own work item, so Bitbucket failures reach
+                // Today and the Builds screen the way GitHub ones do. De-duped by head commit:
+                // two PRs sharing a head must not produce two build cards.
+                String sha = str(asMap(pr.get("fromRef")), "latestCommit");
+                String branch = str(asMap(pr.get("fromRef")), "displayId");
+                if (!sha.isBlank() && buildShas.add(sha)) {
+                    out.addAll(failedBuildItems(http, sha, id, title, repo, branch, source,
+                            5 + buildShas.size()));
+                }
             }
             log.info("Bitbucket Server sync [{}]: {} PRs", source, out.size());
             return out;
@@ -163,6 +174,51 @@ public class BitbucketConnector implements SourceConnector {
         return WorkItemEntity.create(extId, "pr", displayTitle, "PR", tone,
                 String.join(",", state == null ? "" : state.toLowerCase(), repo), source, order)
                 .withUrl(url == null || url.isBlank() ? null : url);
+    }
+
+    /**
+     * The failed-build work items for one PR head commit — usually none. Two calls by necessity:
+     * stats is a fixed five-integer body (the cheapest possible red/green), and only a red pays
+     * for the listing call that carries the Jenkins name and url. The probe showed neither lives
+     * on the PR object in 9.4.22, so the extra round trip per PR is the price of build coverage.
+     */
+    private List<WorkItemEntity> failedBuildItems(RestClient http, String sha, String prId,
+                                                  String prTitle, String repo, String branch,
+                                                  String source, int order) {
+        try {
+            Map<String, Object> stats = http.get()
+                    .uri("/rest/build-status/1.0/commits/stats/" + sha)
+                    .retrieve().body(MAP);
+            int failed = stats == null ? 0
+                    : (stats.get("failed") instanceof Number n ? n.intValue() : 0);
+            // An in-progress or absent build is not a failure; only red earns a card.
+            if (failed == 0) return List.of();
+
+            Map<String, Object> list = http.get()
+                    .uri("/rest/build-status/1.0/commits/" + sha)
+                    .retrieve().body(MAP);
+            String url = null;
+            String jenkinsName = null;
+            for (Object o : asList(list == null ? null : list.get("values"))) {
+                Map<String, Object> b = asMap(o);
+                if ("FAILED".equalsIgnoreCase(str(b, "state"))) {
+                    url = str(b, "url");
+                    jenkinsName = str(b, "name");
+                    break;
+                }
+            }
+            String title = "CI failed · #" + prId + " · " + prTitle;
+            // meta = [branch, repo] — the Builds service recovers the repo from meta[1], the
+            // same contract the GitHub connector's build items follow.
+            return List.of(WorkItemEntity.create(sha, "build", title, "failed", "fail",
+                    branch + "," + repo, source, order)
+                    .withUrl(url == null || url.isBlank() ? null : url)
+                    .withMetadata(jenkinsName == null || jenkinsName.isBlank()
+                            ? "" : "jenkins: " + jenkinsName));
+        } catch (Exception e) {
+            log.debug("Bitbucket build status skipped for {}: {}", sha, e.getMessage());
+            return List.of();   // build coverage is additive — never take the PR sync down
+        }
     }
 
     @SuppressWarnings("unchecked")
