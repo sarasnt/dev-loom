@@ -6,6 +6,7 @@ import { useDashboardStore } from '../stores/dashboard'
 import { fleetRuns, launchRun, cancelRun, fetchRepos, fleetRunChanges, rerunRun, deleteRun, createBrainstormSession, fetchSettings, applyRun, discardRun } from '../api'
 import type { AgentRun, RepoView, RepoChanges, RunLaunch } from '../types'
 import { renderMarkdown } from '../utils/markdown'
+import { qualifyNames } from '../utils/repoNames'
 
 const router = useRouter()
 const store = useDashboardStore()
@@ -59,9 +60,13 @@ onMounted(async () => {
 })
 onBeforeUnmount(() => { if (timer) window.clearInterval(timer) })
 
+// Badges are qualified against the tracked repos (already loaded above for the launch dialog),
+// so two repos both called `implementation` do not produce two identical badges.
+const repoLabels = computed(() => qualifyNames(repos.value.map((r) => r.path)))
+// A run can point at a repo DevLoom no longer tracks; that one keeps its plain basename.
 function repoName(path: string): string {
-  const p = (path || '').replace(/\\/g, '/')
-  return p.substring(p.lastIndexOf('/') + 1)
+  const p = (path || '').replace(/\\/g, '/').replace(/\/+$/, '')
+  return repoLabels.value.get(path) ?? p.substring(p.lastIndexOf('/') + 1)
 }
 function elapsed(r: AgentRun): string {
   const start = r.startedAt ? new Date(r.startedAt).getTime() : new Date(r.createdAt).getTime()
@@ -395,7 +400,7 @@ const continueModel = computed(() => {
         <div class="bh mono">New background run</div>
         <label class="fld"><span class="flab mono">Repository</span>
           <select v-model="form.repoId" class="in mono">
-            <option v-for="r in repos" :key="r.id" :value="r.id">{{ r.name }} · {{ r.branch }}</option>
+            <option v-for="r in repos" :key="r.id" :value="r.id">{{ repoName(r.path) }} · {{ r.branch }}</option>
           </select>
         </label>
         <label class="fld col"><span class="flab mono">Task</span>

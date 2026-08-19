@@ -36,6 +36,7 @@ import {
   setRepoLocalOnly,
 } from '../api'
 import { storeToRefs } from 'pinia'
+import { qualifyNames } from '../utils/repoNames'
 import { useDashboardStore } from '../stores/dashboard'
 import { isRemoteModel } from '../utils/models'
 
@@ -206,7 +207,9 @@ async function brainstormHere(r: RepoView, model: string) {
   bmenu.value = ''
   busy.value = r.id
   try {
-    const title = model === 'claude-cli' ? `Terminal · ${r.name}` : `Brainstorm · ${r.name}`
+    // A worktree carries its branch, or three worktrees of one repo yield three identical titles.
+    const label = r.isLinkedWorktree && r.branch ? `${repoLabel(r)} ⎇ ${r.branch}` : repoLabel(r)
+    const title = model === 'claude-cli' ? `Terminal · ${label}` : `Brainstorm · ${label}`
     const s = await createBrainstormSession(title, r.path, model)
     router.push({ path: '/brainstorm', query: { session: s.id } })
   } finally {
@@ -218,6 +221,12 @@ function openSession(id: string) {
 }
 
 const repos = ref<RepoView[]>([])
+// Labels are computed over every tracked repo, not just the visible ones, so a name does not
+// change when the worktree-grouping toggle hides a row.
+const repoLabels = computed(() => qualifyNames(repos.value.map((r) => r.path)))
+function repoLabel(r: RepoView): string {
+  return repoLabels.value.get(r.path) ?? r.name
+}
 const agentUp = ref(false)
 const loading = ref(true)
 const busy = ref('')
@@ -650,7 +659,7 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
       <section v-for="r in visibleRepos" :key="r.id" class="repo">
         <div class="rh">
           <span class="hostpill mono" :class="r.host">{{ r.host }}</span>
-          <h3>{{ r.name }}</h3>
+          <h3>{{ repoLabel(r) }}</h3>
           <button class="branchbtn mono" :disabled="!agentUp" title="Switch branch" @click="toggleBranches(r)">
             ⎇ {{ r.branch || '—' }} ▾
           </button>
