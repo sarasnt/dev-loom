@@ -265,4 +265,6 @@ docs/        connector specs, deployment, feature specs and plans
 - Jira **Data Center / on-premises** works (PAT + REST v2). Jira **Cloud** is implemented — a
   separate deployment using Basic `email:apiToken`, REST v3 and ADF flattening — but it calls
   `/rest/api/3/search`, which Atlassian removed; it needs porting to `/rest/api/3/search/jql`.
+- Bitbucket DC builds surface as failed-build cards and analyze **from metadata only** — the log
+  lives in Jenkins (linked from the analysis); log fetching is a follow-up scope.
 - Streaming is implemented for local models; remote providers still answer in one piece.

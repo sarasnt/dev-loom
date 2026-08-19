@@ -135,7 +135,7 @@ about being empty.
 | Speed | CPU-only by default; add the GPU override where there's an NVIDIA card |
 | Host ports | only 80/443 (`DEVLOOM_HTTP_PORT`/`DEVLOOM_HTTPS_PORT` to move), plus 3000 if you start the Langfuse profile (`DEVLOOM_LANGFUSE_PORT`) |
 | Langfuse | `--profile obs` → http://localhost:3000 — a fresh instance (new account, new keys) |
-| Builds screen | GitHub Actions failures only for now — Bitbucket Pipelines isn't wired into Builds yet |
+| Builds screen | GitHub Actions failures with log analysis; Bitbucket DC failures with metadata analysis + Jenkins link |
 | Eval harness | `node eval/run.mjs …` from the clone works as-is (it targets `http://localhost/api/v1`, which is the edge) |
 
 ## Keeping it current
