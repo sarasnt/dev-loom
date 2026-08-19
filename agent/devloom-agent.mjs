@@ -1654,11 +1654,22 @@ async function getPty() {
 
 // Only allow the local DevLoom UI (or same-host tools) to open a terminal — blocks a random
 // website from driving your shell (CSWSH). Combined with the 127.0.0.1 bind below.
+//
+// The edge's https names belong here too. They are as local as localhost — they resolve only
+// through your own hosts file and are vouched for only by your own CA — but they do not look
+// like loopback to this check, so serving the UI on https://portal.<domain> got the terminal a
+// 403 while everything else on the page worked. DEVLOOM_DOMAIN follows edge/gen-certs.sh;
+// DEVLOOM_AGENT_ORIGINS (comma-separated hostnames) covers anything else.
+const UI_DOMAIN = process.env.DEVLOOM_DOMAIN || 'mycompanion-devloom.dev'
+const EXTRA_ORIGINS = (process.env.DEVLOOM_AGENT_ORIGINS || '')
+  .split(',').map((h) => h.trim()).filter(Boolean)
 function allowedOrigin(origin) {
   if (!origin) return true // non-browser clients (curl/tests) send no Origin
   try {
     const h = new URL(origin).hostname
-    return h === 'localhost' || h === '127.0.0.1' || h === '::1'
+    if (h === 'localhost' || h === '127.0.0.1' || h === '::1') return true
+    if (h === UI_DOMAIN || h.endsWith('.' + UI_DOMAIN)) return true
+    return EXTRA_ORIGINS.includes(h)
   } catch { return false }
 }
 

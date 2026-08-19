@@ -63,8 +63,20 @@ async function connect() {
     cols: String(t.cols),
     rows: String(t.rows),
   })
-  const url = `ws://${location.hostname}:${AGENT_PORT}/pty?${params.toString()}`
-  ws = new WebSocket(url)
+  // Loopback literal, not location.hostname. The agent is always on this machine — it drives
+  // your CLI and your repos — and loopback is "potentially trustworthy", so ws:// to it is
+  // exempt from mixed-content blocking. ws://<page host> is not: served over https from the
+  // edge (the .dev names), the browser refuses to construct it at all.
+  const url = `ws://127.0.0.1:${AGENT_PORT}/pty?${params.toString()}`
+  try {
+    ws = new WebSocket(url)
+  } catch {
+    // The constructor throws synchronously on a blocked scheme, which is before onerror below
+    // could ever be attached — the pane then sat on "connecting" forever with nothing said.
+    status.value = 'error'
+    t.writeln('\r\n\x1b[31mThe browser refused to open a terminal connection to :' + AGENT_PORT + '.\x1b[0m')
+    return
+  }
 
   ws.onopen = () => {
     status.value = 'open'
