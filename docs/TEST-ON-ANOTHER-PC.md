@@ -75,12 +75,20 @@ Connectors (GitHub, Bitbucket, Jira, Notion, calendars) are configured later in
 
 ### 5. Up
 
+Pin the compose file once, so plain `docker compose up`/`down` always means the prebuilt stack —
+mixing an `up -f docker-compose.prebuilt.yml` with a bare `down` evaluates the *dev* file, which
+profile-gates ollama and leaves it running:
+
 ```bash
-docker compose -f docker-compose.prebuilt.yml pull        # ~6–7 GB first time
-docker compose -f docker-compose.prebuilt.yml up -d
+echo "COMPOSE_FILE=docker-compose.prebuilt.yml" > .env    # repo root (gitignored)
+```
+
+```bash
+docker compose pull        # ~6–7 GB first time
+docker compose up -d
 
 # NVIDIA GPU (needs the NVIDIA Container Toolkit):
-docker compose -f docker-compose.prebuilt.yml -f docker-compose.gpu.yml up -d
+COMPOSE_FILE=docker-compose.prebuilt.yml:docker-compose.gpu.yml docker compose up -d
 ```
 
 - App: **https://portal.mycompanion-devloom.dev** (or the bare domain, or plain
@@ -133,15 +141,15 @@ about being empty.
 ## Keeping it current
 
 ```bash
-git pull                                             # compose files, edge config, host agent, eval
-docker compose -f docker-compose.prebuilt.yml pull   # images rebuilt by CI on every main push
-docker compose -f docker-compose.prebuilt.yml up -d
+git pull                   # compose files, edge config, host agent, eval
+docker compose pull        # images rebuilt by CI on every main push
+docker compose up -d
 # restart the host agent too — it runs from the checkout you just pulled
 ```
 
 If a compose file changed the port layout since your last pull, do a one-time
-`docker compose -f docker-compose.prebuilt.yml down` before `up` so old published ports are
-released.
+`docker compose down` before `up` so old published ports are released. `down` must always get
+the same file/profile flags as the `up` did — the COMPOSE_FILE pin above makes that automatic.
 
 ---
 
