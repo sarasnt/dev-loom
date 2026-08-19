@@ -6,26 +6,34 @@ import java.util.function.Consumer;
 
 import org.springframework.stereotype.Service;
 
+import com.devloom.integrations.BitbucketBuildAnalyzer;
 import com.devloom.integrations.GitHubBuildAnalyzer;
+import com.devloom.integrations.SourceInstanceRepository;
 import com.devloom.workmodel.WorkItemEntity;
 import com.devloom.workmodel.WorkItemRepository;
 
 /**
- * Assembles the build-failure analysis (SPEC.md §23) from a <em>real</em> GitHub Actions run.
- * The run is resolved either from an explicit run id or from the most recent failed-CI work
- * item in the unified model; {@link GitHubBuildAnalyzer} then fetches the run, its failed
- * job/step and the redacted log tail, and summarizes via the local model. When there is no
- * failing run (or GitHub isn't configured) an honest empty state is returned — never fixtures.
+ * Assembles the build-failure analysis (SPEC.md §23) from a <em>real</em> build. The item is
+ * resolved either from an explicit id or from the most recent failed-CI work item in the unified
+ * model, then dispatched by source: {@link GitHubBuildAnalyzer} fetches the run, its failed
+ * job/step and the redacted log tail; {@link BitbucketBuildAnalyzer} reasons from build metadata
+ * only, since Bitbucket never exposes logs. When there is no failing run (or the source isn't
+ * configured) an honest empty state is returned — never fixtures.
  */
 @Service
 public class BuildFailureService {
 
     private final GitHubBuildAnalyzer ghAnalyzer;
+    private final BitbucketBuildAnalyzer bbAnalyzer;
     private final WorkItemRepository workItems;
+    private final SourceInstanceRepository sources;
 
-    public BuildFailureService(GitHubBuildAnalyzer ghAnalyzer, WorkItemRepository workItems) {
+    public BuildFailureService(GitHubBuildAnalyzer ghAnalyzer, BitbucketBuildAnalyzer bbAnalyzer,
+                               WorkItemRepository workItems, SourceInstanceRepository sources) {
         this.ghAnalyzer = ghAnalyzer;
+        this.bbAnalyzer = bbAnalyzer;
         this.workItems = workItems;
+        this.sources = sources;
     }
 
     public Dto.BuildFailure analyze(String id) {
@@ -36,12 +44,28 @@ public class BuildFailureService {
      *  the caller-selected {@code model} (Builds screen) for the analysis. */
     public Dto.BuildFailure analyze(String id, Consumer<String> progress, String model) {
         String runId = resolveRunId(id);
-        if (runId == null || !ghAnalyzer.enabled()) {
+        if (runId == null) {
             return emptyState();
         }
         Optional<WorkItemEntity> item = workItems.findFirstByExtId(runId);
         String repo = item.map(BuildFailureService::metaRepo).orElse(null);
         if (repo == null) {
+            return emptyState();
+        }
+        // Route by the item's source: a Bitbucket failure has no GitHub run to fetch, and vice
+        // versa. Anything unrecognized keeps the GitHub path — exactly what it always did.
+        boolean bitbucket = item
+                .map(WorkItemEntity::getSource)
+                .flatMap(sources::findByNameIgnoreCase)
+                .map(s -> "bitbucket".equalsIgnoreCase(s.getType()))
+                .orElse(false);
+        if (bitbucket) {
+            var inst = sources.findByNameIgnoreCase(item.get().getSource()).orElse(null);
+            Dto.BuildFailure real = inst == null ? null
+                    : bbAnalyzer.analyze(inst, item.get(), runId, progress, model);
+            return real != null ? real : emptyState();
+        }
+        if (!ghAnalyzer.enabled()) {
             return emptyState();
         }
         Dto.BuildFailure real = ghAnalyzer.analyze(repo, runId, progress, model);
@@ -54,7 +78,9 @@ public class BuildFailureService {
      * to "latest", so the view always lands on a real run when one exists.
      */
     private String resolveRunId(String id) {
-        if (id != null && id.matches("\\d{6,}")) {
+        // Explicit ids: a GitHub Actions run id is numeric; a Bitbucket build item is keyed by
+        // its head commit SHA. The two shapes cannot collide.
+        if (id != null && (id.matches("\\d{6,}") || id.matches("[0-9a-f]{40}"))) {
             return id;
         }
         List<WorkItemEntity> builds = workItems.findByTypeOrderBySortOrderAsc("build");
@@ -67,11 +93,12 @@ public class BuildFailureService {
                 "none", "—", "—", null, "—", "—",
                 new Dto.Boundary("local", "On your machine"),
                 "No failing CI runs right now. When a connected repo has a failed GitHub Actions "
-                        + "run, it appears here with a redacted log tail and a local-model analysis.",
+                        + "run — or a Bitbucket PR carries a failed build — it appears here with "
+                        + "an analysis by the local model.",
                 "n/a", "—", "—", "—", false,
                 List.of(new Dto.LogLine("(no build failures)", "omitted")),
                 List.of(), List.of(),
-                List.of("Connect a GitHub repo with CI, or open a PR that triggers a workflow."),
+                List.of("Connect a GitHub repo with CI or a Bitbucket source, or open a PR that triggers a build."),
                 List.of(), "deterministic");
     }
 
