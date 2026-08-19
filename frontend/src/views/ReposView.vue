@@ -687,10 +687,28 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
         <!-- nested worktrees (repos spec §9): tracked children + on-disk worktrees to add -->
         <div v-if="groupWorktrees && openWt === r.id" class="wtbox">
           <div v-for="c in trackedChildren(r)" :key="c.id" class="wtrow">
-            <span class="wtbranch mono">⎇ {{ c.branch || '—' }}</span>
+            <!-- The branch label becomes the switcher, so the row gains an action without losing
+                 the information it used to show. -->
+            <button class="branchbtn mono" :disabled="!agentUp" title="Switch branch" @click="toggleBranches(c)">
+              ⎇ {{ c.branch || '—' }} ▾
+            </button>
             <span v-if="isRunWorktree(c.branch)" class="wtrun mono">run</span>
             <span class="hchip mono" :class="workTree(c).tone">{{ workTree(c).label }}</span>
             <span class="hchip mono" :class="upstreamState(c).tone">{{ upstreamState(c).label }}</span>
+            <button class="hmore mono" :aria-expanded="openChanges === c.id" @click="openChanges = openChanges === c.id ? null : c.id">
+              {{ openChanges === c.id ? 'Hide changes' : 'Changes' }}
+            </button>
+            <button class="hmore mono" :aria-expanded="openHealth === c.id" @click="toggleHealth(c)">
+              health {{ openHealth === c.id ? '▴' : '▾' }}
+            </button>
+            <RepoBrainstormButton
+              :repo="c"
+              :models="repoModels(c)"
+              :open="bmenu === c.id"
+              :disabled="busy === c.id || !agentUp"
+              @toggle="bmenu = bmenu === c.id ? '' : c.id"
+              @pick="(m) => brainstormHere(c, m)"
+            />
             <span class="wtpath mono">{{ c.path }}</span>
             <span class="wttag mono">tracked</span>
           </div>
