@@ -37,6 +37,7 @@ import {
 } from '../api'
 import { storeToRefs } from 'pinia'
 import { qualifyNames } from '../utils/repoNames'
+import RepoBrainstormButton from '../components/RepoBrainstormButton.vue'
 import { useDashboardStore } from '../stores/dashboard'
 import { isRemoteModel } from '../utils/models'
 
@@ -53,9 +54,6 @@ async function toggleLocalOnly(r: RepoView) {
   const updated = await setRepoLocalOnly(r.id, !r.localOnly)
   const i = repos.value.findIndex((x) => x.id === r.id)
   if (i >= 0) repos.value[i] = { ...repos.value[i], localOnly: updated.localOnly }
-}
-function modelLabel(m: string): string {
-  return m === 'claude-cli' ? 'Claude CLI · interactive terminal' : m
 }
 
 // ---- repository health (repo-spec §7) ----
@@ -868,23 +866,14 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
             :title="r.localOnly ? 'Local-only: only local models can brainstorm this repo' : 'Allow remote models for this repo'"
             @click="toggleLocalOnly(r)"
           >{{ r.localOnly ? '🔒 Local-only' : '🔓 Any model' }}</button>
-          <div class="splitwrap">
-            <button
-              class="btn brainstorm"
-              :disabled="busy === r.id || !agentUp"
-              title="Choose a model to brainstorm this repo"
-              @click="bmenu = bmenu === r.id ? '' : r.id"
-            >
-              ✎ Brainstorm here ▾
-            </button>
-            <div v-if="bmenu === r.id" class="bmenu" @click.self="bmenu = ''">
-              <div class="bmlab mono">{{ r.localOnly ? 'local models only' : 'choose a model' }}</div>
-              <button v-for="m in repoModels(r)" :key="m" class="bmi" @click="brainstormHere(r, m)">
-                {{ modelLabel(m) }}
-              </button>
-              <div v-if="!repoModels(r).length" class="bmi empty mono">no local models pulled</div>
-            </div>
-          </div>
+          <RepoBrainstormButton
+            :repo="r"
+            :models="repoModels(r)"
+            :open="bmenu === r.id"
+            :disabled="busy === r.id || !agentUp"
+            @toggle="bmenu = bmenu === r.id ? '' : r.id"
+            @pick="(m) => brainstormHere(r, m)"
+          />
           <button class="btn ghost" :disabled="busy === r.id" @click="remove(r)">Remove</button>
         </div>
 
