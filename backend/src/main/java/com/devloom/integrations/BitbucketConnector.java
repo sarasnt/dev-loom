@@ -104,7 +104,9 @@ public class BitbucketConnector implements SourceConnector {
                 // Cloud puts the browser link at links.html.href. Without it "Open" on Today has
                 // nothing to open, which reads as a broken button rather than missing data.
                 String url = str(asMap(asMap(pr.get("links")).get("html")), "href");
-                out.add(prItem(id, title, state, repo, source, order++, url));
+                // Cloud role resolution is out of scope for this task (VPN-only, not probe-verified
+                // on this instance) — Cloud PRs stay author-less until that path is built.
+                out.add(prItem(id, title, state, repo, source, order++, url, null, null));
             }
             log.info("Bitbucket Cloud sync [{}]: {} PRs", source, out.size());
             return out;
@@ -121,6 +123,12 @@ public class BitbucketConnector implements SourceConnector {
                 .defaultHeader("Accept", "application/json").build();
         String source = inst.getName();
         try {
+            // Who a PR is FOR is resolved here, at sync time: the dashboard endpoint takes a
+            // documented role filter, and two id-only calls settle mine-vs-review without
+            // guessing from participant lists. Null means the call failed — everything then
+            // falls back to "other", because authorship is additive and must never block a sync.
+            java.util.Set<String> authored = rolePrKeys(http, "AUTHOR");
+            java.util.Set<String> reviewing = rolePrKeys(http, "REVIEWER");
             Map<String, Object> resp = http.get()
                     .uri(uri -> uri.path("/rest/api/1.0/dashboard/pull-requests")
                             .queryParam("state", "OPEN")
@@ -139,13 +147,18 @@ public class BitbucketConnector implements SourceConnector {
                 String state = str(pr, "state");
                 Map<String, Object> repoObj = asMap(asMap(pr.get("toRef")).get("repository"));
                 String repo = str(asMap(repoObj.get("project")), "key") + "/" + str(repoObj, "slug");
+                String prKey = repo + "#" + id;
+                String prRole = authored != null && authored.contains(prKey) ? "mine"
+                        : reviewing != null && reviewing.contains(prKey) ? "review" : "other";
+                String prAuthor = str(asMap(asMap(pr.get("author")).get("user")), "displayName");
+                if (prAuthor.isBlank()) prAuthor = str(asMap(asMap(pr.get("author")).get("user")), "name");
                 // Server/DC exposes the browser link as the first links.self entry.
                 String url = null;
                 for (Object l : asList(asMap(pr.get("links")).get("self"))) {
                     url = str(asMap(l), "href");
                     if (!url.isBlank()) break;
                 }
-                out.add(prItem(id, title, state, repo, source, order++, url));
+                out.add(prItem(id, title, state, repo, source, order++, url, prAuthor, prRole));
                 prCount++;
 
                 // A red build on this PR becomes its own work item, so Bitbucket failures reach
@@ -169,7 +182,7 @@ public class BitbucketConnector implements SourceConnector {
     }
 
     private WorkItemEntity prItem(String id, String title, String state, String repo, String source,
-                                  int order, String url) {
+                                  int order, String url, String author, String prRole) {
         String tone = switch (state == null ? "" : state.toUpperCase()) {
             case "MERGED" -> "healthy";
             case "DECLINED", "SUPERSEDED" -> "stale";
@@ -180,7 +193,33 @@ public class BitbucketConnector implements SourceConnector {
         String displayTitle = "#" + id + " · " + title;
         return WorkItemEntity.create(extId, "pr", displayTitle, "PR", tone,
                 String.join(",", state == null ? "" : state.toLowerCase(), repo), source, order)
-                .withUrl(url == null || url.isBlank() ? null : url);
+                .withUrl(url == null || url.isBlank() ? null : url)
+                .withAuthor(author, prRole);
+    }
+
+    /** PR keys (PROJ/slug#id) for one dashboard role — or null when the call failed. */
+    private java.util.Set<String> rolePrKeys(RestClient http, String role) {
+        try {
+            Map<String, Object> resp = http.get()
+                    .uri(uri -> uri.path("/rest/api/1.0/dashboard/pull-requests")
+                            .queryParam("state", "OPEN")
+                            .queryParam("role", role)
+                            .queryParam("limit", 100)
+                            .build())
+                    .retrieve().body(MAP);
+            java.util.Set<String> keys = new java.util.HashSet<>();
+            for (Object o : asList(resp == null ? null : resp.get("values"))) {
+                Map<String, Object> pr = asMap(o);
+                Map<String, Object> repoObj = asMap(asMap(pr.get("toRef")).get("repository"));
+                keys.add(str(asMap(repoObj.get("project")), "key") + "/" + str(repoObj, "slug")
+                        + "#" + str(pr, "id"));
+            }
+            return keys;
+        } catch (Exception e) {
+            log.warn("Bitbucket role filter {} unavailable ({}) — PR roles fall back to \"other\"",
+                    role, e.getMessage());
+            return null;
+        }
     }
 
     /**
