@@ -85,11 +85,24 @@ services:
   # api.<domain> → the API; http://localhost works with no hosts entry. Needs the repo
   # checkout for edge/nginx.conf and the certs from `sh edge/make-certs.sh` — without
   # them nginx will not start, and the .dev names cannot work at all (HSTS preload).
+  # One-shot: generates the local CA + certificate into ./edge/certs when missing (see
+  # edge/gen-certs.sh). Without this, a machine that skipped make-certs.sh got an edge that
+  # crash-looped while `up -d` printed "Started" — the whole app unreachable, no error in sight.
+  edge-certs:
+    image: alpine:3
+    volumes:
+      - ./edge:/edge
+    entrypoint: ["/bin/sh", "/edge/gen-certs.sh", "/edge/certs"]
+
   edge:
     image: nginx:1.27-alpine
     depends_on:
-      - frontend
-      - backend
+      edge-certs:
+        condition: service_completed_successfully
+      frontend:
+        condition: service_started
+      backend:
+        condition: service_started
     volumes:
       - ./edge/nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - ./edge/certs:/etc/nginx/certs:ro

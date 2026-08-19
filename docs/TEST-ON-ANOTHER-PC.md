@@ -37,15 +37,16 @@ cd dev-loom
 `.dev` is HSTS-preloaded in every browser, so the domain names only work over trusted TLS —
 without these steps the names simply do not load. (`http://localhost` needs none of this.)
 
-```bash
-# a local CA + cert, generated in a container — installs nothing
-sh edge/make-certs.sh
+The certificates themselves are generated **automatically on first `up`** (the `edge-certs`
+one-shot service writes them to `edge/certs/`), so there is nothing to generate by hand — these
+steps just make your OS and browser trust them:
 
+```bash
 # resolve the names to this machine
 echo "127.0.0.1 mycompanion-devloom.dev api.mycompanion-devloom.dev portal.mycompanion-devloom.dev" \
   | sudo tee -a /etc/hosts
 
-# trust the CA — system store (curl etc.)
+# trust the CA — system store (curl etc.); the file exists after the first `up`
 sudo cp edge/certs/devloom-local-ca.crt /usr/local/share/ca-certificates/devloom-local-ca.crt
 sudo update-ca-certificates
 
