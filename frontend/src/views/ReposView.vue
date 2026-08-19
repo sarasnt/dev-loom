@@ -253,6 +253,14 @@ function trackedChildren(primary: RepoView): RepoView[] {
   if (!groupWorktrees.value || primary.isLinkedWorktree) return []
   return repos.value.filter((r) => r.id !== primary.id && r.isLinkedWorktree && sameRepo(r, primary))
 }
+// Which repo a panel should render for: the card's own repo, or one of its worktrees when that
+// row is the open one. One copy of each panel then serves the card and every worktree under it —
+// extracting them instead would mean a 25-property interface for the health panel alone.
+function panelRepo(primary: RepoView, openId: string | null): RepoView | null {
+  if (!openId) return null
+  if (openId === primary.id) return primary
+  return trackedChildren(primary).find((c) => c.id === openId) ?? null
+}
 // Expander state + lazily-loaded on-disk worktree list (includes untracked worktrees).
 const openWt = ref('')
 const wtList = ref<Record<string, WorktreeInfo[]>>({})
@@ -711,105 +719,109 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
         </div>
 
         <!-- expanded health rows (repo-spec §11) -->
-        <div v-if="openHealth === r.id" class="healthbox">
-          <div class="hrow"><span class="hk mono">Working tree</span><span class="hv" :class="workTree(r).tone">{{ workTree(r).label }}</span>
-            <span v-if="r.staged || r.unstaged || r.untracked" class="mono hdet">{{ r.staged }} staged · {{ r.unstaged }} unstaged · {{ r.untracked }} untracked</span></div>
-          <div class="hrow"><span class="hk mono">Upstream</span><span class="hv" :class="upstreamState(r).tone">{{ upstreamState(r).label }}</span>
-            <span class="mono hdet">{{ r.upstream ? 'tracks ' + r.upstream : 'no tracking branch configured' }}</span></div>
+        <template v-for="hr in [panelRepo(r, openHealth)]" :key="hr?.id ?? 'none'">
+        <div v-if="hr" class="healthbox">
+          <div class="hrow"><span class="hk mono">Working tree</span><span class="hv" :class="workTree(hr).tone">{{ workTree(hr).label }}</span>
+            <span v-if="hr.staged || hr.unstaged || hr.untracked" class="mono hdet">{{ hr.staged }} staged · {{ hr.unstaged }} unstaged · {{ hr.untracked }} untracked</span></div>
+          <div class="hrow"><span class="hk mono">Upstream</span><span class="hv" :class="upstreamState(hr).tone">{{ upstreamState(hr).label }}</span>
+            <span class="mono hdet">{{ hr.upstream ? 'tracks ' + hr.upstream : 'no tracking branch configured' }}</span></div>
           <div class="hrow">
             <span class="hk mono">Source branch</span>
-            <template v-if="sourceLoading[r.id] && sourceStatus[r.id] === undefined"><span class="hv info">checking…</span></template>
+            <template v-if="sourceLoading[hr.id] && sourceStatus[hr.id] === undefined"><span class="hv info">checking…</span></template>
             <template v-else>
-              <span class="hv" :class="sourceHealth(sourceStatus[r.id]).tone">{{ sourceHealth(sourceStatus[r.id]).label }}</span>
+              <span class="hv" :class="sourceHealth(sourceStatus[hr.id]).tone">{{ sourceHealth(sourceStatus[hr.id]).label }}</span>
               <span class="mono hdet">
-                {{ sourceOrigin(sourceStatus[r.id]) }}
-                <template v-if="sourceStatus[r.id]?.sourceAhead">· ↑{{ sourceStatus[r.id]?.sourceAhead }} ahead</template>
+                {{ sourceOrigin(sourceStatus[hr.id]) }}
+                <template v-if="sourceStatus[hr.id]?.sourceAhead">· ↑{{ sourceStatus[hr.id]?.sourceAhead }} ahead</template>
               </span>
-              <button v-if="editSource !== r.id" class="hedit mono" :disabled="!agentUp" @click="openSourceEdit(r)">change</button>
+              <button v-if="editSource !== hr.id" class="hedit mono" :disabled="!agentUp" @click="openSourceEdit(hr)">change</button>
             </template>
           </div>
-          <div v-if="editSource === r.id" class="hrow srcedit">
+          <div v-if="editSource === hr.id" class="hrow srcedit">
             <span class="hk mono"></span>
             <input
               class="srcin mono"
               list="src-branches"
-              v-model="sourceInput[r.id]"
+              v-model="sourceInput[hr.id]"
               placeholder="branch name (blank = default)"
-              @keyup.enter="saveSource(r)"
+              @keyup.enter="saveSource(hr)"
             />
             <datalist id="src-branches">
-              <option v-for="b in branchList[r.id] ?? []" :key="b" :value="b" />
+              <option v-for="b in branchList[hr.id] ?? []" :key="b" :value="b" />
             </datalist>
-            <button class="hedit mono" :disabled="sourceLoading[r.id]" @click="saveSource(r)">save</button>
+            <button class="hedit mono" :disabled="sourceLoading[hr.id]" @click="saveSource(hr)">save</button>
             <button class="hedit mono ghost" @click="editSource = null">cancel</button>
           </div>
           <div class="hrow">
             <span class="hk mono">Conflict check</span>
-            <template v-if="conflictLoading[r.id] && conflict[r.id] === undefined"><span class="hv info">checking…</span></template>
+            <template v-if="conflictLoading[hr.id] && conflict[hr.id] === undefined"><span class="hv info">checking…</span></template>
             <template v-else>
-              <span class="hv" :class="conflictHealth(conflict[r.id]).tone">{{ conflictHealth(conflict[r.id]).label }}</span>
-              <span class="mono hdet" :title="(conflict[r.id]?.files ?? []).join('\n')">
-                {{ conflict[r.id]?.reason
-                   || (conflict[r.id]?.files?.length ? conflict[r.id]?.files.slice(0, 3).join(', ') + ((conflict[r.id]?.files.length ?? 0) > 3 ? '…' : '')
-                   : (conflict[r.id]?.ref ? 'vs ' + conflict[r.id]?.ref + ' · predictive' : '')) }}
+              <span class="hv" :class="conflictHealth(conflict[hr.id]).tone">{{ conflictHealth(conflict[hr.id]).label }}</span>
+              <span class="mono hdet" :title="(conflict[hr.id]?.files ?? []).join('\n')">
+                {{ conflict[hr.id]?.reason
+                   || (conflict[hr.id]?.files?.length ? conflict[hr.id]?.files.slice(0, 3).join(', ') + ((conflict[hr.id]?.files.length ?? 0) > 3 ? '…' : '')
+                   : (conflict[hr.id]?.ref ? 'vs ' + conflict[hr.id]?.ref + ' · predictive' : '')) }}
               </span>
             </template>
           </div>
           <div class="hrow">
             <span class="hk mono">Last refresh</span>
-            <span class="hv" :class="{ warn: conflict[r.id]?.stale }">{{ refreshLabel(conflict[r.id]?.lastFetch) }}</span>
-            <span v-if="conflict[r.id]?.stale" class="mono hdet">refs may be out of date</span>
-            <button class="hedit mono" :disabled="!agentUp || refreshing[r.id]" @click="refreshRepo(r)">
-              {{ refreshing[r.id] ? 'fetching…' : 'refresh' }}
+            <span class="hv" :class="{ warn: conflict[hr.id]?.stale }">{{ refreshLabel(conflict[hr.id]?.lastFetch) }}</span>
+            <span v-if="conflict[hr.id]?.stale" class="mono hdet">refs may be out of date</span>
+            <button class="hedit mono" :disabled="!agentUp || refreshing[hr.id]" @click="refreshRepo(hr)">
+              {{ refreshing[hr.id] ? 'fetching…' : 'refresh' }}
             </button>
           </div>
           <div class="hrow">
             <span class="hk mono">Push guard</span>
-            <template v-if="pushProt[r.id]">
-              <span class="hv" :class="pushProt[r.id]!.mode === 'off' ? 'ok' : 'info'">
-                {{ pushProt[r.id]!.mode === 'off' ? 'Pushes allowed' : pushProt[r.id]!.mode === 'all' ? 'All pushes blocked' : 'Protected: ' + pushProt[r.id]!.patterns }}
+            <template v-if="pushProt[hr.id]">
+              <span class="hv" :class="pushProt[hr.id]!.mode === 'off' ? 'ok' : 'info'">
+                {{ pushProt[hr.id]!.mode === 'off' ? 'Pushes allowed' : pushProt[hr.id]!.mode === 'all' ? 'All pushes blocked' : 'Protected: ' + pushProt[hr.id]!.patterns }}
               </span>
-              <span class="mono hdet">{{ pushProt[r.id]!.overridden ? 'repo override' : 'global default' }}</span>
-              <button v-if="editProt !== r.id" class="hedit mono" @click="openProtEdit(r)">change</button>
+              <span class="mono hdet">{{ pushProt[hr.id]!.overridden ? 'repo override' : 'global default' }}</span>
+              <button v-if="editProt !== hr.id" class="hedit mono" @click="openProtEdit(hr)">change</button>
             </template>
             <span v-else class="hv info">…</span>
           </div>
-          <div v-if="editProt === r.id" class="hrow srcedit">
+          <div v-if="editProt === hr.id" class="hrow srcedit">
             <span class="hk mono"></span>
-            <select v-model="protMode[r.id]" class="srcin mono" style="flex:0 0 auto">
-              <option value="inherit">Inherit global ({{ pushProt[r.id]?.globalMode }})</option>
+            <select v-model="protMode[hr.id]" class="srcin mono" style="flex:0 0 auto">
+              <option value="inherit">Inherit global ({{ pushProt[hr.id]?.globalMode }})</option>
               <option value="off">Off — allow all</option>
               <option value="protected">Protected branches</option>
               <option value="all">Block all</option>
             </select>
-            <input v-if="protMode[r.id] === 'protected'" v-model="protPatterns[r.id]" class="srcin mono" placeholder="main, master, develop, dev" @keyup.enter="saveProt(r)" />
-            <button class="hedit mono" @click="saveProt(r)">save</button>
+            <input v-if="protMode[hr.id] === 'protected'" v-model="protPatterns[hr.id]" class="srcin mono" placeholder="main, master, develop, dev" @keyup.enter="saveProt(hr)" />
+            <button class="hedit mono" @click="saveProt(hr)">save</button>
             <button class="hedit mono ghost" @click="editProt = null">cancel</button>
           </div>
         </div>
+        </template>
 
-        <div v-if="openBranch === r.id" class="branchpanel">
+        <template v-for="br in [panelRepo(r, openBranch)]" :key="br?.id ?? 'none'">
+        <div v-if="br" class="branchpanel">
           <span class="clab mono">Switch branch</span>
           <div class="branches">
             <button
-              v-for="b in branchList[r.id] ?? []"
+              v-for="b in branchList[br.id] ?? []"
               :key="b"
               class="brow mono"
-              :class="{ cur: b === r.branch }"
-              :disabled="busy === r.id"
-              @click="switchBranch(r, b)"
+              :class="{ cur: b === br.branch }"
+              :disabled="busy === br.id"
+              @click="switchBranch(br, b)"
             >
-              {{ b === r.branch ? '● ' : '' }}{{ b }}
+              {{ b === br.branch ? '● ' : '' }}{{ b }}
             </button>
-            <span v-if="!(branchList[r.id] ?? []).length" class="mono clean">no local branches</span>
+            <span v-if="!(branchList[br.id] ?? []).length" class="mono clean">no local branches</span>
           </div>
           <div class="newbranch">
-            <input v-model="newBranch[r.id]" class="in sm" placeholder="new-branch-name" @keydown.enter="switchBranch(r, newBranch[r.id], true)" />
-            <button class="btn" :disabled="busy === r.id || !(newBranch[r.id] || '').trim()" @click="switchBranch(r, newBranch[r.id], true)">
+            <input v-model="newBranch[br.id]" class="in sm" placeholder="new-branch-name" @keydown.enter="switchBranch(br, newBranch[br.id], true)" />
+            <button class="btn" :disabled="busy === br.id || !(newBranch[br.id] || '').trim()" @click="switchBranch(br, newBranch[br.id], true)">
               Create &amp; switch
             </button>
           </div>
         </div>
+        </template>
 
         <div v-if="editing === r.id" class="idedit">
           <input v-model="editName" class="in sm" placeholder="git user.name" />
@@ -978,47 +990,49 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
         </div>
 
         <!-- changes / staging / commit -->
-        <div v-if="openChanges === r.id" class="changes">
+        <template v-for="cr in [panelRepo(r, openChanges)]" :key="cr?.id ?? 'none'">
+        <div v-if="cr" class="changes">
           <div class="cgroup">
             <div class="clab mono">
-              Staged ({{ changes[r.id]?.staged.length ?? 0 }})
-              <button v-if="changes[r.id]?.staged.length" class="mini" @click="unstage(r, [])">unstage all</button>
+              Staged ({{ changes[cr.id]?.staged.length ?? 0 }})
+              <button v-if="changes[cr.id]?.staged.length" class="mini" @click="unstage(cr, [])">unstage all</button>
             </div>
-            <div v-for="f in changes[r.id]?.staged ?? []" :key="'s' + f.file" class="crow">
+            <div v-for="f in changes[cr.id]?.staged ?? []" :key="'s' + f.file" class="crow">
               <span class="cstat mono staged">{{ f.status }}</span>
               <span class="cfile mono">{{ f.file }}</span>
-              <button class="mini" @click="unstage(r, [f.file])">unstage</button>
+              <button class="mini" @click="unstage(cr, [f.file])">unstage</button>
             </div>
           </div>
           <div class="cgroup">
             <div class="clab mono">
-              Unstaged ({{ (changes[r.id]?.unstaged.length ?? 0) + (changes[r.id]?.untracked.length ?? 0) }})
+              Unstaged ({{ (changes[cr.id]?.unstaged.length ?? 0) + (changes[cr.id]?.untracked.length ?? 0) }})
               <button
-                v-if="(changes[r.id]?.unstaged.length ?? 0) + (changes[r.id]?.untracked.length ?? 0)"
+                v-if="(changes[cr.id]?.unstaged.length ?? 0) + (changes[cr.id]?.untracked.length ?? 0)"
                 class="mini"
-                @click="stage(r, [])"
+                @click="stage(cr, [])"
               >stage all</button>
             </div>
-            <div v-for="f in changes[r.id]?.unstaged ?? []" :key="'u' + f.file" class="crow">
+            <div v-for="f in changes[cr.id]?.unstaged ?? []" :key="'u' + f.file" class="crow">
               <span class="cstat mono">{{ f.status }}</span>
               <span class="cfile mono">{{ f.file }}</span>
-              <button class="mini" @click="stage(r, [f.file])">stage</button>
+              <button class="mini" @click="stage(cr, [f.file])">stage</button>
             </div>
-            <div v-for="f in changes[r.id]?.untracked ?? []" :key="'n' + f.file" class="crow">
+            <div v-for="f in changes[cr.id]?.untracked ?? []" :key="'n' + f.file" class="crow">
               <span class="cstat mono new">new</span>
               <span class="cfile mono">{{ f.file }}</span>
-              <button class="mini" @click="stage(r, [f.file])">stage</button>
+              <button class="mini" @click="stage(cr, [f.file])">stage</button>
             </div>
-            <div v-if="!changes[r.id]?.staged.length && !changes[r.id]?.unstaged.length && !changes[r.id]?.untracked.length" class="mono clean">working tree clean</div>
+            <div v-if="!changes[cr.id]?.staged.length && !changes[cr.id]?.unstaged.length && !changes[cr.id]?.untracked.length" class="mono clean">working tree clean</div>
           </div>
           <div class="commitbar">
-            <input v-model="commitMsg[r.id]" class="in" placeholder="Commit message…" @keydown.enter="commit(r)" />
-            <button class="btn pri" :disabled="busy === r.id || !stagedCount(r.id) || !(commitMsg[r.id] || '').trim()" @click="commit(r)">
+            <input v-model="commitMsg[cr.id]" class="in" placeholder="Commit message…" @keydown.enter="commit(cr)" />
+            <button class="btn pri" :disabled="busy === cr.id || !stagedCount(cr.id) || !(commitMsg[cr.id] || '').trim()" @click="commit(cr)">
               Commit
             </button>
-            <button class="btn" :disabled="busy === r.id" @click="act(r, () => repoPush(r.id), 'push')">Push</button>
+            <button class="btn" :disabled="busy === cr.id" @click="act(cr, () => repoPush(cr.id), 'push')">Push</button>
           </div>
         </div>
+        </template>
       </section>
     </template>
 
