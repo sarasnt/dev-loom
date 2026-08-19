@@ -99,7 +99,10 @@ public class BitbucketConnector implements SourceConnector {
                 if (repo.isBlank()) {
                     repo = str(asMap(asMap(asMap(pr.get("source")).get("repository"))), "full_name");
                 }
-                out.add(prItem(id, title, state, repo, source, order++));
+                // Cloud puts the browser link at links.html.href. Without it "Open" on Today has
+                // nothing to open, which reads as a broken button rather than missing data.
+                String url = str(asMap(asMap(pr.get("links")).get("html")), "href");
+                out.add(prItem(id, title, state, repo, source, order++, url));
             }
             log.info("Bitbucket Cloud sync [{}]: {} PRs", source, out.size());
             return out;
@@ -131,7 +134,13 @@ public class BitbucketConnector implements SourceConnector {
                 String state = str(pr, "state");
                 Map<String, Object> repoObj = asMap(asMap(pr.get("toRef")).get("repository"));
                 String repo = str(asMap(repoObj.get("project")), "key") + "/" + str(repoObj, "slug");
-                out.add(prItem(id, title, state, repo, source, order++));
+                // Server/DC exposes the browser link as the first links.self entry.
+                String url = null;
+                for (Object l : asList(asMap(pr.get("links")).get("self"))) {
+                    url = str(asMap(l), "href");
+                    if (!url.isBlank()) break;
+                }
+                out.add(prItem(id, title, state, repo, source, order++, url));
             }
             log.info("Bitbucket Server sync [{}]: {} PRs", source, out.size());
             return out;
@@ -141,7 +150,8 @@ public class BitbucketConnector implements SourceConnector {
         }
     }
 
-    private WorkItemEntity prItem(String id, String title, String state, String repo, String source, int order) {
+    private WorkItemEntity prItem(String id, String title, String state, String repo, String source,
+                                  int order, String url) {
         String tone = switch (state == null ? "" : state.toUpperCase()) {
             case "MERGED" -> "healthy";
             case "DECLINED", "SUPERSEDED" -> "stale";
@@ -151,7 +161,8 @@ public class BitbucketConnector implements SourceConnector {
         if (extId.length() > 60) extId = extId.substring(extId.length() - 60);
         String displayTitle = "#" + id + " · " + title;
         return WorkItemEntity.create(extId, "pr", displayTitle, "PR", tone,
-                String.join(",", state == null ? "" : state.toLowerCase(), repo), source, order);
+                String.join(",", state == null ? "" : state.toLowerCase(), repo), source, order)
+                .withUrl(url == null || url.isBlank() ? null : url);
     }
 
     @SuppressWarnings("unchecked")

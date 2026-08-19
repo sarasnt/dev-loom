@@ -6,7 +6,7 @@
 # Core: db + backend + frontend. Optional profiles: `ai` (Ollama), `obs` (Langfuse).
 #
 #   docker compose up -d --build              # core stack → http://localhost:8088
-#   docker compose --profile ai up -d         # + local Ollama on :11434 (auto-pulls models)
+#   docker compose --profile ai up -d         # + local Ollama (compose-internal; auto-pulls models)
 #   docker compose --profile obs up -d        # + Langfuse UI → http://localhost:3000
 #
 # The `ai` profile also runs `ollama-init`, which pulls DEVLOOM_OLLAMA_MODELS into Ollama.
@@ -27,8 +27,10 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
-    ports:
-      - "5432:5432"
+    # Internal only — another Postgres on the host (Ubuntu ships one on 5432) must not
+    # stop DevLoom from starting. Reach it with `docker compose exec db psql` when needed.
+    expose:
+      - "5432"
 
   backend:
     build: ./backend
@@ -104,8 +106,11 @@ services:
     profiles: ["ai"]
     volumes:
       - devloom_ollama:/root/.ollama
-    ports:
-      - "11434:11434"
+    # Internal only — a native Ollama on the host owns 11434 often enough that binding it
+    # was the #1 reason the stack failed to start. Everything reaches it on the compose
+    # network; model installs stream through the backend API.
+    expose:
+      - "11434"
     # Use the host NVIDIA GPU (needs Docker Desktop WSL2 GPU support / NVIDIA
     # Container Toolkit). Falls back to CPU only if you remove this block.
     deploy:
@@ -179,7 +184,7 @@ services:
       LANGFUSE_INIT_USER_NAME: DevLoom Admin
       LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD:-devloom-admin}
     ports:
-      - "3000:3000"
+      - "${DEVLOOM_LANGFUSE_PORT:-3000}:3000"
 
 volumes:
   devloom_pg:

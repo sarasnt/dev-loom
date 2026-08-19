@@ -1,9 +1,10 @@
 # Deploying DevLoom
 
-There are two ways to bring up the stack. They serve the app at different addresses: the source
-stack fronts everything with the edge proxy (**http://localhost**, plus the `.dev` names once
-trusted — see the README), while the prebuilt stack skips the edge on purpose and serves plainly
-at **http://localhost:8088**.
+There are two ways to bring up the stack. Both front everything with the edge proxy — the app is
+at **http://localhost** (plus the `.dev` names once trusted — see the README), and the only host
+ports bound are the edge's 80/443 (`DEVLOOM_HTTP_PORT`/`DEVLOOM_HTTPS_PORT`). Postgres, the
+backend, the frontend and Ollama are compose-internal, so a native Postgres or Ollama on the host
+can't collide with them. Both stacks need `sh edge/make-certs.sh` once before first `up`.
 
 | | From source (`docker-compose.yml`) | Prebuilt (`docker-compose.prebuilt.yml`) |
 |---|---|---|

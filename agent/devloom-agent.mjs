@@ -19,8 +19,27 @@ import os from 'node:os'
 import { fileURLToPath } from 'node:url'
 
 const PORT = Number(process.env.DEVLOOM_AGENT_PORT || 8765)
-const HOST = process.env.DEVLOOM_AGENT_HOST || '127.0.0.1'
 const IS_WIN = process.platform === 'win32'
+
+// Where to listen. On Docker Desktop (Windows/macOS) host.docker.internal reaches the host's
+// loopback, so 127.0.0.1 alone serves both the browser (terminal WebSocket) and the backend
+// container. On native Linux Docker it does NOT: host-gateway resolves to the bridge IP, and a
+// loopback-only server is unreachable from every container — the backend says the agent is down
+// while the agent says it's running. So on Linux the docker bridge IP is bound as well. Never
+// 0.0.0.0 by default: this process reads and writes your repositories, and the LAN is not
+// invited. Override with DEVLOOM_AGENT_HOST (comma-separated) when the default guess is wrong.
+function listenHosts() {
+  const env = process.env.DEVLOOM_AGENT_HOST
+  if (env) return env.split(',').map((h) => h.trim()).filter(Boolean)
+  const hosts = ['127.0.0.1']
+  if (process.platform === 'linux') {
+    const docker0 = (os.networkInterfaces().docker0 || []).find((a) => a.family === 'IPv4')
+    if (docker0) hosts.push(docker0.address)
+  }
+  return hosts
+}
+const HOSTS = listenHosts()
+const HOST = HOSTS[0]
 const AGENT_DIR = path.dirname(fileURLToPath(import.meta.url))
 const LOGO_PATH = path.join(AGENT_DIR, 'assets', 'devloom-logo.png')
 
@@ -1837,3 +1856,13 @@ server.listen(PORT, HOST, () => {
   console.log(`DevLoom host agent listening on http://${HOST}:${PORT}`)
   console.log('Endpoints: GET /health, POST /claude, WS /pty (terminal), repos endpoints')
 })
+
+// Extra bind addresses (see listenHosts) get thin mirrors that delegate every request and
+// WebSocket upgrade to the primary server's listeners — one implementation, several doors.
+for (const extra of HOSTS.slice(1)) {
+  const mirror = http.createServer()
+  mirror.on('request', (req, res) => server.emit('request', req, res))
+  mirror.on('upgrade', (req, socket, head) => server.emit('upgrade', req, socket, head))
+  mirror.on('error', (e) => console.warn(`could not also listen on ${extra}:${PORT}: ${e.message}`))
+  mirror.listen(PORT, extra, () => console.log(`… also listening on http://${extra}:${PORT} (for containers)`))
+}

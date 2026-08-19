@@ -18,6 +18,9 @@ const store = useDashboardStore()
 const types = ref<SourceType[]>([])
 const sources = ref<SourceView[]>([])
 const loading = ref(true)
+// Set when the initial load fails — almost always "the backend isn't up yet". Without this the
+// spinner span forever on a fresh machine, which reads as a broken feature instead of a dead API.
+const loadError = ref('')
 const busy = ref('') // id (or 'new') currently working
 const flash = ref('')
 
@@ -32,12 +35,21 @@ const form = ref<{
   testMsg: string
 } | null>(null)
 
-onMounted(async () => {
-  const [t, s] = await Promise.all([fetchSourceTypes(), fetchSources()])
-  types.value = t
-  sources.value = s
-  loading.value = false
-})
+onMounted(load)
+
+async function load() {
+  loading.value = true
+  loadError.value = ''
+  try {
+    const [t, s] = await Promise.all([fetchSourceTypes(), fetchSources()])
+    types.value = t
+    sources.value = s
+  } catch {
+    loadError.value = 'Could not reach the API — is the backend running? (docker compose ps)'
+  } finally {
+    loading.value = false
+  }
+}
 
 const currentType = computed(() => types.value.find((t) => t.type === form.value?.type))
 const currentDeployment = computed(() =>
@@ -195,6 +207,10 @@ const dotClass = (s: SourceView) => (s.state === 'connected' ? 'healthy' : 'off'
     </section>
 
     <div v-if="loading" class="loadwrap"><LoomLoader label="loading sources…" /></div>
+    <div v-else-if="loadError" class="loaderr">
+      <p class="mono">{{ loadError }}</p>
+      <button class="btn" @click="load">Retry</button>
+    </div>
     <div v-else-if="!sources.length && !form?.open" class="mono empty">No sources yet — add one to start syncing.</div>
 
     <template v-else>
@@ -223,6 +239,8 @@ const dotClass = (s: SourceView) => (s.state === 'connected' ? 'healthy' : 'off'
 .sub { color: var(--faint-text); font-size: 12.5px; margin: 0 0 16px; max-width: 70ch; }
 .empty { color: var(--faint-text); padding: 20px 0; }
 .loadwrap { display: flex; justify-content: center; padding: 40px 0; }
+.loaderr { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 40px 0; }
+.loaderr p { color: var(--dim); font-size: 12.5px; }
 .flash { font-size: 12.5px; color: var(--warp-hi); border: 1px solid var(--warp); background: var(--warp-weft); border-radius: 8px; padding: 8px 12px; margin-bottom: 14px; }
 .editor { border: 1px solid var(--warp); border-radius: var(--r-card); background: var(--surface); padding: 16px; margin-bottom: 16px; }
 .erow { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }

@@ -2,9 +2,10 @@
 # source, so a fresh machine can bring the whole thing up with no build and no model
 # pull. Images are published by .github/workflows/publish-images.yml.
 #
-#   # one-time on a new PC (public images need no login; private ones do — see DEPLOY.md)
+#   # one-time on a new PC (public images need no login; private ones do — see DEPLOY.md),
+#   # then generate the edge certs once: sh edge/make-certs.sh   (see docs/TEST-ON-ANOTHER-PC.md)
 #   docker compose -f docker-compose.prebuilt.yml pull
-#   docker compose -f docker-compose.prebuilt.yml up -d          # → http://localhost:8088
+#   docker compose -f docker-compose.prebuilt.yml up -d          # → http://localhost (edge)
 #
 #   # with an NVIDIA GPU (needs the NVIDIA Container Toolkit):
 #   docker compose -f docker-compose.prebuilt.yml -f docker-compose.gpu.yml up -d
@@ -28,8 +29,10 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
-    ports:
-      - "5432:5432"
+    # Internal only — Ubuntu often has its own Postgres on 5432; a bind collision here was
+    # the difference between "DevLoom runs" and "DevLoom fails on a fresh machine".
+    expose:
+      - "5432"
 
   backend:
     image: ${DEVLOOM_IMAGE_PREFIX:-ghcr.io/sarasnt/devloom}-backend:${DEVLOOM_TAG:-latest}
@@ -44,7 +47,7 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/devloom
       SPRING_DATASOURCE_USERNAME: devloom
       SPRING_DATASOURCE_PASSWORD: devloom
-      DEVLOOM_CORS_ORIGINS: http://localhost:8088,http://localhost:5173,http://localhost:5174
+      DEVLOOM_CORS_ORIGINS: http://localhost,http://localhost:8088,https://mycompanion-devloom.dev,https://portal.mycompanion-devloom.dev,https://api.mycompanion-devloom.dev
       DEVLOOM_AI_PROVIDER: ${DEVLOOM_AI_PROVIDER:-stub}
       DEVLOOM_OLLAMA_URL: http://ollama:11434
       DEVLOOM_SECRET: ${DEVLOOM_SECRET:-}
@@ -52,8 +55,8 @@ services:
       DEVLOOM_LANGFUSE_ENABLED: ${DEVLOOM_LANGFUSE_ENABLED:-false}
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    ports:
-      - "8080:8080"
+    expose:
+      - "8080"
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8080/actuator/health || exit 1"]
       interval: 10s
@@ -64,16 +67,36 @@ services:
     image: ${DEVLOOM_IMAGE_PREFIX:-ghcr.io/sarasnt/devloom}-frontend:${DEVLOOM_TAG:-latest}
     depends_on:
       - backend
-    ports:
-      - "8088:80"
+    expose:
+      - "80"
 
   # Local models — baked into the image (no pull step). CPU by default; see the gpu override.
   ollama:
     image: ${DEVLOOM_IMAGE_PREFIX:-ghcr.io/sarasnt/devloom}-ollama:${DEVLOOM_TAG:-latest}
     volumes:
       - devloom_ollama:/root/.ollama
+    # Internal only — a native Ollama on the host owns 11434 often enough that binding it
+    # was the #1 reason this stack failed to start on a fresh machine.
+    expose:
+      - "11434"
+
+  # ---- the only container that publishes app ports (same shape as the dev stack) ----
+  # Routes by hostname and terminates TLS: portal.<domain>/bare domain → the SPA,
+  # api.<domain> → the API; http://localhost works with no hosts entry. Needs the repo
+  # checkout for edge/nginx.conf and the certs from `sh edge/make-certs.sh` — without
+  # them nginx will not start, and the .dev names cannot work at all (HSTS preload).
+  edge:
+    image: nginx:1.27-alpine
+    depends_on:
+      - frontend
+      - backend
+    volumes:
+      - ./edge/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./edge/certs:/etc/nginx/certs:ro
     ports:
-      - "11434:11434"
+      - "${DEVLOOM_HTTP_PORT:-80}:80"
+      - "${DEVLOOM_HTTPS_PORT:-443}:443"
+    restart: unless-stopped
 
   # ---- optional: LLM observability — Langfuse (profile "obs") ----
   langfuse-db:
@@ -105,7 +128,7 @@ services:
       SALT: ${LANGFUSE_SALT:-devloom-langfuse-dev-salt-change-me}
       TELEMETRY_ENABLED: "false"
     ports:
-      - "3000:3000"
+      - "${DEVLOOM_LANGFUSE_PORT:-3000}:3000"
 
 volumes:
   devloom_pg:

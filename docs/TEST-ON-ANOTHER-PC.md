@@ -1,111 +1,119 @@
 # Testing DevLoom on another PC
 
-The short version of your hunch is right: the backend and frontend images are published to
-GitHub's container registry on every push to `main`, so the other PC pulls them instead of
-building anything. Two corrections to it, both already handled or handled below:
+The backend, frontend and ollama images are published to GHCR on every push to `main`, so the
+other PC pulls them instead of building anything. The packages must be **public** (one-time:
+github.com/sarasnt → profile → Packages → each `devloom-*` → Package settings → Change
+visibility → Public) or Docker must be logged in there with a `read:packages` PAT.
 
-- The images publish **private** by default, so a fresh machine can't pull them until you either
-  make them public (one-time, recommended) or log Docker in with a token.
-- The **ollama image had never been built** — CI only rebuilds what changed, and nothing had ever
-  touched `ollama/**`. A manual full run was triggered on 2026-08-15; once it's green under
-  **Actions → publish-images**, all three images exist with `qwen2.5-coder:7b` baked in.
-
-The prebuilt stack deliberately has no edge proxy, no TLS and no `.dev` domains — it is the
-simple portable flavour. The app lives at **http://localhost:8088** there, unlike the dev stack.
+Both stacks now front everything with the **edge** proxy: the only host ports the app binds are
+80/443 (movable via `DEVLOOM_HTTP_PORT` / `DEVLOOM_HTTPS_PORT`). Postgres, the backend, the
+frontend and Ollama are compose-internal — a native Postgres on 5432 or a native Ollama on 11434
+can no longer stop DevLoom from starting, which is exactly what happened on the first Kubuntu
+attempt.
 
 ---
 
-## One-time, on GitHub (from any machine)
-
-Make the three packages public so the other PC needs no credentials — they contain the app and
-open-weight models, no secrets:
-
-1. github.com/sarasnt → your profile → **Packages**
-2. For each of `devloom-backend`, `devloom-frontend`, `devloom-ollama`:
-   **Package settings → Danger Zone → Change visibility → Public**
-
-Prefer to keep them private? Then on the other PC, before pulling:
-
-```powershell
-# a classic PAT with the read:packages scope
-echo <PAT> | docker login ghcr.io -u sarasnt --password-stdin
-```
-
----
-
-## On the other PC
+## On the other PC (Linux — Kubuntu/Debian shown; Windows notes at the end)
 
 ### 1. Install
 
-- **Docker Desktop** (with WSL2 backend on Windows)
-- **Node.js ≥ 20** — for the host agent
-- **git** — the app's Repos/Fleet features work on local clones
+- Docker Engine (or Docker Desktop) with the compose plugin
+- Node.js ≥ 20 — for the host agent
+- git
 
-### 2. Get the repo
+### 2. Clone
 
-You only strictly need `docker-compose.prebuilt.yml` + `docker-compose.gpu.yml` for the
-containers — but the **host agent is a Node script that lives in the repo**, and without it the
-Repos, Fleet-terminal, Capabilities and notification features all show empty. So clone:
+The containers only need the compose files, but the **host agent is a Node script in the repo**
+(Repos, Fleet terminals, Capabilities and notifications all go through it), and the edge needs
+`edge/nginx.conf`. So clone:
 
-```powershell
+```bash
 git clone https://github.com/sarasnt/dev-loom.git
 cd dev-loom
 ```
 
-### 3. Minimal secrets file (optional but recommended)
+### 3. Certificates and names (one-time)
 
-Create `backend/.env` (gitignored) with just:
+`.dev` is HSTS-preloaded in every browser, so the domain names only work over trusted TLS —
+without these steps the names simply do not load. (`http://localhost` needs none of this.)
 
+```bash
+# a local CA + cert, generated in a container — installs nothing
+sh edge/make-certs.sh
+
+# resolve the names to this machine
+echo "127.0.0.1 mycompanion-devloom.dev api.mycompanion-devloom.dev portal.mycompanion-devloom.dev" \
+  | sudo tee -a /etc/hosts
+
+# trust the CA — system store (curl etc.)
+sudo cp edge/certs/devloom-local-ca.crt /usr/local/share/ca-certificates/devloom-local-ca.crt
+sudo update-ca-certificates
+
+# browsers keep their own store (NSS) — without this curl works and the browser refuses
+sudo apt install -y libnss3-tools
+certutil -d sql:$HOME/.pki/nssdb -A -t "C,," -n "DevLoom Local CA" -i edge/certs/devloom-local-ca.crt
+for prof in ~/.mozilla/firefox/*/; do
+  certutil -d sql:"$prof" -A -t "C,," -n "DevLoom Local CA" -i edge/certs/devloom-local-ca.crt
+done
 ```
-# lets you save provider/connector keys from the Settings UI (encrypted at rest);
-# any long random string, keep it stable
-DEVLOOM_SECRET=<paste something long and random>
+
+Restart the browser afterwards — trust stores are read at startup.
+
+### 4. Minimal secrets file (recommended)
+
+```bash
+cat > backend/.env <<EOF
+# lets you save provider/connector keys from the Settings UI (encrypted at rest); keep it stable
+DEVLOOM_SECRET=$(openssl rand -hex 32 2>/dev/null || head -c 48 /dev/urandom | base64)
 TZ=Europe/Lisbon
+EOF
 ```
 
-Everything else (GitHub token, Jira, Notion, calendar URLs) is configured later in
-**Settings → Sources** and stored encrypted in the database — no file editing needed.
+Connectors (GitHub, Bitbucket, Jira, Notion, calendars) are configured later in
+**Settings → Sources** and stored encrypted in the database.
 
-### 4. Bring the stack up
+### 5. Up
 
-```powershell
-docker compose -f docker-compose.prebuilt.yml pull
+```bash
+docker compose -f docker-compose.prebuilt.yml pull        # ~6–7 GB first time
 docker compose -f docker-compose.prebuilt.yml up -d
 
-# on a machine with an NVIDIA GPU (needs the NVIDIA Container Toolkit):
+# NVIDIA GPU (needs the NVIDIA Container Toolkit):
 docker compose -f docker-compose.prebuilt.yml -f docker-compose.gpu.yml up -d
 ```
 
-First `pull` downloads ~6–7 GB (the ollama image carries the baked model). When it's up:
+- App: **https://portal.mycompanion-devloom.dev** (or the bare domain, or plain
+  `http://localhost` with no hosts/CA setup)
+- API: `curl https://api.mycompanion-devloom.dev/api/v1/settings` → JSON
 
-- App: **http://localhost:8088**
-- API health: `curl http://localhost:8080/actuator/health` → `{"status":"UP"}`
+### 6. The host agent
 
-### 5. Start the host agent
-
-```powershell
+```bash
 node agent/devloom-agent.mjs
 ```
 
-Foreground, on the machine itself — it is everything the containers can't reach: your git repos,
-your `claude` CLI, desktop notifications. For the interactive terminal feature, once:
-`cd agent && npm install` (pulls `node-pty`/`ws`; everything else is dependency-free).
+On Linux it binds **127.0.0.1 and the docker0 bridge IP** — both lines print at startup. The
+second one is not optional decoration: on native Linux Docker, `host.docker.internal` resolves to
+the bridge, and an agent bound only to loopback is unreachable from the backend container — the
+app then claims the agent isn't running while the agent says it is. (Docker Desktop on
+Windows/macOS hides this by routing to host loopback.) Never bind `0.0.0.0`: this process reads
+and writes your repositories, and the LAN is not invited. `DEVLOOM_AGENT_HOST` (comma-separated)
+overrides the guess.
 
-**If a repo, terminal, capability or notification feature does nothing, this agent isn't running.**
-That is the number-one support question on any machine.
+Verify from inside a container once:
 
-### 6. Carry your settings over (optional)
+```bash
+docker compose -f docker-compose.prebuilt.yml exec backend curl -s http://host.docker.internal:8765/health
+```
 
-DevLoom has config backup built for exactly this — **Settings → Workspace → Backup**:
+For the interactive terminal feature, once: `cd agent && npm install` (pulls `node-pty`/`ws`).
 
-- On this PC: point it at a private git repo you own and run a backup.
-- On the other PC: configure the same repo and **Restore**.
+### 7. Carry your settings over (optional)
 
-It carries sources (minus secrets), repo list, preferences and screen-model choices. Secrets are
-deliberately excluded — re-enter API tokens once in **Settings → Sources / Models** on the new
-machine.
-
-Or skip it and just click through onboarding — an empty DevLoom is honest about being empty.
+**Settings → Workspace → Backup** on the main PC (points at a private git repo you own),
+**Restore** on this one. Secrets are deliberately excluded — re-enter tokens once in
+**Settings → Sources / Models**. Or just click through onboarding; an empty DevLoom is honest
+about being empty.
 
 ---
 
@@ -113,21 +121,40 @@ Or skip it and just click through onboarding — an empty DevLoom is honest abou
 
 | Thing | State |
 | --- | --- |
-| Local models | `qwen2.5-coder:7b` baked in, ready at first boot |
-| More models | **Settings → Models → Install** (or `docker exec` + `ollama pull`); they persist in the `devloom_ollama` volume |
-| Speed | CPU-only by default — the 7b is usable, not fast; add the GPU override where there's an NVIDIA card |
-| Langfuse | `docker compose -f docker-compose.prebuilt.yml --profile obs up -d` → http://localhost:3000 — a fresh instance (new account, new keys) |
-| The `.dev` domains / TLS | Not part of the prebuilt stack on purpose; it's plain http://localhost:8088 |
-| Eval harness (`eval/`) | Works from the clone, but note it targets `http://localhost/api/v1` (the dev edge) — run it with `DEVLOOM_API=http://localhost:8080/api/v1 node eval/run.mjs …` against the prebuilt stack |
+| Local models | `qwen2.5-coder:7b` baked into the image, ready at first boot |
+| More models | **Settings → Models → Install**; they persist in the `devloom_ollama` volume |
+| Speed | CPU-only by default; add the GPU override where there's an NVIDIA card |
+| Host ports | only 80/443 (`DEVLOOM_HTTP_PORT`/`DEVLOOM_HTTPS_PORT` to move), plus 3000 if you start the Langfuse profile (`DEVLOOM_LANGFUSE_PORT`) |
+| Langfuse | `--profile obs` → http://localhost:3000 — a fresh instance (new account, new keys) |
+| Builds screen | GitHub Actions failures only for now — Bitbucket Pipelines isn't wired into Builds yet |
+| Eval harness | `node eval/run.mjs …` from the clone works as-is (it targets `http://localhost/api/v1`, which is the edge) |
 
 ## Keeping it current
 
-Every push to `main` republishes `:latest` for whatever changed, so updating the other PC is:
-
-```powershell
-docker compose -f docker-compose.prebuilt.yml pull
+```bash
+git pull                                             # compose files, edge config, host agent, eval
+docker compose -f docker-compose.prebuilt.yml pull   # images rebuilt by CI on every main push
 docker compose -f docker-compose.prebuilt.yml up -d
-git pull   # keeps the host agent + eval scripts in step
+# restart the host agent too — it runs from the checkout you just pulled
 ```
+
+If a compose file changed the port layout since your last pull, do a one-time
+`docker compose -f docker-compose.prebuilt.yml down` before `up` so old published ports are
+released.
+
+---
+
+## Windows notes
+
+Same flow; differences only where the OS shows:
+
+- hosts file: an **Administrator** PowerShell —
+  `Add-Content -Path "$env:WINDIR\System32\drivers\etc\hosts" -Encoding ascii -Value "127.0.0.1 mycompanion-devloom.dev api.mycompanion-devloom.dev portal.mycompanion-devloom.dev"`
+- trust the CA: `Import-Certificate -FilePath .\edge\certs\devloom-local-ca.crt -CertStoreLocation Cert:\LocalMachine\Root`
+  (one store — browsers follow it; no NSS step)
+- Windows `curl` may report `CRYPT_E_NO_REVOCATION_CHECK` against the local CA while the browser
+  is happy — pass `--ssl-no-revoke`.
+- The agent's loopback-only default is fine here: Docker Desktop routes
+  `host.docker.internal` to host loopback.
 
 More depth (tags/releases, baking bigger models, forks): `docs/DEPLOY.md`.
