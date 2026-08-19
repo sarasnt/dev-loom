@@ -18,3 +18,13 @@ the Bitbucket source configured and reachable.
    its honest state. Reconnect, Re-sync → recovers.
 
 Report results (numbers + any deviation) back to Sara / the design session.
+
+## PR authorship (added 2026-08-19) — same VPN-side run
+
+8. After re-sync: `curl -s http://localhost/api/v1/work | python3 -c "import sys,json; print([(r['title'][:30], r['author'], r['prRole']) for r in json.load(sys.stdin) if r['type']=='pr'])"`
+   → every Bitbucket PR shows its creator's display name; PRs you opened read `mine`, PRs
+   awaiting your review read `review`, the rest `other`. If ALL read `other`, the dashboard
+   `role` parameter failed on this instance — check backend logs for "role filter … unavailable"
+   and report exactly that.
+9. Work → PRs: the Mine / To Review / Others chips partition the list; Today: PR cards show
+   "created by …" under the source and a `yours`/`for review` chip where it applies.

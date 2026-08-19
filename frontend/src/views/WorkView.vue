@@ -14,6 +14,17 @@ const active = ref('All')
 const statusFilter = ref('open')
 // Source sub-filter: 'all' or an exact source (GitHub, Jira, Notion, Calendar).
 const sourceFilter = ref('all')
+// PR role sub-filter — only meaningful (and only shown) on the PR/Review lenses.
+const roleFilters = ['All', 'Mine', 'To Review', 'Others'] as const
+const roleFilter = ref<(typeof roleFilters)[number]>('All')
+function matchesRole(r: WorkRow): boolean {
+  if (roleFilter.value === 'All') return true
+  if (r.type !== 'pr' && r.type !== 'review') return true
+  const role = r.prRole ?? 'other'
+  return roleFilter.value === 'Mine' ? role === 'mine'
+    : roleFilter.value === 'To Review' ? role === 'review'
+    : role === 'other'
+}
 
 // Which parents are expanded (children shown) and which rows show their description.
 const expandedChildren = ref<Set<string>>(new Set())
@@ -37,7 +48,7 @@ function matchesFilter(r: WorkRow): boolean {
     // "CSW Calendar". Normalising every connector into one type is what the work model is for.
     case 'Calendar': return r.type === 'calendar'
     case 'Notes': return r.type === 'doc'
-    case 'mine': return r.status.toLowerCase().includes('mine')
+    case 'mine': return r.prRole === 'mine'
     case 'stale': return r.type === 'stale' || r.statusTone === 'stale'
     default: return true
   }
@@ -69,7 +80,7 @@ function matchesSource(r: WorkRow): boolean {
 }
 
 const filtered = computed(() =>
-  typeFiltered.value.filter((r) => matchesStatus(r) && matchesSource(r)),
+  typeFiltered.value.filter((r) => matchesStatus(r) && matchesSource(r) && matchesRole(r)),
 )
 const idsInView = computed(() => new Set(filtered.value.map((r) => r.id)))
 
@@ -157,6 +168,11 @@ function open(r: WorkRow) {
           <option v-for="s in statuses" :key="s" :value="s">{{ s }}</option>
         </optgroup>
       </select>
+    </div>
+
+    <div v-if="active === 'PRs' || active === 'Reviews'" class="rolefilters">
+      <button v-for="rf in roleFilters" :key="rf" class="chipbtn mono"
+              :class="{ on: roleFilter === rf }" @click="roleFilter = rf">{{ rf }}</button>
     </div>
 
     <div v-if="loading" class="loadwrap"><LoomLoader label="loading work…" /></div>
@@ -252,6 +268,13 @@ function open(r: WorkRow) {
 }
 .fchip:hover { border-color: var(--warp); }
 .fchip.on { background: var(--warp-weft); border-color: var(--warp); color: var(--ink); }
+.rolefilters { display: flex; gap: 8px; align-items: center; margin: -8px 0 16px; }
+.chipbtn {
+  font-size: 12.5px; padding: 5px 11px; border: 1px solid var(--line);
+  border-radius: 20px; color: var(--dim); background: transparent; cursor: pointer;
+}
+.chipbtn:hover { border-color: var(--warp); }
+.chipbtn.on { background: var(--warp-weft); border-color: var(--warp); color: var(--ink); }
 .statussel {
   margin-left: auto; font-size: 12px; color: var(--ink); background: var(--chip-bg);
   border: 1px solid var(--line); border-radius: 6px; padding: 5px 9px; cursor: pointer;

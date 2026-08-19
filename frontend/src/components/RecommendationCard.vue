@@ -67,7 +67,10 @@ function togglePlan(item: Recommendation) { store.planItem(item.id) }
   <article v-else :class="['card', { lead: item.lead, elevated: amenu || whyOpen }]">
     <header class="ct">
       <h3>{{ item.title }}</h3>
-      <Mono class="src">⎇ {{ item.source }}</Mono>
+      <span class="srcwrap">
+        <Mono class="src">⎇ {{ item.source }}</Mono>
+        <span v-if="item.author" class="byline mono">created by {{ item.author }}</span>
+      </span>
     </header>
 
     <!-- reasoning = grotesque + marker (DESIGN.md §1) -->
@@ -86,6 +89,8 @@ function togglePlan(item: Recommendation) { store.planItem(item.id) }
       <!-- Plan as visible state, not just a button label — pressing "+ Plan" otherwise looks
            like it did nothing until you find the Briefing tab. -->
       <Mono v-if="item.planned" class="chip plannedchip">planned</Mono>
+      <Mono v-if="item.prRole === 'mine'" class="chip plannedchip">yours</Mono>
+      <Mono v-else-if="item.prRole === 'review'" class="chip warn">for review</Mono>
     </div>
 
     <!-- Why: the priority signals + evidence behind the ranking -->
@@ -136,7 +141,9 @@ function togglePlan(item: Recommendation) { store.planItem(item.id) }
 }
 .ct { display: flex; align-items: center; gap: 10px; }
 .ct h3 { font-size: 17px; }
-.src { margin-left: auto; font-size: 11px; color: var(--faint-text); }
+.srcwrap { margin-left: auto; text-align: right; }
+.src { font-size: 11px; color: var(--faint-text); }
+.byline { display: block; font-size: 10px; color: var(--faint-text); margin-top: 3px; }
 .why { color: var(--dim); font-size: 14px; margin: 7px 0 10px; max-width: 62ch; }
 .reason-mark {
   font-family: var(--mono); font-size: 10px; color: var(--warp);
