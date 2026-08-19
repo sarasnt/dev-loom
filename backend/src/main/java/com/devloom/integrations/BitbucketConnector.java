@@ -150,7 +150,7 @@ public class BitbucketConnector implements SourceConnector {
                 String branch = str(asMap(pr.get("fromRef")), "displayId");
                 if (!sha.isBlank() && buildShas.add(sha)) {
                     out.addAll(failedBuildItems(http, sha, id, title, repo, branch, source,
-                            5 + buildShas.size()));
+                            order++));
                 }
             }
             log.info("Bitbucket Server sync [{}]: {} PRs", source, out.size());
@@ -189,8 +189,11 @@ public class BitbucketConnector implements SourceConnector {
             Map<String, Object> stats = http.get()
                     .uri("/rest/build-status/1.0/commits/stats/" + sha)
                     .retrieve().body(MAP);
-            int failed = stats == null ? 0
-                    : (stats.get("failed") instanceof Number n ? n.intValue() : 0);
+            Object failedRaw = stats == null ? null : stats.get("failed");
+            int failed = failedRaw instanceof Number n ? n.intValue() : 0;
+            if (failedRaw != null && !(failedRaw instanceof Number)) {
+                log.debug("Bitbucket stats for {} returned non-numeric failed={}", sha, failedRaw);
+            }
             // An in-progress or absent build is not a failure; only red earns a card.
             if (failed == 0) return List.of();
 
