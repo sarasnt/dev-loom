@@ -27,7 +27,9 @@ import com.devloom.workmodel.WorkItemEntity;
  * </ul>
  *
  * <p>NOTE: implemented to the documented APIs but not yet exercised against a live instance —
- * verify once a Bitbucket account is reachable. Issues/pipelines are out of this first cut.
+ * verify once a Bitbucket account is reachable. Server/DC PR sync also surfaces failed-build
+ * cards (metadata from build-status; the logs stay in Jenkins — see {@code BitbucketBuildAnalyzer}).
+ * Issues/pipelines beyond that are out of this first cut.
  */
 @Component
 public class BitbucketConnector implements SourceConnector {
@@ -127,6 +129,8 @@ public class BitbucketConnector implements SourceConnector {
                     .retrieve().body(MAP);
             List<WorkItemEntity> out = new ArrayList<>();
             int order = 10;
+            int prCount = 0;
+            int buildCount = 0;
             java.util.Set<String> buildShas = new java.util.HashSet<>();
             for (Object o : asList(resp == null ? null : resp.get("values"))) {
                 Map<String, Object> pr = asMap(o);
@@ -142,6 +146,7 @@ public class BitbucketConnector implements SourceConnector {
                     if (!url.isBlank()) break;
                 }
                 out.add(prItem(id, title, state, repo, source, order++, url));
+                prCount++;
 
                 // A red build on this PR becomes its own work item, so Bitbucket failures reach
                 // Today and the Builds screen the way GitHub ones do. De-duped by head commit:
@@ -149,11 +154,13 @@ public class BitbucketConnector implements SourceConnector {
                 String sha = str(asMap(pr.get("fromRef")), "latestCommit");
                 String branch = str(asMap(pr.get("fromRef")), "displayId");
                 if (!sha.isBlank() && buildShas.add(sha)) {
-                    out.addAll(failedBuildItems(http, sha, id, title, repo, branch, source,
-                            order++));
+                    List<WorkItemEntity> builds = failedBuildItems(http, sha, id, title, repo, branch, source,
+                            order++);
+                    out.addAll(builds);
+                    buildCount += builds.size();
                 }
             }
-            log.info("Bitbucket Server sync [{}]: {} PRs", source, out.size());
+            log.info("Bitbucket Server sync [{}]: {} PRs + {} failed builds", source, prCount, buildCount);
             return out;
         } catch (Exception e) {
             log.warn("Bitbucket Server sync failed [{}]: {}", source, e.getMessage());
@@ -219,7 +226,7 @@ public class BitbucketConnector implements SourceConnector {
                     .withMetadata(jenkinsName == null || jenkinsName.isBlank()
                             ? "" : "jenkins: " + jenkinsName));
         } catch (Exception e) {
-            log.debug("Bitbucket build status skipped for {}: {}", sha, e.getMessage());
+            log.warn("Bitbucket build status skipped for {}: {}", sha, e.getMessage());
             return List.of();   // build coverage is additive — never take the PR sync down
         }
     }

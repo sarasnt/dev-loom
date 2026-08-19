@@ -54,15 +54,15 @@ public class BuildFailureService {
         }
         // Route by the item's source: a Bitbucket failure has no GitHub run to fetch, and vice
         // versa. Anything unrecognized keeps the GitHub path — exactly what it always did.
-        boolean bitbucket = item
-                .map(WorkItemEntity::getSource)
-                .flatMap(sources::findByNameIgnoreCase)
-                .map(s -> "bitbucket".equalsIgnoreCase(s.getType()))
-                .orElse(false);
+        // Prefer the stamped source_instance_id (SyncService sets it on every item) over the
+        // display-name lookup: a source rename would otherwise silently stop resolving.
+        var inst = item.map(WorkItemEntity::getSourceInstanceId)
+                .flatMap(sources::findById)
+                .or(() -> item.map(WorkItemEntity::getSource).flatMap(sources::findByNameIgnoreCase))
+                .orElse(null);
+        boolean bitbucket = inst != null && "bitbucket".equalsIgnoreCase(inst.getType());
         if (bitbucket) {
-            var inst = sources.findByNameIgnoreCase(item.get().getSource()).orElse(null);
-            Dto.BuildFailure real = inst == null ? null
-                    : bbAnalyzer.analyze(inst, item.get(), runId, progress, model);
+            Dto.BuildFailure real = bbAnalyzer.analyze(inst, item.get(), runId, progress, model);
             return real != null ? real : emptyState();
         }
         if (!ghAnalyzer.enabled()) {

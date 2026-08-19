@@ -89,8 +89,10 @@ function analyze() {
   es.addEventListener('step', (e) => {
     step.value = (e as MessageEvent).data
     seen++
-    // 4 real backend stages → 18/38/58/78, then hold while the model finishes.
-    progress.value = Math.min(80, seen * 20 - 2)
+    // Count-based, not a hardcoded stage total: GitHub emits 4 stages, Bitbucket only 3 (no log
+    // to redact), so a fixed 4-stage curve stalled at 58% then jumped for Bitbucket. This stays
+    // monotone for either — 30/60/90 or 30/60/90/95 — then holds until 'result' sets 100.
+    progress.value = Math.min(95, seen * 30)
   })
   es.addEventListener('result', (e) => {
     try {
@@ -119,16 +121,23 @@ async function loadFallback() {
   }
 }
 
+// analyzedBy carries a provenance suffix for metadata-only analyses ("<model> · metadata only
+// (no log available)") — the honest label to *display*, but not the model identity to *compare*.
+// resultModelName strips it once so canRedo (and the deterministic-suppression check below) test
+// identity, not provenance; the full resultModel string still renders in the label itself.
+const resultModelName = computed(() => (resultModel.value || '').split(' · ')[0])
+const metadataOnly = computed(() => resultModel.value.includes('metadata only'))
+
 // Offer a re-run when the selected model differs from the one that produced the summary.
 const canRedo = computed(
   () =>
     !loading.value &&
     !!data.value &&
     data.value.id !== 'none' &&
-    !!resultModel.value &&
-    resultModel.value !== 'deterministic' &&
+    !!resultModelName.value &&
+    resultModelName.value !== 'deterministic' &&
     !!runModel.value &&
-    runModel.value !== resultModel.value,
+    runModel.value !== resultModelName.value,
 )
 
 onMounted(async () => {
@@ -187,7 +196,7 @@ onUnmounted(closeStream)
         <div class="prose md" v-html="renderMarkdown(data.summary)"></div>
         <div class="pillrow">
           <span class="pill hi mono">conf: {{ data.summaryConfidence }}</span>
-          <span v-if="data.analyzedBy && data.analyzedBy !== 'deterministic'" class="pill mono">{{ data.analyzedBy }}</span>
+          <span v-if="data.analyzedBy && resultModelName !== 'deterministic'" class="pill mono">{{ data.analyzedBy }}</span>
           <span class="reason-mark" aria-label="model reasoning">reasoning°</span>
         </div>
       </section>
@@ -196,8 +205,8 @@ onUnmounted(closeStream)
         <div class="n mono">② FAILING STEP · ③ LOG EXCERPT</div>
         <div class="tags">
           <span class="tag ok mono" v-if="data.redacted">redacted ✓</span>
-          <span class="tag mono">first-failure region</span>
-          <span class="tag mono link">full log ↗</span>
+          <span class="tag mono" v-if="!metadataOnly">first-failure region</span>
+          <span class="tag mono link" v-if="!metadataOnly">full log ↗</span>
         </div>
         <pre class="log mono"><template v-for="(l, i) in data.log" :key="i"><span :class="l.kind">{{ l.text }}</span>
 </template></pre>

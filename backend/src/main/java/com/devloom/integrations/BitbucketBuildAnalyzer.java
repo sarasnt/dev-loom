@@ -139,9 +139,15 @@ public class BitbucketBuildAnalyzer {
             try {
                 LlmPort.LlmResult r = llm.generate(new LlmPort.LlmRequest(
                         "build-failure", prompts.get(PROMPT, SYSTEM), user, model));
-                summaryText = r.text() == null || r.text().isBlank()
-                        ? "Metadata-only failure — open the Jenkins build for the log." : r.text();
-                summaryModel = r.model();
+                // A stub result (no real model configured) isn't a summary worth showing as if a
+                // model produced it — mirrors GitHubBuildAnalyzer's same check.
+                if (!"stub".equals(r.provider()) && r.text() != null && !r.text().isBlank()) {
+                    summaryText = r.text();
+                    summaryModel = r.model();
+                } else {
+                    summaryText = "Metadata-only failure — open the Jenkins build for the log.";
+                    summaryModel = "deterministic";
+                }
             } catch (Exception e) {
                 summaryText = "Metadata-only failure — open the Jenkins build for the log.";
                 summaryModel = "deterministic";
@@ -160,23 +166,59 @@ public class BitbucketBuildAnalyzer {
             List<Dto.EvidenceRef> related = new ArrayList<>(evidence);
             if (pr != null) related.add(new Dto.EvidenceRef("PR #" + pr, null, "local"));
 
-            return new Dto.BuildFailure(
-                    sha, repo, branch, pr, buildNumber.isBlank() ? "—" : buildNumber,
-                    "failed",
-                    new Dto.Boundary("local", "On your machine"),
-                    summaryText, "med", jenkinsName, "(Bitbucket exposes status only)", "—", false,
-                    List.of(
+            // The url is not guaranteed — probe showed it present but not documented as required.
+            // A blank one must not point at nothing: drop the log panel's pointer line and swap
+            // the "open Jenkins" diagnostic for an honest note instead of a dead link.
+            boolean hasUrl = url != null && !url.isBlank();
+            List<Dto.LogLine> logLines = hasUrl
+                    ? List.of(
                             new Dto.LogLine(
                                     "Bitbucket carries the build status, not the log — it lives in Jenkins:", "omitted"),
-                            new Dto.LogLine(url, "normal")),
+                            new Dto.LogLine(url, "normal"))
+                    : List.of(new Dto.LogLine(
+                            "Bitbucket carries the build status, not the log — it lives in Jenkins:", "omitted"));
+            List<String> diagnostics = hasUrl
+                    ? List.of("Open the Jenkins build for the full log: " + url,
+                            "The analysis above is from metadata only — the log settles it.")
+                    : List.of("The CI link was not published to Bitbucket.",
+                            "The analysis above is from metadata only — the log settles it.");
+
+            return new Dto.BuildFailure(
+                    sha, repo, branch, pr, buildNumber.isBlank() ? "—" : buildNumber,
+                    failedAgo(build),
+                    new Dto.Boundary("local", "On your machine"),
+                    // failingStep carries no "(Bitbucket exposes status only)" note anymore — that
+                    // honesty note already lives in the log panel and diagnostics above, and here
+                    // it was leaking into HandoffService's numbered "## Reproduce" step.
+                    summaryText, "med", jenkinsName, "—", "—", false,
+                    logLines,
                     causes, related,
-                    List.of("Open the Jenkins build for the full log: " + url,
-                            "The analysis above is from metadata only — the log settles it."),
+                    diagnostics,
                     List.of("Address the failure shown in the Jenkins log."),
                     summaryModel + " · metadata only (no log available)");
         } catch (Exception e) {
             log.warn("Bitbucket build analysis failed for {}: {}", sha, e.getMessage());
             return null;
+        }
+    }
+
+    /**
+     * "failed 12m ago"/"failed 3h ago"/"failed 2d ago" from the chosen build's {@code dateAdded}
+     * (epoch millis — present on every probed build; see the DC probe doc). Mirrors
+     * GitHubBuildAnalyzer's relative(), which has an ISO-8601 timestamp instead; falls back to the
+     * bare "failed" when dateAdded is absent or unparseable rather than a false-precision guess.
+     */
+    private static String failedAgo(Map<String, Object> build) {
+        Object raw = build.get("dateAdded");
+        if (!(raw instanceof Number n)) return "failed";
+        try {
+            long mins = java.time.Duration
+                    .between(java.time.Instant.ofEpochMilli(n.longValue()), java.time.Instant.now())
+                    .toMinutes();
+            String ago = mins < 60 ? mins + "m ago" : mins < 1440 ? (mins / 60) + "h ago" : (mins / 1440) + "d ago";
+            return "failed " + ago;
+        } catch (Exception e) {
+            return "failed";
         }
     }
 
