@@ -239,28 +239,55 @@ function toggleGrouping() {
   localStorage.setItem('devloom.groupWorktrees', groupWorktrees.value ? 'on' : 'off')
 }
 const norm = (p: string) => (p || '').replace(/\\/g, '/').toLowerCase()
-function sameRepo(a: RepoView, b: RepoView) {
-  return !!a.commonDir && norm(a.commonDir) === norm(b.commonDir)
+
+// Worktrees of one repo share a git common-dir. Grouped in a single pass and cached: the template
+// asks for a card's children several times per render (the expander, its count, the row loop, the
+// empty state), and doing that as a filter-per-call re-normalised every commonDir in the list each
+// time.
+const byCommonDir = computed(() => {
+  const m = new Map<string, RepoView[]>()
+  if (!groupWorktrees.value) return m
+  for (const r of repos.value) {
+    if (!r.commonDir) continue
+    const k = norm(r.commonDir)
+    const bucket = m.get(k)
+    if (bucket) bucket.push(r)
+    else m.set(k, [r])
+  }
+  return m
+})
+function siblings(r: RepoView): RepoView[] {
+  return (r.commonDir && byCommonDir.value.get(norm(r.commonDir))) || []
 }
 // A repo is nested (hidden from the top level) when grouping is on, it's a linked worktree, and a
 // primary (main checkout) for the same repo is present in the list.
 function isNested(r: RepoView) {
   return groupWorktrees.value && r.isLinkedWorktree
-    && repos.value.some((x) => x.id !== r.id && !x.isLinkedWorktree && sameRepo(x, r))
+    && siblings(r).some((x) => x.id !== r.id && !x.isLinkedWorktree)
 }
 const visibleRepos = computed(() => repos.value.filter((r) => !isNested(r)))
 // Tracked linked worktrees of a primary repo.
 function trackedChildren(primary: RepoView): RepoView[] {
   if (!groupWorktrees.value || primary.isLinkedWorktree) return []
-  return repos.value.filter((r) => r.id !== primary.id && r.isLinkedWorktree && sameRepo(r, primary))
+  return siblings(primary).filter((r) => r.id !== primary.id && r.isLinkedWorktree)
 }
-// Which repo a panel should render for: the card's own repo, or one of its worktrees when that
-// row is the open one. One copy of each panel then serves the card and every worktree under it —
-// extracting them instead would mean a 25-property interface for the health panel alone.
-function panelRepo(primary: RepoView, openId: string | null): RepoView | null {
-  if (!openId) return null
-  if (openId === primary.id) return primary
-  return trackedChildren(primary).find((c) => c.id === openId) ?? null
+
+// Which checkout a card is pointed at. Selecting a worktree re-aims the whole card — every action
+// and every panel — rather than giving each row its own copy of the controls. The card says loudly
+// which tree is active, because at this point Remove follows the selection too.
+const selectedWt = ref<Record<string, string>>({})
+function activeRepo(primary: RepoView): RepoView {
+  const id = selectedWt.value[primary.id]
+  if (!id || id === primary.id) return primary
+  return trackedChildren(primary).find((c) => c.id === id) ?? primary
+}
+function selectWt(primary: RepoView, target: RepoView) {
+  if (target.id === primary.id) delete selectedWt.value[primary.id]
+  else selectedWt.value[primary.id] = target.id
+  // The panels are keyed by repo id; leaving them open would show the previous tree's data.
+  openHealth.value = ''
+  openBranch.value = null
+  openChanges.value = null
 }
 // Expander state + lazily-loaded on-disk worktree list (includes untracked worktrees).
 const openWt = ref('')
@@ -670,54 +697,64 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
 
     <template v-else>
       <section v-for="r in visibleRepos" :key="r.id" class="repo">
+        <template v-for="ar in [activeRepo(r)]" :key="ar.id">
         <div class="rh">
+          <!-- Identity is the repository; the branch, chips and path describe whichever checkout
+               the card is currently aimed at. The expander belongs to the repository too — hang it
+               off `ar` and it disappears the moment you select a worktree, stranding you there. -->
           <span class="hostpill mono" :class="r.host">{{ r.host }}</span>
           <h3>{{ repoLabel(r) }}</h3>
-          <button class="branchbtn mono" :disabled="!agentUp" title="Switch branch" @click="toggleBranches(r)">
-            ⎇ {{ r.branch || '—' }} ▾
+          <button
+            v-if="ar.id !== r.id"
+            class="actingon mono"
+            title="This card is aimed at a worktree — click to go back to the main checkout"
+            @click="selectWt(r, r)"
+          >◉ {{ ar.branch || 'worktree' }} ✕</button>
+          <button class="branchbtn mono" :disabled="!agentUp" title="Switch branch" @click="toggleBranches(ar)">
+            ⎇ {{ ar.branch || '—' }} ▾
           </button>
-          <span class="hchip mono" :class="workTree(r).tone" :title="'Working tree'">{{ workTree(r).label }}</span>
-          <span class="hchip mono" :class="upstreamState(r).tone" :title="r.upstream ? 'vs ' + r.upstream : 'Upstream'">{{ upstreamState(r).label }}</span>
-          <button class="hmore mono" :aria-expanded="openHealth === r.id" @click="toggleHealth(r)">
-            health {{ openHealth === r.id ? '▴' : '▾' }}
+          <span class="hchip mono" :class="workTree(ar).tone" :title="'Working tree'">{{ workTree(ar).label }}</span>
+          <span class="hchip mono" :class="upstreamState(ar).tone" :title="ar.upstream ? 'vs ' + ar.upstream : 'Upstream'">{{ upstreamState(ar).label }}</span>
+          <button class="hmore mono" :aria-expanded="openHealth === ar.id" @click="toggleHealth(ar)">
+            health {{ openHealth === ar.id ? '▴' : '▾' }}
           </button>
           <button
             v-if="groupWorktrees && !r.isLinkedWorktree && agentUp && trackedChildren(r).length"
             class="hmore mono wt"
             :aria-expanded="openWt === r.id"
-            title="Worktrees of this repository"
+            title="Checkouts of this repository"
             @click="toggleWorktrees(r)"
           >⑂ {{ trackedChildren(r).length }} worktree{{ trackedChildren(r).length > 1 ? 's' : '' }} {{ openWt === r.id ? '▴' : '▾' }}</button>
-          <span class="path mono">{{ r.path }}</span>
+          <span class="path mono">{{ ar.path }}</span>
         </div>
 
-        <!-- nested worktrees (repos spec §9): tracked children + on-disk worktrees to add -->
+        <!-- Every checkout of this repo, main first, exactly one selected. Selecting re-aims
+             the whole card rather than giving each row its own copy of the controls. -->
         <div v-if="groupWorktrees && openWt === r.id" class="wtbox">
-          <div v-for="c in trackedChildren(r)" :key="c.id" class="wtrow">
-            <!-- The branch label becomes the switcher, so the row gains an action without losing
-                 the information it used to show. -->
-            <button class="branchbtn mono" :disabled="!agentUp" title="Switch branch" @click="toggleBranches(c)">
-              ⎇ {{ c.branch || '—' }} ▾
-            </button>
+          <div class="wtrow" :class="{ sel: activeRepo(r).id === r.id }">
+            <button
+              class="wtpick mono"
+              :aria-pressed="activeRepo(r).id === r.id"
+              :title="activeRepo(r).id === r.id ? 'Already selected' : 'Point this card at the main checkout'"
+              @click="selectWt(r, r)"
+            >{{ activeRepo(r).id === r.id ? '◉' : '○' }} main</button>
+            <span class="wtbranch mono">⎇ {{ r.branch || '—' }}</span>
+            <span class="hchip mono" :class="workTree(r).tone">{{ workTree(r).label }}</span>
+            <span class="hchip mono" :class="upstreamState(r).tone">{{ upstreamState(r).label }}</span>
+            <span class="wtpath mono">{{ r.path }}</span>
+          </div>
+          <div v-for="c in trackedChildren(r)" :key="c.id" class="wtrow" :class="{ sel: activeRepo(r).id === c.id }">
+            <button
+              class="wtpick mono"
+              :aria-pressed="activeRepo(r).id === c.id"
+              :title="activeRepo(r).id === c.id ? 'Already selected' : 'Point this card at this worktree'"
+              @click="selectWt(r, c)"
+            >{{ activeRepo(r).id === c.id ? '◉' : '○' }} select</button>
+            <span class="wtbranch mono">⎇ {{ c.branch || '—' }}</span>
             <span v-if="isRunWorktree(c.branch)" class="wtrun mono">run</span>
             <span class="hchip mono" :class="workTree(c).tone">{{ workTree(c).label }}</span>
             <span class="hchip mono" :class="upstreamState(c).tone">{{ upstreamState(c).label }}</span>
-            <button class="hmore mono" :aria-expanded="openChanges === c.id" @click="openChanges = openChanges === c.id ? null : c.id">
-              {{ openChanges === c.id ? 'Hide changes' : 'Changes' }}
-            </button>
-            <button class="hmore mono" :aria-expanded="openHealth === c.id" @click="toggleHealth(c)">
-              health {{ openHealth === c.id ? '▴' : '▾' }}
-            </button>
-            <RepoBrainstormButton
-              :repo="c"
-              :models="repoModels(c)"
-              :open="bmenu === c.id"
-              :disabled="busy === c.id || !agentUp"
-              @toggle="bmenu = bmenu === c.id ? '' : c.id"
-              @pick="(m) => brainstormHere(c, m)"
-            />
             <span class="wtpath mono">{{ c.path }}</span>
-            <span class="wttag mono">tracked</span>
           </div>
           <div v-for="w in untrackedWorktrees(r)" :key="w.path" class="wtrow untracked">
             <span class="wtbranch mono">⎇ {{ w.branch || (w.detached ? 'detached' : '—') }}</span>
@@ -732,263 +769,259 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
 
         <!-- metadata: Git identity lives here (repo config), NOT in the action row -->
         <div class="metarow mono">
-          <span class="slug">{{ r.slug || r.remote || 'local repo' }}</span>
-          <template v-if="editing !== r.id">
+          <span class="slug">{{ ar.slug || ar.remote || 'local repo' }}</span>
+          <template v-if="editing !== ar.id">
             <span class="idsep">·</span>
             <span class="idlabel">Commits as</span>
-            <b class="idname">{{ r.userName || '(unset)' }}</b>
-            <span class="idemail" :title="r.userEmail">&lt;{{ r.userEmail || 'no email' }}&gt;</span>
-            <button class="idchange" :disabled="!agentUp" @click="startEdit(r)">Change</button>
-            <span v-if="!r.userName || !r.userEmail" class="idwarn" title="New commits need a name + email">⚠ identity incomplete</span>
+            <b class="idname">{{ ar.userName || '(unset)' }}</b>
+            <span class="idemail" :title="ar.userEmail">&lt;{{ ar.userEmail || 'no email' }}&gt;</span>
+            <button class="idchange" :disabled="!agentUp" @click="startEdit(ar)">Change</button>
+            <span v-if="!ar.userName || !ar.userEmail" class="idwarn" title="New commits need a name + email">⚠ identity incomplete</span>
           </template>
         </div>
 
         <!-- expanded health rows (repo-spec §11) -->
-        <template v-for="hr in [panelRepo(r, openHealth)]" :key="hr?.id ?? 'none'">
-        <div v-if="hr" class="healthbox">
-          <div class="hrow"><span class="hk mono">Working tree</span><span class="hv" :class="workTree(hr).tone">{{ workTree(hr).label }}</span>
-            <span v-if="hr.staged || hr.unstaged || hr.untracked" class="mono hdet">{{ hr.staged }} staged · {{ hr.unstaged }} unstaged · {{ hr.untracked }} untracked</span></div>
-          <div class="hrow"><span class="hk mono">Upstream</span><span class="hv" :class="upstreamState(hr).tone">{{ upstreamState(hr).label }}</span>
-            <span class="mono hdet">{{ hr.upstream ? 'tracks ' + hr.upstream : 'no tracking branch configured' }}</span></div>
+        <div v-if="openHealth === ar.id" class="healthbox">
+          <div class="hrow"><span class="hk mono">Working tree</span><span class="hv" :class="workTree(ar).tone">{{ workTree(ar).label }}</span>
+            <span v-if="ar.staged || ar.unstaged || ar.untracked" class="mono hdet">{{ ar.staged }} staged · {{ ar.unstaged }} unstaged · {{ ar.untracked }} untracked</span></div>
+          <div class="hrow"><span class="hk mono">Upstream</span><span class="hv" :class="upstreamState(ar).tone">{{ upstreamState(ar).label }}</span>
+            <span class="mono hdet">{{ ar.upstream ? 'tracks ' + ar.upstream : 'no tracking branch configured' }}</span></div>
           <div class="hrow">
             <span class="hk mono">Source branch</span>
-            <template v-if="sourceLoading[hr.id] && sourceStatus[hr.id] === undefined"><span class="hv info">checking…</span></template>
+            <template v-if="sourceLoading[ar.id] && sourceStatus[ar.id] === undefined"><span class="hv info">checking…</span></template>
             <template v-else>
-              <span class="hv" :class="sourceHealth(sourceStatus[hr.id]).tone">{{ sourceHealth(sourceStatus[hr.id]).label }}</span>
+              <span class="hv" :class="sourceHealth(sourceStatus[ar.id]).tone">{{ sourceHealth(sourceStatus[ar.id]).label }}</span>
               <span class="mono hdet">
-                {{ sourceOrigin(sourceStatus[hr.id]) }}
-                <template v-if="sourceStatus[hr.id]?.sourceAhead">· ↑{{ sourceStatus[hr.id]?.sourceAhead }} ahead</template>
+                {{ sourceOrigin(sourceStatus[ar.id]) }}
+                <template v-if="sourceStatus[ar.id]?.sourceAhead">· ↑{{ sourceStatus[ar.id]?.sourceAhead }} ahead</template>
               </span>
-              <button v-if="editSource !== hr.id" class="hedit mono" :disabled="!agentUp" @click="openSourceEdit(hr)">change</button>
+              <button v-if="editSource !== ar.id" class="hedit mono" :disabled="!agentUp" @click="openSourceEdit(ar)">change</button>
             </template>
           </div>
-          <div v-if="editSource === hr.id" class="hrow srcedit">
+          <div v-if="editSource === ar.id" class="hrow srcedit">
             <span class="hk mono"></span>
             <input
               class="srcin mono"
               list="src-branches"
-              v-model="sourceInput[hr.id]"
+              v-model="sourceInput[ar.id]"
               placeholder="branch name (blank = default)"
-              @keyup.enter="saveSource(hr)"
+              @keyup.enter="saveSource(ar)"
             />
             <datalist id="src-branches">
-              <option v-for="b in branchList[hr.id] ?? []" :key="b" :value="b" />
+              <option v-for="b in branchList[ar.id] ?? []" :key="b" :value="b" />
             </datalist>
-            <button class="hedit mono" :disabled="sourceLoading[hr.id]" @click="saveSource(hr)">save</button>
+            <button class="hedit mono" :disabled="sourceLoading[ar.id]" @click="saveSource(ar)">save</button>
             <button class="hedit mono ghost" @click="editSource = null">cancel</button>
           </div>
           <div class="hrow">
             <span class="hk mono">Conflict check</span>
-            <template v-if="conflictLoading[hr.id] && conflict[hr.id] === undefined"><span class="hv info">checking…</span></template>
+            <template v-if="conflictLoading[ar.id] && conflict[ar.id] === undefined"><span class="hv info">checking…</span></template>
             <template v-else>
-              <span class="hv" :class="conflictHealth(conflict[hr.id]).tone">{{ conflictHealth(conflict[hr.id]).label }}</span>
-              <span class="mono hdet" :title="(conflict[hr.id]?.files ?? []).join('\n')">
-                {{ conflict[hr.id]?.reason
-                   || (conflict[hr.id]?.files?.length ? conflict[hr.id]?.files.slice(0, 3).join(', ') + ((conflict[hr.id]?.files.length ?? 0) > 3 ? '…' : '')
-                   : (conflict[hr.id]?.ref ? 'vs ' + conflict[hr.id]?.ref + ' · predictive' : '')) }}
+              <span class="hv" :class="conflictHealth(conflict[ar.id]).tone">{{ conflictHealth(conflict[ar.id]).label }}</span>
+              <span class="mono hdet" :title="(conflict[ar.id]?.files ?? []).join('\n')">
+                {{ conflict[ar.id]?.reason
+                   || (conflict[ar.id]?.files?.length ? conflict[ar.id]?.files.slice(0, 3).join(', ') + ((conflict[ar.id]?.files.length ?? 0) > 3 ? '…' : '')
+                   : (conflict[ar.id]?.ref ? 'vs ' + conflict[ar.id]?.ref + ' · predictive' : '')) }}
               </span>
             </template>
           </div>
           <div class="hrow">
             <span class="hk mono">Last refresh</span>
-            <span class="hv" :class="{ warn: conflict[hr.id]?.stale }">{{ refreshLabel(conflict[hr.id]?.lastFetch) }}</span>
-            <span v-if="conflict[hr.id]?.stale" class="mono hdet">refs may be out of date</span>
-            <button class="hedit mono" :disabled="!agentUp || refreshing[hr.id]" @click="refreshRepo(hr)">
-              {{ refreshing[hr.id] ? 'fetching…' : 'refresh' }}
+            <span class="hv" :class="{ warn: conflict[ar.id]?.stale }">{{ refreshLabel(conflict[ar.id]?.lastFetch) }}</span>
+            <span v-if="conflict[ar.id]?.stale" class="mono hdet">refs may be out of date</span>
+            <button class="hedit mono" :disabled="!agentUp || refreshing[ar.id]" @click="refreshRepo(ar)">
+              {{ refreshing[ar.id] ? 'fetching…' : 'refresh' }}
             </button>
           </div>
           <div class="hrow">
             <span class="hk mono">Push guard</span>
-            <template v-if="pushProt[hr.id]">
-              <span class="hv" :class="pushProt[hr.id]!.mode === 'off' ? 'ok' : 'info'">
-                {{ pushProt[hr.id]!.mode === 'off' ? 'Pushes allowed' : pushProt[hr.id]!.mode === 'all' ? 'All pushes blocked' : 'Protected: ' + pushProt[hr.id]!.patterns }}
+            <template v-if="pushProt[ar.id]">
+              <span class="hv" :class="pushProt[ar.id]!.mode === 'off' ? 'ok' : 'info'">
+                {{ pushProt[ar.id]!.mode === 'off' ? 'Pushes allowed' : pushProt[ar.id]!.mode === 'all' ? 'All pushes blocked' : 'Protected: ' + pushProt[ar.id]!.patterns }}
               </span>
-              <span class="mono hdet">{{ pushProt[hr.id]!.overridden ? 'repo override' : 'global default' }}</span>
-              <button v-if="editProt !== hr.id" class="hedit mono" @click="openProtEdit(hr)">change</button>
+              <span class="mono hdet">{{ pushProt[ar.id]!.overridden ? 'repo override' : 'global default' }}</span>
+              <button v-if="editProt !== ar.id" class="hedit mono" @click="openProtEdit(ar)">change</button>
             </template>
             <span v-else class="hv info">…</span>
           </div>
-          <div v-if="editProt === hr.id" class="hrow srcedit">
+          <div v-if="editProt === ar.id" class="hrow srcedit">
             <span class="hk mono"></span>
-            <select v-model="protMode[hr.id]" class="srcin mono" style="flex:0 0 auto">
-              <option value="inherit">Inherit global ({{ pushProt[hr.id]?.globalMode }})</option>
+            <select v-model="protMode[ar.id]" class="srcin mono" style="flex:0 0 auto">
+              <option value="inherit">Inherit global ({{ pushProt[ar.id]?.globalMode }})</option>
               <option value="off">Off — allow all</option>
               <option value="protected">Protected branches</option>
               <option value="all">Block all</option>
             </select>
-            <input v-if="protMode[hr.id] === 'protected'" v-model="protPatterns[hr.id]" class="srcin mono" placeholder="main, master, develop, dev" @keyup.enter="saveProt(hr)" />
-            <button class="hedit mono" @click="saveProt(hr)">save</button>
+            <input v-if="protMode[ar.id] === 'protected'" v-model="protPatterns[ar.id]" class="srcin mono" placeholder="main, master, develop, dev" @keyup.enter="saveProt(ar)" />
+            <button class="hedit mono" @click="saveProt(ar)">save</button>
             <button class="hedit mono ghost" @click="editProt = null">cancel</button>
           </div>
         </div>
-        </template>
 
-        <template v-for="br in [panelRepo(r, openBranch)]" :key="br?.id ?? 'none'">
-        <div v-if="br" class="branchpanel">
+        <div v-if="openBranch === ar.id" class="branchpanel">
           <span class="clab mono">Switch branch</span>
           <div class="branches">
             <button
-              v-for="b in branchList[br.id] ?? []"
+              v-for="b in branchList[ar.id] ?? []"
               :key="b"
               class="brow mono"
-              :class="{ cur: b === br.branch }"
-              :disabled="busy === br.id"
-              @click="switchBranch(br, b)"
+              :class="{ cur: b === ar.branch }"
+              :disabled="busy === ar.id"
+              @click="switchBranch(ar, b)"
             >
-              {{ b === br.branch ? '● ' : '' }}{{ b }}
+              {{ b === ar.branch ? '● ' : '' }}{{ b }}
             </button>
-            <span v-if="!(branchList[br.id] ?? []).length" class="mono clean">no local branches</span>
+            <span v-if="!(branchList[ar.id] ?? []).length" class="mono clean">no local branches</span>
           </div>
           <div class="newbranch">
-            <input v-model="newBranch[br.id]" class="in sm" placeholder="new-branch-name" @keydown.enter="switchBranch(br, newBranch[br.id], true)" />
-            <button class="btn" :disabled="busy === br.id || !(newBranch[br.id] || '').trim()" @click="switchBranch(br, newBranch[br.id], true)">
+            <input v-model="newBranch[ar.id]" class="in sm" placeholder="new-branch-name" @keydown.enter="switchBranch(ar, newBranch[ar.id], true)" />
+            <button class="btn" :disabled="busy === ar.id || !(newBranch[ar.id] || '').trim()" @click="switchBranch(ar, newBranch[ar.id], true)">
               Create &amp; switch
             </button>
           </div>
         </div>
-        </template>
 
-        <div v-if="editing === r.id" class="idedit">
+        <div v-if="editing === ar.id" class="idedit">
           <input v-model="editName" class="in sm" placeholder="git user.name" />
           <input v-model="editEmail" class="in sm" placeholder="git user.email" />
-          <button class="btn pri" :disabled="busy === r.id" @click="saveEdit(r)">Save</button>
+          <button class="btn pri" :disabled="busy === ar.id" @click="saveEdit(ar)">Save</button>
           <button class="btn ghost" @click="editing = null">Cancel</button>
           <span class="idnote mono">Applies to future commits only.</span>
         </div>
 
         <div class="acts">
-          <button class="btn" :disabled="busy === r.id || !agentUp" @click="toggleChanges(r)">
-            {{ openChanges === r.id ? 'Hide changes' : 'Changes' }}
+          <button class="btn" :disabled="busy === ar.id || !agentUp" @click="toggleChanges(ar)">
+            {{ openChanges === ar.id ? 'Hide changes' : 'Changes' }}
           </button>
-          <button class="btn" :disabled="busy === r.id || !agentUp" @click="toggleHistory(r)">
-            {{ openHistory === r.id ? 'Hide history' : 'History' }}
+          <button class="btn" :disabled="busy === ar.id || !agentUp" @click="toggleHistory(ar)">
+            {{ openHistory === ar.id ? 'Hide history' : 'History' }}
           </button>
-          <button class="btn" :disabled="busy === r.id || !agentUp" @click="act(r, () => repoPull(r.id), 'pull')">Pull</button>
+          <button class="btn" :disabled="busy === ar.id || !agentUp" @click="act(ar, () => repoPull(ar.id), 'pull')">Pull</button>
           <!-- Commit/Push split button: adapts to repo state; dropdown exposes each sub-action -->
           <div class="splitwrap">
             <button
               class="btn split"
-              :disabled="busy === r.id || !agentUp || pushBlocked(r)"
-              :title="pushBlocked(r) ? 'Nothing to commit or push' : primaryPushLabel(r)"
-              @click="primaryPush(r)"
-            >{{ primaryPushLabel(r) }}</button>
+              :disabled="busy === ar.id || !agentUp || pushBlocked(ar)"
+              :title="pushBlocked(ar) ? 'Nothing to commit or push' : primaryPushLabel(ar)"
+              @click="primaryPush(ar)"
+            >{{ primaryPushLabel(ar) }}</button>
             <button
               class="btn caret"
-              :disabled="busy === r.id || !agentUp"
+              :disabled="busy === ar.id || !agentUp"
               title="More push options"
-              @click="pushMenu = pushMenu === r.id ? '' : r.id"
+              @click="pushMenu = pushMenu === ar.id ? '' : ar.id"
             >▾</button>
-            <div v-if="pushMenu === r.id" class="bmenu" @click.self="pushMenu = ''">
-              <button class="bmi" :disabled="!canCommit(r)" @click="startCommit(r, false)">
+            <div v-if="pushMenu === ar.id" class="bmenu" @click.self="pushMenu = ''">
+              <button class="bmi" :disabled="!canCommit(ar)" @click="startCommit(ar, false)">
                 Commit only…<span class="mono">stage all + commit, no push</span>
               </button>
-              <button class="bmi" :disabled="!canCommit(r)" @click="startCommit(r, true)">
+              <button class="bmi" :disabled="!canCommit(ar)" @click="startCommit(ar, true)">
                 Commit &amp; Push…<span class="mono">stage all, commit, then push</span>
               </button>
-              <button class="bmi" :disabled="!canPush(r)" @click="pushOnly(r)">
-                Push only<span class="mono">{{ canPush(r) ? `push ${r.ahead} commit${r.ahead > 1 ? 's' : ''}` : 'nothing to push' }}</span>
+              <button class="bmi" :disabled="!canPush(ar)" @click="pushOnly(ar)">
+                Push only<span class="mono">{{ canPush(ar) ? `push ${ar.ahead} commit${ar.ahead > 1 ? 's' : ''}` : 'nothing to push' }}</span>
               </button>
-              <button class="bmi danger" :disabled="!canPush(r) && pushReject !== r.id" @click="forcePush(r)">
+              <button class="bmi danger" :disabled="!canPush(ar) && pushReject !== ar.id" @click="forcePush(ar)">
                 Force push<span class="mono">--force-with-lease · rewrites remote</span>
               </button>
             </div>
           </div>
-          <button class="btn" :disabled="busy === r.id || !agentUp || r.host === 'none'" @click="act(r, () => repoPr(r.id), 'open PR/MR')">
-            {{ r.host === 'gitlab' ? 'Open MR' : 'Open PR' }}
+          <button class="btn" :disabled="busy === ar.id || !agentUp || ar.host === 'none'" @click="act(ar, () => repoPr(ar.id), 'open PR/MR')">
+            {{ ar.host === 'gitlab' ? 'Open MR' : 'Open PR' }}
           </button>
           <button
             class="btn"
-            :class="{ localon: r.localOnly }"
-            :disabled="busy === r.id"
-            :title="r.localOnly ? 'Local-only: only local models can brainstorm this repo' : 'Allow remote models for this repo'"
-            @click="toggleLocalOnly(r)"
-          >{{ r.localOnly ? '🔒 Local-only' : '🔓 Any model' }}</button>
+            :class="{ localon: ar.localOnly }"
+            :disabled="busy === ar.id"
+            :title="ar.localOnly ? 'Local-only: only local models can brainstorm this repo' : 'Allow remote models for this repo'"
+            @click="toggleLocalOnly(ar)"
+          >{{ ar.localOnly ? '🔒 Local-only' : '🔓 Any model' }}</button>
           <RepoBrainstormButton
             :repo="r"
-            :models="repoModels(r)"
-            :open="bmenu === r.id"
-            :disabled="busy === r.id || !agentUp"
-            @toggle="bmenu = bmenu === r.id ? '' : r.id"
-            @pick="(m) => brainstormHere(r, m)"
+            :models="repoModels(ar)"
+            :open="bmenu === ar.id"
+            :disabled="busy === ar.id || !agentUp"
+            @toggle="bmenu = bmenu === ar.id ? '' : ar.id"
+            @pick="(m) => brainstormHere(ar, m)"
           />
-          <button class="btn ghost" :disabled="busy === r.id" @click="remove(r)">Remove</button>
+          <button class="btn ghost" :disabled="busy === ar.id" @click="remove(ar)">Remove</button>
         </div>
 
         <!-- inline commit-message popover for the split button -->
-        <div v-if="commitPrompt?.id === r.id" class="commitprompt">
+        <div v-if="commitPrompt?.id === ar.id" class="commitprompt">
           <input
-            v-model="commitMsg[r.id]"
+            v-model="commitMsg[ar.id]"
             class="in mono"
             placeholder="Commit message…"
-            :disabled="busy === r.id"
-            @keydown.enter="commitAndPush(r, commitPrompt!.push)"
+            :disabled="busy === ar.id"
+            @keydown.enter="commitAndPush(ar, commitPrompt!.push)"
             @keydown.esc="commitPrompt = null"
           />
-          <button class="btn pri" :disabled="busy === r.id || !(commitMsg[r.id] || '').trim()" @click="commitAndPush(r, commitPrompt!.push)">
+          <button class="btn pri" :disabled="busy === ar.id || !(commitMsg[ar.id] || '').trim()" @click="commitAndPush(ar, commitPrompt!.push)">
             {{ commitPrompt.push ? 'Commit & Push' : 'Commit' }}
           </button>
-          <button class="btn ghost" :disabled="busy === r.id" @click="commitPrompt = null">Cancel</button>
-          <span class="cphint mono">stages all changes ({{ changeCount(r) }}) then commits{{ commitPrompt.push ? ' and pushes' : '' }}</span>
+          <button class="btn ghost" :disabled="busy === ar.id" @click="commitPrompt = null">Cancel</button>
+          <span class="cphint mono">stages all changes ({{ changeCount(ar) }}) then commits{{ commitPrompt.push ? ' and pushes' : '' }}</span>
         </div>
 
         <!-- operation-in-progress warning: an unsupported state we can only let the user back out of -->
-        <div v-if="r.operation" class="opwarn">
+        <div v-if="ar.operation" class="opwarn">
           <span class="owicon">⚠</span>
           <span class="owtext">
-            A <b>{{ r.operation }}</b> is in progress{{ workTree(r).label.includes('conflict') ? ' with conflicts' : '' }}.
+            A <b>{{ ar.operation }}</b> is in progress{{ workTree(ar).label.includes('conflict') ? ' with conflicts' : '' }}.
             DevLoom doesn't resolve conflicts here — finish it in your editor/terminal, or abort to restore the previous state.
           </span>
-          <button class="btn danger" :disabled="busy === r.id" @click="abortOp(r)">Abort {{ r.operation }}</button>
+          <button class="btn danger" :disabled="busy === ar.id" @click="abortOp(ar)">Abort {{ ar.operation }}</button>
         </div>
 
         <!-- push rejected (non-fast-forward): the remote moved; offer a lease-protected force push -->
-        <div v-else-if="pushReject === r.id" class="opwarn">
+        <div v-else-if="pushReject === ar.id" class="opwarn">
           <span class="owicon">⚠</span>
           <span class="owtext">
             Push was rejected — the remote branch has commits you don't. Pull/rebase first, or force-push
             (<span class="mono">--force-with-lease</span>) if you intend to overwrite the remote branch.
           </span>
-          <button class="btn" :disabled="busy === r.id" @click="act(r, () => repoPull(r.id), 'pull')">Pull</button>
-          <button class="btn danger" :disabled="busy === r.id" @click="forcePush(r)">Force push</button>
-          <button class="btn ghost" :disabled="busy === r.id" @click="pushReject = ''">Dismiss</button>
+          <button class="btn" :disabled="busy === ar.id" @click="act(ar, () => repoPull(ar.id), 'pull')">Pull</button>
+          <button class="btn danger" :disabled="busy === ar.id" @click="forcePush(ar)">Force push</button>
+          <button class="btn ghost" :disabled="busy === ar.id" @click="pushReject = ''">Dismiss</button>
         </div>
 
-        <div v-if="sessionsFor(r.path).length" class="rsessions">
+        <div v-if="sessionsFor(ar.path).length" class="rsessions">
           <span class="rslab mono">brainstorms:</span>
-          <button v-for="s in sessionsFor(r.path)" :key="s.id" class="rschip" @click="openSession(s.id)">
+          <button v-for="s in sessionsFor(ar.path)" :key="s.id" class="rschip" @click="openSession(s.id)">
             ✎ {{ s.title }}
           </button>
         </div>
 
         <!-- history + guarded squash (repo-spec §8–§9) -->
-        <div v-if="openHistory === r.id" class="histpanel">
+        <div v-if="openHistory === ar.id" class="histpanel">
           <div class="histhead">
-            <span class="clab mono">History · ⎇ {{ r.branch }}</span>
+            <span class="clab mono">History · ⎇ {{ ar.branch }}</span>
             <div class="histseg">
-              <button class="seg mono" :class="{ on: histUnique }" @click="setUnique(r, true)">unique to {{ history[r.id]?.sourceRef || 'source' }}</button>
-              <button class="seg mono" :class="{ on: !histUnique }" @click="setUnique(r, false)">all</button>
+              <button class="seg mono" :class="{ on: histUnique }" @click="setUnique(ar, true)">unique to {{ history[ar.id]?.sourceRef || 'source' }}</button>
+              <button class="seg mono" :class="{ on: !histUnique }" @click="setUnique(ar, false)">all</button>
             </div>
             <span class="grow"></span>
-            <button v-if="histUnique && selCount >= 2" class="btn pri tiny2" @click="openSquash(r)">
+            <button v-if="histUnique && selCount >= 2" class="btn pri tiny2" @click="openSquash(ar)">
               Squash {{ selCount }} commits…
             </button>
           </div>
           <div v-if="histLoading" class="mono wtempty">loading…</div>
-          <div v-else-if="!commitsOf(r).length" class="mono wtempty">
+          <div v-else-if="!commitsOf(ar).length" class="mono wtempty">
             {{ histUnique ? 'no commits unique to the source branch' : 'no commits' }}
           </div>
           <template v-else>
-            <div v-for="(c, i) in commitsOf(r)" :key="c.hash" class="crow" :class="{ sel: i <= squashThrough }">
+            <div v-for="(c, i) in commitsOf(ar)" :key="c.hash" class="crow" :class="{ sel: i <= squashThrough }">
               <input
                 v-if="histUnique"
                 type="checkbox"
                 class="csel"
                 :checked="i <= squashThrough"
-                :disabled="!rangeEligible(r, i)"
-                :title="rangeEligible(r, i) ? 'Squash this commit and everything newer' : 'Range contains a merge commit'"
+                :disabled="!rangeEligible(ar, i)"
+                :title="rangeEligible(ar, i) ? 'Squash this commit and everything newer' : 'Range contains a merge commit'"
                 @click="selectThrough(i)"
               />
-              <button class="cmain" @click="toggleCommit(r, c.hash)">
+              <button class="cmain" @click="toggleCommit(ar, c.hash)">
                 <span class="csha mono">{{ c.short }}</span>
                 <span class="csubj">{{ c.subject }}</span>
                 <span v-if="c.merge" class="ctag mono">merge</span>
@@ -1008,53 +1041,52 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
                 <div v-else class="cdl">loading…</div>
               </div>
             </div>
-            <div v-if="histUnique && commitsOf(r).length" class="histhint mono">
+            <div v-if="histUnique && commitsOf(ar).length" class="histhint mono">
               tick a commit to squash it and everything newer into one (a backup ref is kept; nothing is pushed)
             </div>
           </template>
         </div>
 
         <!-- changes / staging / commit -->
-        <template v-for="cr in [panelRepo(r, openChanges)]" :key="cr?.id ?? 'none'">
-        <div v-if="cr" class="changes">
+        <div v-if="openChanges === ar.id" class="changes">
           <div class="cgroup">
             <div class="clab mono">
-              Staged ({{ changes[cr.id]?.staged.length ?? 0 }})
-              <button v-if="changes[cr.id]?.staged.length" class="mini" @click="unstage(cr, [])">unstage all</button>
+              Staged ({{ changes[ar.id]?.staged.length ?? 0 }})
+              <button v-if="changes[ar.id]?.staged.length" class="mini" @click="unstage(ar, [])">unstage all</button>
             </div>
-            <div v-for="f in changes[cr.id]?.staged ?? []" :key="'s' + f.file" class="crow">
+            <div v-for="f in changes[ar.id]?.staged ?? []" :key="'s' + f.file" class="crow">
               <span class="cstat mono staged">{{ f.status }}</span>
               <span class="cfile mono">{{ f.file }}</span>
-              <button class="mini" @click="unstage(cr, [f.file])">unstage</button>
+              <button class="mini" @click="unstage(ar, [f.file])">unstage</button>
             </div>
           </div>
           <div class="cgroup">
             <div class="clab mono">
-              Unstaged ({{ (changes[cr.id]?.unstaged.length ?? 0) + (changes[cr.id]?.untracked.length ?? 0) }})
+              Unstaged ({{ (changes[ar.id]?.unstaged.length ?? 0) + (changes[ar.id]?.untracked.length ?? 0) }})
               <button
-                v-if="(changes[cr.id]?.unstaged.length ?? 0) + (changes[cr.id]?.untracked.length ?? 0)"
+                v-if="(changes[ar.id]?.unstaged.length ?? 0) + (changes[ar.id]?.untracked.length ?? 0)"
                 class="mini"
-                @click="stage(cr, [])"
+                @click="stage(ar, [])"
               >stage all</button>
             </div>
-            <div v-for="f in changes[cr.id]?.unstaged ?? []" :key="'u' + f.file" class="crow">
+            <div v-for="f in changes[ar.id]?.unstaged ?? []" :key="'u' + f.file" class="crow">
               <span class="cstat mono">{{ f.status }}</span>
               <span class="cfile mono">{{ f.file }}</span>
-              <button class="mini" @click="stage(cr, [f.file])">stage</button>
+              <button class="mini" @click="stage(ar, [f.file])">stage</button>
             </div>
-            <div v-for="f in changes[cr.id]?.untracked ?? []" :key="'n' + f.file" class="crow">
+            <div v-for="f in changes[ar.id]?.untracked ?? []" :key="'n' + f.file" class="crow">
               <span class="cstat mono new">new</span>
               <span class="cfile mono">{{ f.file }}</span>
-              <button class="mini" @click="stage(cr, [f.file])">stage</button>
+              <button class="mini" @click="stage(ar, [f.file])">stage</button>
             </div>
-            <div v-if="!changes[cr.id]?.staged.length && !changes[cr.id]?.unstaged.length && !changes[cr.id]?.untracked.length" class="mono clean">working tree clean</div>
+            <div v-if="!changes[ar.id]?.staged.length && !changes[ar.id]?.unstaged.length && !changes[ar.id]?.untracked.length" class="mono clean">working tree clean</div>
           </div>
           <div class="commitbar">
-            <input v-model="commitMsg[cr.id]" class="in" placeholder="Commit message…" @keydown.enter="commit(cr)" />
-            <button class="btn pri" :disabled="busy === cr.id || !stagedCount(cr.id) || !(commitMsg[cr.id] || '').trim()" @click="commit(cr)">
+            <input v-model="commitMsg[ar.id]" class="in" placeholder="Commit message…" @keydown.enter="commit(ar)" />
+            <button class="btn pri" :disabled="busy === ar.id || !stagedCount(ar.id) || !(commitMsg[ar.id] || '').trim()" @click="commit(ar)">
               Commit
             </button>
-            <button class="btn" :disabled="busy === cr.id" @click="act(cr, () => repoPush(cr.id), 'push')">Push</button>
+            <button class="btn" :disabled="busy === ar.id" @click="act(ar, () => repoPush(ar.id), 'push')">Push</button>
           </div>
         </div>
         </template>
@@ -1166,6 +1198,10 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
 .hmore:hover { border-color: var(--warp); color: var(--ink); }
 .hmore.wt { color: var(--warp-hi); }
 /* group-worktrees toggle */
+.actingon { font-size: 11px; font-weight: 600; color: var(--on-warp); background: var(--warp); border: 1px solid var(--warp); border-radius: 20px; padding: 2px 10px; cursor: pointer; }
+.wtpick { font-size: 11px; min-width: 74px; text-align: left; color: var(--dim); background: transparent; border: 1px solid var(--line); border-radius: 5px; padding: 2px 8px; cursor: pointer; }
+.wtpick[aria-pressed="true"] { color: var(--warp-hi); border-color: var(--warp); }
+.wtrow.sel { background: var(--warp-weft); border-radius: 6px; }
 .wtoggle { margin-left: 16px; font-size: 11px; color: var(--faint-text); background: transparent; border: 1px solid var(--line); border-radius: 6px; padding: 3px 9px; cursor: pointer; }
 .wtoggle:hover { color: var(--ink); border-color: var(--warp); }
 .wtoggle.on { color: var(--warp-hi); border-color: var(--warp); }
