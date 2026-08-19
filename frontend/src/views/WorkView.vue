@@ -18,6 +18,9 @@ const sourceFilter = ref('all')
 const roleFilters = ['All', 'Mine', 'To Review', 'Others'] as const
 const roleFilter = ref<(typeof roleFilters)[number]>('All')
 function matchesRole(r: WorkRow): boolean {
+  // A filter whose control is invisible must not act — the chip row only renders on PRs/Reviews,
+  // so a stale non-'All' selection left over from those lenses must not silently narrow others.
+  if (active.value !== 'PRs' && active.value !== 'Reviews') return true
   if (roleFilter.value === 'All') return true
   if (r.type !== 'pr' && r.type !== 'review') return true
   const role = r.prRole ?? 'other'
