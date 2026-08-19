@@ -74,6 +74,13 @@ function upstreamState(r: RepoView): Health {
   if (r.ahead) return { label: `Needs push ↑${r.ahead}`, tone: 'info' }
   return { label: 'Up to date', tone: 'ok' }
 }
+// The "Needs pull" chip is the one upstream state with an obvious single remedy, so it doubles as
+// the button for it. Diverged deliberately does not: pulling with commits on both sides needs a
+// decision (merge, rebase, or look first) that a chip click cannot express.
+function needsPull(r: RepoView): boolean {
+  return !!r.hasUpstream && !!r.behind && !r.ahead
+}
+
 // Source-branch model (repo-spec §6/§7.3): where this branch forks from + drift. Fetched
 // lazily the first time a repo's health rows expand (needs a git call the list doesn't carry).
 const sourceStatus = ref<Record<string, SourceStatus | null>>({})
@@ -714,7 +721,15 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
             ⎇ {{ ar.branch || '—' }} ▾
           </button>
           <span class="hchip mono" :class="workTree(ar).tone" :title="'Working tree'">{{ workTree(ar).label }}</span>
-          <span class="hchip mono" :class="upstreamState(ar).tone" :title="ar.upstream ? 'vs ' + ar.upstream : 'Upstream'">{{ upstreamState(ar).label }}</span>
+          <button
+            v-if="needsPull(ar)"
+            class="hchip mono pullable"
+            :class="upstreamState(ar).tone"
+            :disabled="busy === ar.id || !agentUp"
+            :title="`Pull ${ar.behind} commit${ar.behind > 1 ? 's' : ''} from ${ar.upstream}`"
+            @click="act(ar, () => repoPull(ar.id), 'pull')"
+          >{{ upstreamState(ar).label }} ⤓</button>
+          <span v-else class="hchip mono" :class="upstreamState(ar).tone" :title="ar.upstream ? 'vs ' + ar.upstream : 'Upstream'">{{ upstreamState(ar).label }}</span>
           <button class="hmore mono" :aria-expanded="openHealth === ar.id" @click="toggleHealth(ar)">
             health {{ openHealth === ar.id ? '▴' : '▾' }}
           </button>
@@ -784,7 +799,9 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
         <div v-if="openHealth === ar.id" class="healthbox">
           <div class="hrow"><span class="hk mono">Working tree</span><span class="hv" :class="workTree(ar).tone">{{ workTree(ar).label }}</span>
             <span v-if="ar.staged || ar.unstaged || ar.untracked" class="mono hdet">{{ ar.staged }} staged · {{ ar.unstaged }} unstaged · {{ ar.untracked }} untracked</span></div>
-          <div class="hrow"><span class="hk mono">Upstream</span><span class="hv" :class="upstreamState(ar).tone">{{ upstreamState(ar).label }}</span>
+          <div class="hrow"><span class="hk mono">Upstream</span>
+            <button v-if="needsPull(ar)" class="hv pullable" :class="upstreamState(ar).tone" :disabled="busy === ar.id || !agentUp" @click="act(ar, () => repoPull(ar.id), 'pull')">{{ upstreamState(ar).label }} ⤓</button>
+            <span v-else class="hv" :class="upstreamState(ar).tone">{{ upstreamState(ar).label }}</span>
             <span class="mono hdet">{{ ar.upstream ? 'tracks ' + ar.upstream : 'no tracking branch configured' }}</span></div>
           <div class="hrow">
             <span class="hk mono">Source branch</span>
@@ -1191,6 +1208,10 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
 .idnote { font-size: 11px; color: var(--faint-text); }
 /* health chips + rows */
 .hchip { font-size: 10px; border: 1px solid var(--line); border-radius: 5px; padding: 2px 7px; }
+.hchip.pullable, .hv.pullable { cursor: pointer; background: transparent; font: inherit; }
+.hchip.pullable:hover:not(:disabled), .hv.pullable:hover:not(:disabled) { border-color: var(--warp); color: var(--warp-hi); }
+.hchip.pullable:disabled, .hv.pullable:disabled { opacity: 0.5; cursor: not-allowed; }
+.hv.pullable { border: 1px solid transparent; border-radius: 5px; padding: 0 4px; }
 .hchip.ok { color: var(--healthy); border-color: color-mix(in srgb, var(--healthy) 50%, var(--line)); }
 .hchip.info { color: var(--warp-hi); border-color: var(--warp); }
 .hchip.warn { color: var(--chip-fail, #d88); border-color: var(--failed, #a55); }
