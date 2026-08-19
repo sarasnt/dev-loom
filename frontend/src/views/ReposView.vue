@@ -38,6 +38,7 @@ import {
 import { storeToRefs } from 'pinia'
 import { qualifyNames } from '../utils/repoNames'
 import RepoBrainstormButton from '../components/RepoBrainstormButton.vue'
+import AppToast from '../components/AppToast.vue'
 import { useDashboardStore } from '../stores/dashboard'
 import { isRemoteModel } from '../utils/models'
 
@@ -120,10 +121,10 @@ async function loadConflict(r: RepoView) {
 async function refreshRepo(r: RepoView) {
   if (refreshing.value[r.id]) return
   refreshing.value[r.id] = true
-  flash.value = ''
+  flash.value = null
   try {
     const res = await repoFetch(r.id)
-    if (!res.ok) flash.value = `Fetch failed for ${r.name}: ${res.error ?? 'unknown error'}`
+    if (!res.ok) say(`Fetch failed for ${repoLabel(r)}: ${res.error ?? 'unknown error'}`, 'error')
     await Promise.all([loadSource(r), loadConflict(r)])
   } finally {
     refreshing.value[r.id] = false
@@ -276,15 +277,16 @@ function untrackedWorktrees(r: RepoView): WorktreeInfo[] {
 }
 async function addWorktree(path: string) {
   if (busy.value) return
-  busy.value = 'add'; flash.value = ''
-  try { repos.value = await addRepoPath(path); flash.value = `Added ${path}.` }
-  catch { flash.value = 'Could not add worktree.' }
+  busy.value = 'add'; flash.value = null
+  try { repos.value = await addRepoPath(path); say(`Added ${path}.`) }
+  catch { say('Could not add worktree.', 'error') }
   finally { busy.value = '' }
 }
 function isRunWorktree(branch: string | null): boolean {
   return !!branch && branch.startsWith('devloom/run-')
 }
-const flash = ref('')
+const flash = ref<{ text: string; tone: 'ok' | 'error' } | null>(null)
+const say = (text: string, tone: 'ok' | 'error' = 'ok') => { flash.value = { text, tone } }
 const pathInput = ref('')
 const editing = ref<string | null>(null)
 const editName = ref('')
@@ -305,49 +307,52 @@ const newBranch = ref<Record<string, string>>({})
 
 onMounted(() => { store.ensureLoaded(); load() })
 
-async function load() {
-  loading.value = true
+// `loading` blanks the entire list for a "loading…" line, which after an action reads as a page
+// refresh and takes the scroll position with it. The first load should still say it is loading;
+// every refresh *after* an action should not.
+async function load({ silent = false }: { silent?: boolean } = {}) {
+  if (!silent) loading.value = true
   try {
     const r = await fetchRepos()
     agentUp.value = r.agentUp
     repos.value = r.repos
     try { repoSessions.value = await fetchRepoSessions() } catch { /* keep */ }
   } finally {
-    loading.value = false
+    if (!silent) loading.value = false
   }
 }
 
 async function scan() {
   const root = pathInput.value.trim()
   if (!root || busy.value) return
-  busy.value = 'add'; flash.value = ''
-  try { repos.value = await scanRepoFolder(root); agentUp.value = true; flash.value = `Scanned ${root}.`; pathInput.value = '' }
-  catch { flash.value = 'Scan failed — is the host agent running?' }
+  busy.value = 'add'; flash.value = null
+  try { repos.value = await scanRepoFolder(root); agentUp.value = true; say(`Scanned ${root}.`); pathInput.value = '' }
+  catch { say('Scan failed — is the host agent running?', 'error') }
   finally { busy.value = '' }
 }
 
 async function addOne() {
   const p = pathInput.value.trim()
   if (!p || busy.value) return
-  busy.value = 'add'; flash.value = ''
-  try { repos.value = await addRepoPath(p); agentUp.value = true; flash.value = `Added ${p}.`; pathInput.value = '' }
-  catch { flash.value = 'Not a git repo (or agent down).' }
+  busy.value = 'add'; flash.value = null
+  try { repos.value = await addRepoPath(p); agentUp.value = true; say(`Added ${p}.`); pathInput.value = '' }
+  catch { say('Not a git repo (or agent down).', 'error') }
   finally { busy.value = '' }
 }
 
 // Sync: scan the parent directories configured in Settings and import any new repos.
 async function sync() {
   if (busy.value) return
-  busy.value = 'sync'; flash.value = ''
+  busy.value = 'sync'; flash.value = null
   try {
     const r = await syncRepos()
     agentUp.value = r.agentUp
     repos.value = r.repos
-    flash.value = !r.dirs.length
-      ? 'No repository directories configured — add some in Settings › General.'
-      : `Synced ${r.dirs.length} director${r.dirs.length > 1 ? 'ies' : 'y'} — ${r.added} new repo${r.added === 1 ? '' : 's'} added.`
+    // "nothing configured" is a dead end rather than a result, so it stays until dismissed.
+    if (!r.dirs.length) say('No repository directories configured — add some in Settings › General.', 'error')
+    else say(`Synced ${r.dirs.length} director${r.dirs.length > 1 ? 'ies' : 'y'} — ${r.added} new repo${r.added === 1 ? '' : 's'} added.`)
     try { repoSessions.value = await fetchRepoSessions() } catch { /* keep */ }
-  } catch { flash.value = 'Sync failed — is the host agent running?' }
+  } catch { say('Sync failed — is the host agent running?', 'error') }
   finally { busy.value = '' }
 }
 
@@ -359,7 +364,7 @@ async function openBrowse() {
 async function navigate(p: string) {
   browse.value.loading = true
   try { browse.value.data = await browseFs(p) }
-  catch { flash.value = 'Browse failed — is the host agent running?'; browse.value.open = false }
+  catch { say('Browse failed — is the host agent running?', 'error'); browse.value.open = false }
   finally { browse.value.loading = false }
 }
 async function useCurrentFolder() {
@@ -377,13 +382,14 @@ async function addCurrentRepo() {
 
 // ---- pull/push/pr ----
 async function act(r: RepoView, fn: () => Promise<{ ok?: boolean; output?: string; url?: string; web?: boolean; error?: string }>, label: string) {
-  busy.value = r.id; flash.value = ''
+  busy.value = r.id; flash.value = null
   try {
     const res = await fn()
     if (res.url && (res.web || res.ok)) window.open(res.url, '_blank', 'noopener')
-    flash.value = `${r.name}: ${label} ${res.ok === false ? '✗ ' + (res.error || res.output || '') : '✓'}`
-    await load()
-  } catch { flash.value = `${r.name}: ${label} failed.` }
+    const bad = res.ok === false
+    say(`${repoLabel(r)}: ${label} ${bad ? '✗ ' + (res.error || res.output || '') : '✓'}`, bad ? 'error' : 'ok')
+    await load({ silent: true })
+  } catch { say(`${repoLabel(r)}: ${label} failed.`, 'error') }
   finally { busy.value = '' }
 }
 
@@ -391,14 +397,14 @@ async function act(r: RepoView, fn: () => Promise<{ ok?: boolean; output?: strin
 function startEdit(r: RepoView) { editing.value = r.id; editName.value = r.userName; editEmail.value = r.userEmail }
 async function saveEdit(r: RepoView) {
   busy.value = r.id
-  try { await setRepoIdentity(r.id, editName.value, editEmail.value); editing.value = null; flash.value = `${r.name}: git identity updated.`; await load() }
+  try { await setRepoIdentity(r.id, editName.value, editEmail.value); editing.value = null; say(`${repoLabel(r)}: git identity updated.`); await load({ silent: true }) }
   finally { busy.value = '' }
 }
 
 async function remove(r: RepoView) {
   if (!confirm(`Remove ${r.name} from DevLoom? (your files are untouched)`)) return
   busy.value = r.id
-  try { await removeRepo(r.id); await load() } finally { busy.value = '' }
+  try { await removeRepo(r.id); await load({ silent: true }) } finally { busy.value = '' }
 }
 
 // ---- changes / staging / commit ----
@@ -412,7 +418,7 @@ async function refreshChanges(id: string) {
 }
 async function stage(r: RepoView, files: string[]) {
   busy.value = r.id
-  try { await repoStage(r.id, files); await refreshChanges(r.id); await load() } finally { busy.value = '' }
+  try { await repoStage(r.id, files); await refreshChanges(r.id); await load({ silent: true }) } finally { busy.value = '' }
 }
 async function unstage(r: RepoView, files: string[]) {
   busy.value = r.id
@@ -421,12 +427,12 @@ async function unstage(r: RepoView, files: string[]) {
 async function commit(r: RepoView) {
   const m = (commitMsg.value[r.id] || '').trim()
   if (!m || busy.value) return
-  busy.value = r.id; flash.value = ''
+  busy.value = r.id; flash.value = null
   try {
     const res = await repoCommit(r.id, m)
-    flash.value = `${r.name}: commit ${res.ok ? '✓' : '✗ ' + (res.output || '')}`
+    say(`${repoLabel(r)}: commit ${res.ok ? '✓' : '✗ ' + (res.output || '')}`, res.ok ? 'ok' : 'error')
     if (res.ok) commitMsg.value[r.id] = ''
-    await refreshChanges(r.id); await load()
+    await refreshChanges(r.id); await load({ silent: true })
   } finally { busy.value = '' }
 }
 function stagedCount(id: string) { return changes.value[id]?.staged.length ?? 0 }
@@ -460,21 +466,21 @@ function startCommit(r: RepoView, push: boolean) {
 async function commitAndPush(r: RepoView, push: boolean) {
   const m = (commitMsg.value[r.id] || '').trim()
   if (!m || busy.value) return
-  busy.value = r.id; flash.value = ''
+  busy.value = r.id; flash.value = null
   try {
     await repoStage(r.id, [])
     const c = await repoCommit(r.id, m)
-    if (!c.ok) { flash.value = `${r.name}: commit ✗ ${c.output || ''}`; return }
+    if (!c.ok) { say(`${repoLabel(r)}: commit ✗ ${c.output || ''}`, 'error'); return }
     commitMsg.value[r.id] = ''
     commitPrompt.value = null
     if (push) {
       const p = await repoPush(r.id)
       if (!p.ok && p.rejected) pushReject.value = r.id
-      flash.value = `${r.name}: commit ✓ · push ${p.ok ? '✓' : '✗ ' + (p.output || '')}`
+      say(`${repoLabel(r)}: commit ✓ · push ${p.ok ? '✓' : '✗ ' + (p.output || '')}`, p.ok ? 'ok' : 'error')
     } else {
-      flash.value = `${r.name}: commit ✓`
+      say(`${repoLabel(r)}: commit ✓`)
     }
-    await load()
+    await load({ silent: true })
     if (openChanges.value === r.id) await refreshChanges(r.id)
   } finally { busy.value = '' }
 }
@@ -482,12 +488,12 @@ async function commitAndPush(r: RepoView, push: boolean) {
 const pushReject = ref('')
 async function pushOnly(r: RepoView) {
   pushMenu.value = ''
-  busy.value = r.id; flash.value = ''
+  busy.value = r.id; flash.value = null
   try {
     const p = await repoPush(r.id)
     pushReject.value = !p.ok && p.rejected ? r.id : ''
-    flash.value = `${r.name}: push ${p.ok ? '✓' : '✗ ' + (p.output || '')}`
-    await load()
+    say(`${repoLabel(r)}: push ${p.ok ? '✓' : '✗ ' + (p.output || '')}`, p.ok ? 'ok' : 'error')
+    await load({ silent: true })
   } finally { busy.value = '' }
 }
 // Force push uses --force-with-lease (backend never does a bare --force). Guarded by a confirm
@@ -495,22 +501,22 @@ async function pushOnly(r: RepoView) {
 async function forcePush(r: RepoView) {
   pushMenu.value = ''
   if (!confirm(`Force-push ${r.branch} to its remote using --force-with-lease?\n\nThis rewrites the remote branch. It is refused if the remote moved since your last fetch.`)) return
-  busy.value = r.id; flash.value = ''
+  busy.value = r.id; flash.value = null
   try {
     const p = await repoPush(r.id, true)
     pushReject.value = ''
-    flash.value = `${r.name}: force-push ${p.ok ? '✓' : '✗ ' + (p.output || '')}`
-    await load()
+    say(`${repoLabel(r)}: force-push ${p.ok ? '✓' : '✗ ' + (p.output || '')}`, p.ok ? 'ok' : 'error')
+    await load({ silent: true })
   } finally { busy.value = '' }
 }
 // Back out of a merge/rebase/cherry-pick/revert we can't resolve in-app (restores prior state).
 async function abortOp(r: RepoView) {
   if (!confirm(`Abort the in-progress ${r.operation} in ${r.name}? This restores the branch to its state before the ${r.operation} started.`)) return
-  busy.value = r.id; flash.value = ''
+  busy.value = r.id; flash.value = null
   try {
     const a = await repoAbort(r.id)
-    flash.value = `${r.name}: ${a.operation ?? 'operation'} abort ${a.ok ? '✓' : '✗ ' + (a.output || '')}`
-    await load()
+    say(`${repoLabel(r)}: ${a.operation ?? 'operation'} abort ${a.ok ? '✓' : '✗ ' + (a.output || '')}`, a.ok ? 'ok' : 'error')
+    await load({ silent: true })
   } finally { busy.value = '' }
 }
 
@@ -590,21 +596,21 @@ function openSquash(r: RepoView) {
 async function doSquash(r: RepoView) {
   if (squashBusy.value || !squashMsg.value.trim()) return
   squashBusy.value = true
-  flash.value = ''
+  flash.value = null
   try {
     const res = await repoSquash(r.id, selCount.value, squashMsg.value, selectedPublished(r) > 0)
     if (res.ok) {
-      flash.value = `Squashed ${selCount.value} commits → ${res.newHead}. Recover: ${res.recover}`
+      say(`Squashed ${selCount.value} commits → ${res.newHead}. Recover: ${res.recover}`)
       squashDlg.value = null
       squashThrough.value = -1
       await loadHistory(r)
-      await load()
+      await load({ silent: true })
     } else {
-      flash.value = 'Squash blocked — ' + (res.error ?? 'unknown reason')
+      say('Squash blocked — ' + (res.error ?? 'unknown reason'), 'error')
       squashDlg.value = null
     }
   } catch {
-    flash.value = 'Squash failed — is the host agent running?'
+    say('Squash failed — is the host agent running?', 'error')
   } finally { squashBusy.value = false }
 }
 
@@ -616,12 +622,13 @@ async function toggleBranches(r: RepoView) {
 }
 async function switchBranch(r: RepoView, branch: string, create = false) {
   if (!branch || !branch.trim() || busy.value) return
-  busy.value = r.id; flash.value = ''
+  busy.value = r.id; flash.value = null
   try {
     const res = await repoCheckout(r.id, branch.trim(), create)
-    flash.value = res.ok ? `${r.name}: now on ${res.branch}` : `${r.name}: checkout ✗ ${res.output}`
+    if (res.ok) say(`${repoLabel(r)}: now on ${res.branch}`)
+    else say(`${repoLabel(r)}: checkout ✗ ${res.output}`, 'error')
     if (res.ok) { openBranch.value = null; newBranch.value[r.id] = '' }
-    await load()
+    await load({ silent: true })
   } finally { busy.value = '' }
 }
 </script>
@@ -656,7 +663,7 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
       >{{ busy === 'sync' ? 'Syncing…' : 'Sync' }}</button>
     </div>
 
-    <div v-if="flash" class="flash mono">{{ flash }}</div>
+    <AppToast v-if="flash" :text="flash.text" :tone="flash.tone" @close="flash = null" />
 
     <div v-if="loading" class="mono empty">loading…</div>
     <div v-else-if="!repos.length" class="mono empty">No repositories yet — browse or scan a folder.</div>
@@ -1127,7 +1134,6 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
 .in { flex: 1; max-width: 560px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 7px 11px; color: var(--ink); font-size: 13px; }
 .in.sm { max-width: 240px; flex: none; }
 .in:focus { outline: none; border-color: var(--warp); }
-.flash { font-size: 12.5px; color: var(--warp-hi); border: 1px solid var(--warp); background: var(--warp-weft); border-radius: 8px; padding: 8px 12px; margin-bottom: 14px; white-space: pre-wrap; }
 .empty { color: var(--faint-text); padding: 20px 0; }
 .repo { border: 1px solid var(--line); border-radius: var(--r-card); background: var(--surface); padding: 14px 16px; margin-bottom: 12px; }
 .rh { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
