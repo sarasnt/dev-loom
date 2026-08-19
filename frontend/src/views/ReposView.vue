@@ -39,6 +39,7 @@ import { storeToRefs } from 'pinia'
 import { qualifyNames } from '../utils/repoNames'
 import RepoBrainstormButton from '../components/RepoBrainstormButton.vue'
 import AppToast from '../components/AppToast.vue'
+import UpstreamChip from '../components/UpstreamChip.vue'
 import { useDashboardStore } from '../stores/dashboard'
 import { isRemoteModel } from '../utils/models'
 
@@ -66,21 +67,7 @@ function workTree(r: RepoView): Health {
   const n = (r.staged || 0) + (r.unstaged || 0) + (r.untracked || 0)
   return n ? { label: `${n} change${n > 1 ? 's' : ''}`, tone: 'warn' } : { label: 'Clean', tone: 'ok' }
 }
-// Upstream synchronization vs the tracked branch.
-function upstreamState(r: RepoView): Health {
-  if (!r.hasUpstream) return { label: 'No upstream', tone: 'warn' }
-  if (r.ahead && r.behind) return { label: `Diverged ↑${r.ahead} ↓${r.behind}`, tone: 'warn' }
-  if (r.behind) return { label: `Needs pull ↓${r.behind}`, tone: 'warn' }
-  if (r.ahead) return { label: `Needs push ↑${r.ahead}`, tone: 'info' }
-  return { label: 'Up to date', tone: 'ok' }
-}
-// The "Needs pull" chip is the one upstream state with an obvious single remedy, so it doubles as
-// the button for it. Diverged deliberately does not: pulling with commits on both sides needs a
-// decision (merge, rebase, or look first) that a chip click cannot express.
-function needsPull(r: RepoView): boolean {
-  return !!r.hasUpstream && !!r.behind && !r.ahead
-}
-
+// Upstream state (and the pull it implies) lives in components/UpstreamChip.vue.
 // Source-branch model (repo-spec §6/§7.3): where this branch forks from + drift. Fetched
 // lazily the first time a repo's health rows expand (needs a git call the list doesn't carry).
 const sourceStatus = ref<Record<string, SourceStatus | null>>({})
@@ -721,15 +708,12 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
             ⎇ {{ ar.branch || '—' }} ▾
           </button>
           <span class="hchip mono" :class="workTree(ar).tone" :title="'Working tree'">{{ workTree(ar).label }}</span>
-          <button
-            v-if="needsPull(ar)"
-            class="hchip mono pullable"
-            :class="upstreamState(ar).tone"
+          <UpstreamChip
+            class="hchip mono"
+            :repo="ar"
             :disabled="busy === ar.id || !agentUp"
-            :title="`Pull ${ar.behind} commit${ar.behind > 1 ? 's' : ''} from ${ar.upstream}`"
-            @click="act(ar, () => repoPull(ar.id), 'pull')"
-          >{{ upstreamState(ar).label }} ⤓</button>
-          <span v-else class="hchip mono" :class="upstreamState(ar).tone" :title="ar.upstream ? 'vs ' + ar.upstream : 'Upstream'">{{ upstreamState(ar).label }}</span>
+            @pull="act(ar, () => repoPull(ar.id), 'pull')"
+          />
           <button class="hmore mono" :aria-expanded="openHealth === ar.id" @click="toggleHealth(ar)">
             health {{ openHealth === ar.id ? '▴' : '▾' }}
           </button>
@@ -755,7 +739,7 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
             >{{ activeRepo(r).id === r.id ? '◉' : '○' }} main</button>
             <span class="wtbranch mono">⎇ {{ r.branch || '—' }}</span>
             <span class="hchip mono" :class="workTree(r).tone">{{ workTree(r).label }}</span>
-            <span class="hchip mono" :class="upstreamState(r).tone">{{ upstreamState(r).label }}</span>
+            <UpstreamChip class="hchip mono" :repo="r" :disabled="busy === r.id || !agentUp" @pull="act(r, () => repoPull(r.id), 'pull')" />
             <span class="wtpath mono">{{ r.path }}</span>
           </div>
           <div v-for="c in trackedChildren(r)" :key="c.id" class="wtrow" :class="{ sel: activeRepo(r).id === c.id }">
@@ -768,7 +752,7 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
             <span class="wtbranch mono">⎇ {{ c.branch || '—' }}</span>
             <span v-if="isRunWorktree(c.branch)" class="wtrun mono">run</span>
             <span class="hchip mono" :class="workTree(c).tone">{{ workTree(c).label }}</span>
-            <span class="hchip mono" :class="upstreamState(c).tone">{{ upstreamState(c).label }}</span>
+            <UpstreamChip class="hchip mono" :repo="c" :disabled="busy === c.id || !agentUp" @pull="act(c, () => repoPull(c.id), 'pull')" />
             <span class="wtpath mono">{{ c.path }}</span>
           </div>
           <div v-for="w in untrackedWorktrees(r)" :key="w.path" class="wtrow untracked">
@@ -800,8 +784,7 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
           <div class="hrow"><span class="hk mono">Working tree</span><span class="hv" :class="workTree(ar).tone">{{ workTree(ar).label }}</span>
             <span v-if="ar.staged || ar.unstaged || ar.untracked" class="mono hdet">{{ ar.staged }} staged · {{ ar.unstaged }} unstaged · {{ ar.untracked }} untracked</span></div>
           <div class="hrow"><span class="hk mono">Upstream</span>
-            <button v-if="needsPull(ar)" class="hv pullable" :class="upstreamState(ar).tone" :disabled="busy === ar.id || !agentUp" @click="act(ar, () => repoPull(ar.id), 'pull')">{{ upstreamState(ar).label }} ⤓</button>
-            <span v-else class="hv" :class="upstreamState(ar).tone">{{ upstreamState(ar).label }}</span>
+            <UpstreamChip class="hv" :repo="ar" :disabled="busy === ar.id || !agentUp" @pull="act(ar, () => repoPull(ar.id), 'pull')" />
             <span class="mono hdet">{{ ar.upstream ? 'tracks ' + ar.upstream : 'no tracking branch configured' }}</span></div>
           <div class="hrow">
             <span class="hk mono">Source branch</span>
@@ -1208,9 +1191,6 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
 .idnote { font-size: 11px; color: var(--faint-text); }
 /* health chips + rows */
 .hchip { font-size: 10px; border: 1px solid var(--line); border-radius: 5px; padding: 2px 7px; }
-.hchip.pullable, .hv.pullable { cursor: pointer; background: transparent; font: inherit; }
-.hchip.pullable:hover:not(:disabled), .hv.pullable:hover:not(:disabled) { border-color: var(--warp); color: var(--warp-hi); }
-.hchip.pullable:disabled, .hv.pullable:disabled { opacity: 0.5; cursor: not-allowed; }
 .hv.pullable { border: 1px solid transparent; border-radius: 5px; padding: 0 4px; }
 .hchip.ok { color: var(--healthy); border-color: color-mix(in srgb, var(--healthy) 50%, var(--line)); }
 .hchip.info { color: var(--warp-hi); border-color: var(--warp); }
