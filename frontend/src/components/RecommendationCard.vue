@@ -89,7 +89,7 @@ function togglePlan(item: Recommendation) { store.planItem(item.id) }
       <!-- Plan as visible state, not just a button label — pressing "+ Plan" otherwise looks
            like it did nothing until you find the Briefing tab. -->
       <Mono v-if="item.planned" class="chip plannedchip">planned</Mono>
-      <Mono v-if="item.prRole === 'mine'" class="chip plannedchip">yours</Mono>
+      <Mono v-if="item.prRole === 'mine'" class="chip rolechip">yours</Mono>
       <Mono v-else-if="item.prRole === 'review'" class="chip warn">for review</Mono>
     </div>
 
@@ -157,6 +157,9 @@ function togglePlan(item: Recommendation) { store.planItem(item.id) }
 }
 .chip.warn { color: var(--warp-hi); border-color: var(--warp); }
 .chip.plannedchip { color: var(--warp-hi); border-color: var(--warp); background: var(--warp-weft); }
+/* "yours" is a fact about the card (whose PR it is), not a state you set — same neutral chip
+   shape as .plannedchip, distinguished by text color only so it doesn't read as another toggle. */
+.chip.rolechip { color: var(--warp-hi); }
 .chip.fail { color: var(--chip-fail); border-color: var(--failed); }
 .chip.stale { color: var(--chip-stale); border-color: var(--stale); }
 .whybox { margin-top: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); padding: 10px 12px; font-size: 11.5px; color: var(--dim); }

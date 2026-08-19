@@ -25,6 +25,8 @@ Report results (numbers + any deviation) back to Sara / the design session.
    → every Bitbucket PR shows its creator's display name; PRs you opened read `mine`, PRs
    awaiting your review read `review`, the rest `other`. If ALL read `other`, the dashboard
    `role` parameter failed on this instance — check backend logs for "role filter … unavailable"
-   and report exactly that.
+   and report exactly that. If ALL read `mine`, the role parameter was ignored by this instance —
+   the sync now detects identical AUTHOR/REVIEWER sets and falls back, so all-`mine` should not
+   occur; report it if it does.
 9. Work → PRs: the Mine / To Review / Others chips partition the list; Today: PR cards show
    "created by …" under the source and a `yours`/`for review` chip where it applies.

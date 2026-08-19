@@ -129,6 +129,14 @@ public class BitbucketConnector implements SourceConnector {
             // falls back to "other", because authorship is additive and must never block a sync.
             java.util.Set<String> authored = rolePrKeys(http, "AUTHOR");
             java.util.Set<String> reviewing = rolePrKeys(http, "REVIEWER");
+            // An instance that IGNORES the role parameter returns the same unfiltered set for
+            // both calls — and "every PR is mine" is the most confident wrong answer this feature
+            // can give. Identical non-empty sets read as unresolved, which degrades to "other".
+            if (authored != null && authored.equals(reviewing) && !authored.isEmpty()) {
+                log.warn("Bitbucket dashboard role filter appears ignored (AUTHOR == REVIEWER set) — PR roles fall back to \"other\"");
+                authored = null;
+                reviewing = null;
+            }
             Map<String, Object> resp = http.get()
                     .uri(uri -> uri.path("/rest/api/1.0/dashboard/pull-requests")
                             .queryParam("state", "OPEN")

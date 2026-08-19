@@ -106,7 +106,7 @@ public class WorkItemEntity {
     }
 
     public WorkItemEntity withAuthor(String author, String prRole) {
-        this.author = author == null || author.isBlank() ? null : author;
+        this.author = trim(author, 120);
         this.prRole = prRole;
         return this;
     }
