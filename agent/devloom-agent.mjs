@@ -12,7 +12,7 @@
 // the `claude` CLI installed and logged in (claude 2.x). Repos features also use `git`/`gh`/`glab`.
 
 import http from 'node:http'
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
@@ -20,6 +20,38 @@ import { fileURLToPath } from 'node:url'
 
 const PORT = Number(process.env.DEVLOOM_AGENT_PORT || 8765)
 const IS_WIN = process.platform === 'win32'
+
+// The default docker bridge's IPv4 address — what `host-gateway`, and therefore
+// host.docker.internal, resolves to inside a container on native Linux Docker.
+//
+// Read via iproute2 rather than os.networkInterfaces(), because Node omits interfaces that are
+// administratively DOWN and docker0 is DOWN exactly when it looks least suspicious: every
+// container sitting on a per-project compose bridge (br-*) leaves the default bridge with no
+// carrier. It keeps its address and host-gateway keeps pointing at it, so the container dials
+// 172.17.0.1:8765, finds nothing bound, and the backend reports the agent offline while the
+// agent is plainly running and answering on loopback. Only docker\d+ — binding other projects'
+// br-* bridges would widen who can reach this process for no gain.
+function dockerBridgeAddrs() {
+  const isDefaultBridge = (n) => /^docker\d+$/.test(n)
+  const found = []
+  try {
+    const r = spawnSync('ip', ['-4', '-o', 'addr', 'show'], { encoding: 'utf8' })
+    if (r.status === 0 && r.stdout) {
+      for (const line of r.stdout.split('\n')) {
+        // "5: docker0    inet 172.17.0.1/16 brd 172.17.255.255 scope global docker0"
+        const m = line.match(/^\d+:\s+(\S+)\s+inet\s+(\d+\.\d+\.\d+\.\d+)\//)
+        if (m && isDefaultBridge(m[1])) found.push(m[2])
+      }
+    }
+  } catch { /* no iproute2 — fall back below */ }
+  if (found.length) return found
+  const ifaces = os.networkInterfaces()
+  for (const name of Object.keys(ifaces)) {
+    if (!isDefaultBridge(name)) continue
+    for (const a of ifaces[name] || []) if (a.family === 'IPv4') found.push(a.address)
+  }
+  return found
+}
 
 // Where to listen. On Docker Desktop (Windows/macOS) host.docker.internal reaches the host's
 // loopback, so 127.0.0.1 alone serves both the browser (terminal WebSocket) and the backend
@@ -33,8 +65,7 @@ function listenHosts() {
   if (env) return env.split(',').map((h) => h.trim()).filter(Boolean)
   const hosts = ['127.0.0.1']
   if (process.platform === 'linux') {
-    const docker0 = (os.networkInterfaces().docker0 || []).find((a) => a.family === 'IPv4')
-    if (docker0) hosts.push(docker0.address)
+    for (const addr of dockerBridgeAddrs()) if (!hosts.includes(addr)) hosts.push(addr)
   }
   return hosts
 }
