@@ -1,6 +1,9 @@
 # Deploying DevLoom
 
-There are two ways to bring up the stack. Both serve the app at **http://localhost:8088**.
+There are two ways to bring up the stack. They serve the app at different addresses: the source
+stack fronts everything with the edge proxy (**http://localhost**, plus the `.dev` names once
+trusted — see the README), while the prebuilt stack skips the edge on purpose and serves plainly
+at **http://localhost:8088**.
 
 | | From source (`docker-compose.yml`) | Prebuilt (`docker-compose.prebuilt.yml`) |
 |---|---|---|
