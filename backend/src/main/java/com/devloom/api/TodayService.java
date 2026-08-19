@@ -169,7 +169,8 @@ public class TodayService {
                 w.getExtId(), rank, type, w.getTitle(), w.getSource(),
                 whyFor(w), false, chipsFor(w), lead, signals,
                 evidenceFor(w), score, actionsFor(type), w.getUrl(),
-                briefing.isHandled(w.getExtId()), briefing.isPlanned(w.getExtId()));
+                briefing.isHandled(w.getExtId()), briefing.isPlanned(w.getExtId()),
+                w.getAuthor(), w.getPrRole());
     }
 
     /** Honest, deterministic rationale — no invented detail, no model reasoning. */

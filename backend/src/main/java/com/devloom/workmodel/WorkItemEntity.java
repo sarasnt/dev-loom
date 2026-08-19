@@ -56,6 +56,14 @@ public class WorkItemEntity {
     @Column(name = "url", columnDefinition = "text")
     private String url;
 
+    /** Who created the item (PRs: the author's login or display name); null when unknown. */
+    @Column(name = "author", length = 120)
+    private String author;
+
+    /** For PRs: what this item wants from you — "mine" | "review" | "other". Null for non-PRs. */
+    @Column(name = "pr_role", length = 10)
+    private String prRole;
+
     protected WorkItemEntity() {
     }
 
@@ -97,6 +105,12 @@ public class WorkItemEntity {
         return this;
     }
 
+    public WorkItemEntity withAuthor(String author, String prRole) {
+        this.author = author == null || author.isBlank() ? null : author;
+        this.prRole = prRole;
+        return this;
+    }
+
     private static String trim(String s, int max) {
         if (s == null || s.isBlank()) return null;
         String t = s.strip();
@@ -118,4 +132,8 @@ public class WorkItemEntity {
     public void setSourceInstanceId(Long id) { this.sourceInstanceId = id; }
     public String getMetadata() { return metadata; }
     public String getUrl() { return url; }
+    public String getAuthor() { return author; }
+    public void setAuthor(String author) { this.author = author; }
+    public String getPrRole() { return prRole; }
+    public void setPrRole(String prRole) { this.prRole = prRole; }
 }

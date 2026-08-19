@@ -39,6 +39,8 @@ export interface Recommendation {
   url?: string | null // open the item in its source (GitHub/Jira/Notion)
   handled: boolean // you dealt with it (persists; drops from the Briefing)
   planned: boolean // in today's plan
+  author?: string | null // who created it (PRs) — rendered as "created by …"
+  prRole?: 'mine' | 'review' | 'other' | null // what a PR wants from you, resolved at sync time
 }
 
 // Today "Briefing" mode (spec §5): since-yesterday diff + the urgent set + today's plan.
@@ -89,6 +91,8 @@ export interface WorkRow {
   description?: string | null
   parentId?: string | null
   url?: string | null // where the item lives in its source, as the connector resolved it
+  author?: string | null // who created it (PRs) — rendered as "created by …"
+  prRole?: 'mine' | 'review' | 'other' | null // what a PR wants from you, resolved at sync time
 }
 
 // ---- Build-failure analysis (SPEC §23) ----

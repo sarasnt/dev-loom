@@ -30,7 +30,7 @@ public class WorkModelService {
                 // The connector already resolved where this item lives. Work was dropping it and
                 // rebuilding a GitHub URL from the id, which meant every other source had no way
                 // to be opened at all.
-                e.getUrl());
+                e.getUrl(), e.getAuthor(), e.getPrRole());
     }
 
     /** Presentation glyph derived from domain type (kept out of the DB). */
