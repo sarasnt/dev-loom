@@ -6,7 +6,7 @@ import java.util.function.Consumer;
 
 import org.springframework.stereotype.Service;
 
-import com.devloom.integrations.SourceUnreachableException;
+import com.devloom.integrations.SourceUnavailableException;
 import com.devloom.integrations.BitbucketBuildAnalyzer;
 import com.devloom.integrations.GitHubBuildAnalyzer;
 import com.devloom.integrations.SourceInstanceRepository;
@@ -62,21 +62,19 @@ public class BuildFailureService {
                 .or(() -> item.map(WorkItemEntity::getSource).flatMap(sources::findByNameIgnoreCase))
                 .orElse(null);
         boolean bitbucket = inst != null && "bitbucket".equalsIgnoreCase(inst.getType());
-        if (bitbucket) {
-            try {
-                Dto.BuildFailure real = bbAnalyzer.analyze(inst, item.get(), runId, progress, model);
-                return real != null ? real : emptyState();
-            } catch (SourceUnreachableException e) {
-                // Never fold this into emptyState(): "no failing CI runs" and "we could not ask"
-                // look identical on screen and mean opposite things.
-                return unreachableState(e);
-            }
+        // Never fold an unavailable source into emptyState(): "no failing CI runs" and "we could
+        // not ask" look identical on screen and mean opposite things.
+        if (inst == null || item.isEmpty()) {
+            return emptyState();   // nothing resolved to analyze — that really is "nothing to show"
         }
-        if (!ghAnalyzer.enabled()) {
-            return emptyState();
+        try {
+            Dto.BuildFailure real = bitbucket
+                    ? bbAnalyzer.analyze(inst, item.get(), runId, progress, model)
+                    : ghAnalyzer.analyze(inst, repo, runId, progress, model);
+            return real != null ? real : emptyState();
+        } catch (SourceUnavailableException e) {
+            return unavailableState(e);
         }
-        Dto.BuildFailure real = ghAnalyzer.analyze(repo, runId, progress, model);
-        return real != null ? real : emptyState();
     }
 
     /**
@@ -98,19 +96,20 @@ public class BuildFailureService {
      * The source could not be reached. Shaped like a build failure so the view needs no new
      * branch, but it says plainly that this is a connectivity problem and not a green build.
      */
-    private Dto.BuildFailure unreachableState(SourceUnreachableException e) {
+    private Dto.BuildFailure unavailableState(SourceUnavailableException e) {
         return new Dto.BuildFailure(
-                "unreachable", "—", "—", null, "—", "—",
+                "unavailable", "—", "—", null, "—", "—",
                 new Dto.Boundary("local", "On your machine"),
-                e.getMessage() + ". Nothing is known about the state of its builds — this is not "
-                        + "the same as \"nothing is failing\". The server is often reachable only "
-                        + "from your machine (VPN or corporate network) while DevLoom's backend "
-                        + "runs in a container.",
+                e.getMessage() + " Nothing is known about the state of its builds, which is not "
+                        + "the same as nothing failing — the failures below are still listed, they "
+                        + "just cannot be explained until this source can be consulted.",
                 "n/a", "—", "—", "—", false,
                 List.of(new Dto.LogLine("(" + e.source() + " unreachable)", "omitted")),
                 List.of(), List.of(),
-                List.of("Check the source is reachable from the backend container, not just from your machine."),
-                List.of("Confirm the source's base URL and that the backend container can route to it."),
+                List.of("A self-hosted server may be reachable only from your machine (VPN or "
+                        + "corporate network) while DevLoom's backend runs in a container."),
+                List.of("Check this source's credentials in Settings, and that the backend "
+                        + "container can reach its base URL."),
                 "n/a");
     }
 

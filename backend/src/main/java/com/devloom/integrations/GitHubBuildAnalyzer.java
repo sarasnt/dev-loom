@@ -57,18 +57,38 @@ public class GitHubBuildAnalyzer {
             log doesn't say why it failed, say that — an honest "the log shows only the exit code"
             is more useful than a plausible cause that sends someone to the wrong file.""";
 
-    private final boolean enabled;
-    private final RestClient http;
+    private final String defaultBaseUrl;
+    private final SourceCredentialStore credentials;
     private final SecretRedactor redactor;
     private final LlmRouter llm;
 
     public GitHubBuildAnalyzer(
             @Value("${devloom.github.base-url:https://api.github.com}") String baseUrl,
-            @Value("${devloom.github.token:}") String token,
+            SourceCredentialStore credentials,
             SecretRedactor redactor, LlmRouter llm) {
-        this.enabled = token != null && !token.isBlank();
+        this.defaultBaseUrl = baseUrl;
+        this.credentials = credentials;
         this.redactor = redactor;
         this.llm = llm;
+    }
+
+    /**
+     * A client for one source instance.
+     *
+     * <p>Built per call from that instance's own credentials, the way the connector and the
+     * Bitbucket analyzer already do. It used to be built once from a global
+     * {@code devloom.github.token} property that nothing sets, which meant a GitHub source added
+     * through the UI could never be analyzed — while its sibling connector, reading the
+     * credentials the user actually entered, happily synced the failing builds it could not then
+     * explain.
+     */
+    private RestClient clientFor(SourceInstanceEntity inst) {
+        String token = credentials.secrets(inst).getOrDefault("token", "");
+        if (token.isBlank()) {
+            throw new SourceCredentialsMissingException(inst.getName(), "GitHub token");
+        }
+        String base = inst.getBaseUrl() == null || inst.getBaseUrl().isBlank()
+                ? defaultBaseUrl : inst.getBaseUrl();
         // The job-log endpoint returns a 302 to a signed blob URL on a different host. The
         // JDK client follows it (NORMAL = follow but drop Authorization on cross-host hops,
         // which is exactly right — the signed URL carries its own auth). RestClient's default
@@ -77,26 +97,20 @@ public class GitHubBuildAnalyzer {
                 .followRedirects(HttpClient.Redirect.NORMAL)
                 .connectTimeout(Duration.ofSeconds(10))
                 .build();
-        this.http = enabled
-                ? RestClient.builder().baseUrl(baseUrl)
-                        .requestFactory(new JdkClientHttpRequestFactory(jdk))
-                        .defaultHeader("Authorization", "Bearer " + token)
-                        .defaultHeader("Accept", "application/vnd.github+json")
-                        .defaultHeader("X-GitHub-Api-Version", "2022-11-28")
-                        .build()
-                : null;
-    }
-
-    public boolean enabled() {
-        return enabled;
+        return RestClient.builder().baseUrl(base)
+                .requestFactory(new JdkClientHttpRequestFactory(jdk))
+                .defaultHeader("Authorization", "Bearer " + token)
+                .defaultHeader("Accept", "application/vnd.github+json")
+                .defaultHeader("X-GitHub-Api-Version", "2022-11-28")
+                .build();
     }
 
     /** A model summary paired with the model that produced it (for provenance / redo). */
     private record Summary(String text, String model) {}
 
     /** repo is "owner/name"; runId is the GitHub Actions run id. Returns null on any failure. */
-    public Dto.BuildFailure analyze(String repo, String runId) {
-        return analyze(repo, runId, s -> {}, null);
+    public Dto.BuildFailure analyze(SourceInstanceEntity inst, String repo, String runId) {
+        return analyze(inst, repo, runId, s -> {}, null);
     }
 
     /**
@@ -104,10 +118,9 @@ public class GitHubBuildAnalyzer {
      * stream real progress over SSE) and summarizes with the caller-selected {@code model}.
      * Runs on the caller's thread.
      */
-    public Dto.BuildFailure analyze(String repo, String runId, Consumer<String> progress, String model) {
-        if (!enabled) {
-            return null;
-        }
+    public Dto.BuildFailure analyze(SourceInstanceEntity inst, String repo, String runId,
+                                   Consumer<String> progress, String model) {
+        RestClient http = clientFor(inst);
         try {
             progress.accept("Fetching the failed run from GitHub…");
             // Inline repo/id into the path literal — a "{r}" path var would URL-encode the
@@ -134,7 +147,7 @@ public class GitHubBuildAnalyzer {
             String failingStep = firstFailedStep(failedJob);
 
             progress.accept("Redacting the log tail…");
-            List<Dto.LogLine> excerpt = logExcerpt(repo, jobId);
+            List<Dto.LogLine> excerpt = logExcerpt(http, repo, jobId);
 
             progress.accept("Summarizing with the local model…");
             Summary summary = summarize(jobName, failingStep, excerpt, model);
@@ -184,7 +197,7 @@ public class GitHubBuildAnalyzer {
     }
 
     /** Job log tail: strip timestamps, keep the last ~45 non-empty lines, redact secrets. */
-    private List<Dto.LogLine> logExcerpt(String repo, String jobId) {
+    private List<Dto.LogLine> logExcerpt(RestClient http, String repo, String jobId) {
         List<Dto.LogLine> out = new ArrayList<>();
         try {
             String raw = http.get().uri("/repos/" + repo + "/actions/jobs/" + jobId + "/logs")
