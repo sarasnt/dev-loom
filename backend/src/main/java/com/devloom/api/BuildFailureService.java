@@ -6,6 +6,7 @@ import java.util.function.Consumer;
 
 import org.springframework.stereotype.Service;
 
+import com.devloom.integrations.SourceUnreachableException;
 import com.devloom.integrations.BitbucketBuildAnalyzer;
 import com.devloom.integrations.GitHubBuildAnalyzer;
 import com.devloom.integrations.SourceInstanceRepository;
@@ -62,8 +63,14 @@ public class BuildFailureService {
                 .orElse(null);
         boolean bitbucket = inst != null && "bitbucket".equalsIgnoreCase(inst.getType());
         if (bitbucket) {
-            Dto.BuildFailure real = bbAnalyzer.analyze(inst, item.get(), runId, progress, model);
-            return real != null ? real : emptyState();
+            try {
+                Dto.BuildFailure real = bbAnalyzer.analyze(inst, item.get(), runId, progress, model);
+                return real != null ? real : emptyState();
+            } catch (SourceUnreachableException e) {
+                // Never fold this into emptyState(): "no failing CI runs" and "we could not ask"
+                // look identical on screen and mean opposite things.
+                return unreachableState(e);
+            }
         }
         if (!ghAnalyzer.enabled()) {
             return emptyState();
@@ -85,6 +92,26 @@ public class BuildFailureService {
         }
         List<WorkItemEntity> builds = workItems.findByTypeOrderBySortOrderAsc("build");
         return builds.isEmpty() ? null : builds.getFirst().getExtId();
+    }
+
+    /**
+     * The source could not be reached. Shaped like a build failure so the view needs no new
+     * branch, but it says plainly that this is a connectivity problem and not a green build.
+     */
+    private Dto.BuildFailure unreachableState(SourceUnreachableException e) {
+        return new Dto.BuildFailure(
+                "unreachable", "—", "—", null, "—", "—",
+                new Dto.Boundary("local", "On your machine"),
+                e.getMessage() + ". Nothing is known about the state of its builds — this is not "
+                        + "the same as \"nothing is failing\". The server is often reachable only "
+                        + "from your machine (VPN or corporate network) while DevLoom's backend "
+                        + "runs in a container.",
+                "n/a", "—", "—", "—", false,
+                List.of(new Dto.LogLine("(" + e.source() + " unreachable)", "omitted")),
+                List.of(), List.of(),
+                List.of("Check the source is reachable from the backend container, not just from your machine."),
+                List.of("Confirm the source's base URL and that the backend container can route to it."),
+                "n/a");
     }
 
     /** Honest "nothing failing" state — keeps the view useful without inventing a failure. */

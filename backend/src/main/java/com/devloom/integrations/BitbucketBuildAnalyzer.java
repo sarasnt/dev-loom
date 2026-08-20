@@ -74,6 +74,7 @@ public class BitbucketBuildAnalyzer {
         try {
             String token = credentials.secrets(inst).getOrDefault("pat", "");
             RestClient http = RestClient.builder()
+                    .requestFactory(SourceHttp.factory())
                     .baseUrl(inst.getBaseUrl())
                     .defaultHeader("Authorization", "Bearer " + token)
                     .defaultHeader("Accept", "application/json").build();
@@ -197,8 +198,14 @@ public class BitbucketBuildAnalyzer {
                     List.of("Address the failure shown in the Jenkins log."),
                     summaryModel + " · metadata only (no log available)");
         } catch (Exception e) {
+            // Returning null here would render the "no failing CI runs" empty state, which is a
+            // lie when the truth is that we never reached Bitbucket at all — and the more
+            // convincing a lie the worse, because nothing then prompts anyone to look. Say what
+            // actually happened. Unreachable is the common case on this path: the server is
+            // typically only routable from the host (VPN, corporate network), while this runs in
+            // a container.
             log.warn("Bitbucket build analysis failed for {}: {}", sha, e.getMessage());
-            return null;
+            throw new SourceUnreachableException(inst.getName(), e);
         }
     }
 

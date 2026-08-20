@@ -74,7 +74,7 @@ public class BitbucketConnector implements SourceConnector {
         String auth = "Basic " + Base64.getEncoder().encodeToString(
                 (secrets.getOrDefault("email", "") + ":" + secrets.getOrDefault("apiToken", ""))
                         .getBytes(StandardCharsets.UTF_8));
-        RestClient http = RestClient.builder().baseUrl(base)
+        RestClient http = RestClient.builder().requestFactory(SourceHttp.factory()).baseUrl(base)
                 .defaultHeader("Authorization", auth)
                 .defaultHeader("Accept", "application/json").build();
         String source = inst.getName();
@@ -118,7 +118,7 @@ public class BitbucketConnector implements SourceConnector {
 
     // ---- Bitbucket Server / Data Center (REST 1.0) ----
     private List<WorkItemEntity> fetchServer(SourceInstanceEntity inst, Map<String, String> secrets) {
-        RestClient http = RestClient.builder().baseUrl(inst.getBaseUrl())
+        RestClient http = RestClient.builder().requestFactory(SourceHttp.factory()).baseUrl(inst.getBaseUrl())
                 .defaultHeader("Authorization", "Bearer " + secrets.getOrDefault("pat", ""))
                 .defaultHeader("Accept", "application/json").build();
         String source = inst.getName();
