@@ -6,13 +6,11 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.devloom.api.Dto;
 import com.devloom.common.AppConfigService;
 import com.devloom.workmodel.WorkItemEntity;
 import com.devloom.workmodel.WorkItemRepository;
@@ -136,14 +134,6 @@ public class BriefingService {
 
     // ---- assembly --------------------------------------------------------------
 
-    /** A "done"-ish status means the item is resolved even if it is still present. */
-    public static boolean isDoneStatus(String status) {
-        String s = status == null ? "" : status.toLowerCase();
-        return s.contains("done") || s.contains("complete") || s.contains("closed")
-                || s.contains("merged") || s.contains("shipped") || s.contains("archived")
-                || s.contains("passed") || s.contains("success");
-    }
-
     /**
      * Re-open guard: clear a handled flag only when the item's status has <em>changed</em> since it
      * was handled (e.g. a PR you handled got reopened, or a build failed again). Merely being open
@@ -167,59 +157,37 @@ public class BriefingService {
     }
 
     /**
-     * Assemble the Briefing. {@code toRec} converts a work item into a Recommendation (with
-     * handled/plan already applied by the caller). Baseline for "since yesterday" is the last
-     * digest snapshot.
+     * Active, unhandled items whose extId is absent from the last "digest" snapshot — Work's New
+     * chip (design doc Decision 3), extracted from the diff {@code build(...)} used to compute so
+     * the chip agrees with what the old briefing called new. Handled items were never "new" in the
+     * old list either (the loop that built it skipped them before the diff check).
      */
     @Transactional
-    public Dto.Briefing build(Function<WorkItemEntity, Dto.Recommendation> toRec) {
+    public Set<String> newExtIds() {
         clearHandledOnReopen();
         Map<String, UrgencyRules.SnapItem> base = lastSnapshot("digest");
         Set<String> handled = handledExtIds();
-        Set<String> planned = plannedExtIds();
-
-        List<WorkItemEntity> items = active();
-        List<Dto.Recommendation> newItems = new ArrayList<>();
-        List<Dto.Recommendation> needsYou = new ArrayList<>();
-        List<Dto.Recommendation> plan = new ArrayList<>();
-
-        Map<String, WorkItemEntity> byId = new LinkedHashMap<>();
-        for (WorkItemEntity w : items) {
-            byId.put(w.getExtId(), w);
-            Dto.Recommendation rec = toRec.apply(w);
-            if (planned.contains(w.getExtId())) plan.add(rec);
-            if (handled.contains(w.getExtId())) continue; // handled drops from the active lists
-            // Carried over from the baseline isn't news; only what appeared since is. The full
-            // carried-over set was being built and shipped on every Today load — 49 hydrated items,
-            // two thirds of the payload — and never rendered. It lives in Work and Triage.
-            if (!base.containsKey(w.getExtId())) newItems.add(rec);
-            if (UrgencyRules.urgencyKey(w) != null) needsYou.add(rec);
+        Set<String> out = new java.util.LinkedHashSet<>();
+        for (WorkItemEntity w : active()) {
+            if (handled.contains(w.getExtId())) continue;
+            if (!base.containsKey(w.getExtId())) out.add(w.getExtId());
         }
-
-        // Resolved: present in the baseline and now in a done status (fully-gone items just vanish).
-        List<Dto.Recommendation> resolved = new ArrayList<>();
-        for (String extId : base.keySet()) {
-            WorkItemEntity w = byId.get(extId);
-            if (w != null && isDoneStatus(w.getStatus())) resolved.add(toRec.apply(w));
-        }
-
-        // Each list is numbered on its own. The cards are drawn hanging off the warp spine, which
-        // is numbered by rank — and these came through carrying the rank they had in the global
-        // ranking, which for everything below the lead item is 0. Every card in the briefing read
-        // "0". Within a section, position in that section is what the number means.
-        return new Dto.Briefing(numbered(newItems), numbered(resolved),
-                numbered(needsYou), numbered(plan));
+        return out;
     }
 
-    /** Re-number a briefing section 1..n, leaving everything else about each card alone. */
-    private static List<Dto.Recommendation> numbered(List<Dto.Recommendation> in) {
-        List<Dto.Recommendation> out = new ArrayList<>(in.size());
-        int i = 1;
-        for (Dto.Recommendation r : in) {
-            out.add(new Dto.Recommendation(r.id(), i++, r.type(), r.title(), r.source(), r.why(),
-                    r.isHypothesis(), r.chips(), r.lead(), r.signals(), r.evidence(), r.score(),
-                    r.actions(), r.url(), r.handled(), r.planned(), r.author(), r.prRole(),
-                    r.startsAt()));
+    /**
+     * Active, unhandled items {@link UrgencyRules} flags as urgent — Today's "needs you now"
+     * section, extracted from the same selection the old briefing diff made (reuse, don't
+     * reimplement, so the two never drift apart).
+     */
+    @Transactional
+    public Set<String> needsYouExtIds() {
+        clearHandledOnReopen();
+        Set<String> handled = handledExtIds();
+        Set<String> out = new java.util.LinkedHashSet<>();
+        for (WorkItemEntity w : active()) {
+            if (handled.contains(w.getExtId())) continue;
+            if (UrgencyRules.urgencyKey(w) != null) out.add(w.getExtId());
         }
         return out;
     }

@@ -27,14 +27,16 @@ public final class Dto {
             List<SignalComponent> signals, List<EvidenceRef> evidence, Double score,
             List<String> actions, String url, boolean handled, boolean planned,
             String author, String prRole, String startsAt) {}
-    // Today "Briefing" mode (spec §5): since-yesterday diff + the urgent set + today's plan.
-    public record Briefing(
-            List<Recommendation> newItems, List<Recommendation> resolved,
-            List<Recommendation> needsYou, List<Recommendation> plan) {}
+    // Today = execute the day (design doc Decision 2): four deduped sections, an item renders
+    // in exactly one (schedule > needsYou > planned > assigned, highest section wins). The old
+    // ranked "next" list and the separate Briefing payload are gone — Work's score/isNew are the
+    // surviving consumers of that ranking and diff logic (WorkModelService, BriefingService).
     public record Today(
             String workspace, String user, String now, Changed changed, Sync sync,
-            Model model, Boundary boundary, List<Recommendation> next,
-            int everythingCount, int snoozedCount, List<Recommendation> snoozed, Briefing briefing) {}
+            Model model, Boundary boundary,
+            List<Recommendation> schedule, List<Recommendation> needsYou,
+            List<Recommendation> planned, List<Recommendation> assigned,
+            int everythingCount, int snoozedCount, List<Recommendation> snoozed) {}
 
     // ---- Work ----
     public record WorkRow(

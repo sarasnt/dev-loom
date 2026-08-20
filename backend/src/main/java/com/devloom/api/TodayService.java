@@ -1,37 +1,39 @@
 package com.devloom.api;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
-import com.devloom.priority.PriorityEngine;
-import com.devloom.priority.SignalComponent;
 import com.devloom.workmodel.WorkItemEntity;
 import com.devloom.workmodel.WorkItemRepository;
 
 /**
- * Builds the Today dashboard from the <em>real</em> unified work model (SPEC.md §22). Every
- * card is a live work item (a PR, a failed CI run, a Jira issue, a calendar event, a Notion
- * doc); the {@link PriorityEngine} ranks them with deterministic, inspectable signals. No
- * fixtures — when nothing is synced the list is honestly empty. The "why" text is a
- * deterministic rationale derived from the same signals; the LLM only explains build
- * failures / brainstorms elsewhere, it never sets the rank.
+ * Builds the Today dashboard from the <em>real</em> unified work model (SPEC.md §22, design doc
+ * "Today = execute the day"). Every card is a live work item (a PR, a failed CI run, a Jira
+ * issue, a calendar event, a Notion doc). No fixtures — when nothing is synced the sections are
+ * honestly empty. The "why" text is a deterministic rationale; the LLM only explains build
+ * failures / brainstorms elsewhere, it never ranks anything here. Ranking itself (PriorityEngine)
+ * moved to WorkModelService once the old ranked "next" list died — Work's score is the only
+ * remaining consumer.
  */
 @Service
 public class TodayService {
 
     private static final DateTimeFormatter NOW =
             DateTimeFormatter.ofPattern("EEE d MMM · HH:mm").withZone(ZoneId.systemDefault());
-    private static final int MAX_CARDS = 6;
+    private static final ZoneId ZONE = ZoneId.systemDefault();
 
-    private final PriorityEngine priority;
     private final ChangesService changes;
     private final WorkItemRepository workItems;
     private final ProvidersService providers;
@@ -40,13 +42,12 @@ public class TodayService {
     private final String workspace;
     private final String user;
 
-    public TodayService(PriorityEngine priority, ChangesService changes,
+    public TodayService(ChangesService changes,
                         WorkItemRepository workItems, ProvidersService providers,
                         com.devloom.common.AppConfigService appConfig,
                         com.devloom.briefing.BriefingService briefing,
                         @Value("${devloom.workspace:My workspace}") String workspace,
                         @Value("${devloom.user:you}") String user) {
-        this.priority = priority;
         this.changes = changes;
         this.workItems = workItems;
         this.providers = providers;
@@ -66,25 +67,50 @@ public class TodayService {
         appConfig.unsnooze(extId);
     }
 
-    /** A candidate before ranking: the source item + the signals that score it. */
-    private record Candidate(WorkItemEntity item, List<SignalComponent> signals) {}
-
     public Dto.Today today() {
         List<WorkItemEntity> everything = workItems.findAllByOrderBySortOrderAsc();
-        java.util.Set<String> snoozed = appConfig.snoozed();
+        Set<String> snoozed = appConfig.snoozed();
         List<WorkItemEntity> all = everything.stream()
                 .filter(w -> !snoozed.contains(w.getExtId()))
                 .toList();
 
-        List<Candidate> candidates = all.stream()
-                .map(w -> new Candidate(w, signalsFor(w)))
+        // Sections, deduped: an item renders once, highest section wins. "Schedule" is only
+        // calendar items happening today (or ongoing); everything else falls through.
+        LocalDate today = LocalDate.now(ZONE);
+        Set<String> placed = new HashSet<>();
+
+        // schedule: type calendar AND (startsAt is today OR status says it is running now)
+        List<WorkItemEntity> scheduleItems = all.stream()
+                .filter(w -> "calendar".equals(w.getType()) && isTodayOrNow(w, today))
+                .sorted(Comparator.comparing(WorkItemEntity::getStartsAt,
+                        Comparator.nullsLast(Comparator.naturalOrder())))
                 .toList();
+        placed.addAll(scheduleItems.stream().map(WorkItemEntity::getExtId).toList());
 
-        List<PriorityEngine.Scored<Candidate>> ranked = priority.rank(candidates, Candidate::signals);
+        // needsYou: briefing.needsYouExtIds(), minus placed
+        Set<String> needsYouIds = briefing.needsYouExtIds();
+        List<WorkItemEntity> needsYouItems = all.stream()
+                .filter(w -> needsYouIds.contains(w.getExtId()) && !placed.contains(w.getExtId()))
+                .toList();
+        placed.addAll(needsYouItems.stream().map(WorkItemEntity::getExtId).toList());
 
-        List<Dto.Recommendation> next = ranked.stream()
-                .limit(MAX_CARDS)
-                .map(s -> toRecommendation(s))
+        // planned: briefing.plannedExtIds(), minus placed. plannedExtIds() is the raw flag set
+        // (the notification digest also reads it) and, unlike needsYouExtIds(), does not already
+        // exclude handled items — the dedup contract wants handled out of every section but
+        // schedule, so that exclusion happens here.
+        Set<String> plannedIds = briefing.plannedExtIds();
+        Set<String> handled = briefing.handledExtIds();
+        List<WorkItemEntity> plannedItems = all.stream()
+                .filter(w -> plannedIds.contains(w.getExtId()) && !placed.contains(w.getExtId())
+                        && !handled.contains(w.getExtId()))
+                .toList();
+        placed.addAll(plannedItems.stream().map(WorkItemEntity::getExtId).toList());
+
+        // assigned: prRole in ("mine","review") OR type in ("task","review"), minus placed
+        List<WorkItemEntity> assignedItems = all.stream()
+                .filter(w -> !placed.contains(w.getExtId()) && !handled.contains(w.getExtId())
+                        && ("mine".equals(w.getPrRole()) || "review".equals(w.getPrRole())
+                                || "task".equals(w.getType()) || "review".equals(w.getType())))
                 .toList();
 
         Dto.Changed changed = changes.changed();
@@ -106,62 +132,40 @@ public class TodayService {
                 workspace, user, NOW.format(Instant.now()),
                 changed, syncState(all), model(),
                 new Dto.Boundary("local", "On your machine"),
-                next, all.size(), snoozedRecs.size(), snoozedRecs, briefing.build(this::recFor));
+                numbered(scheduleItems), numbered(needsYouItems),
+                numbered(plannedItems), numbered(assignedItems),
+                all.size(), snoozedRecs.size(), snoozedRecs);
     }
 
-    // ---- signals ---------------------------------------------------------------
-
-    /** Deterministic priority signals for a real work item (SPEC §22). All normalized to [0,1]. */
-    private List<SignalComponent> signalsFor(WorkItemEntity w) {
-        List<SignalComponent> signals = new ArrayList<>();
-
-        // urgency — how loudly the item's own status is asking for attention
-        double urgency = switch (w.getStatusTone()) {
-            case "fail" -> 1.0;
-            case "warn" -> 0.8;
-            case "info" -> 0.5;
-            case "stale" -> 0.3;
-            case "healthy" -> 0.2;
-            default -> 0.4;
-        };
-        signals.add(new SignalComponent("status", w.getStatus(), urgency, 1.0));
-
-        // type importance — a broken build or a PR waiting on you outranks a doc
-        double kind = switch (w.getType()) {
-            case "build" -> 0.95;
-            // Above your own PR: a review requested of you is blocking someone else, and it is
-            // already in the needs-you set by UrgencyRules. Ranking it below the PRs you opened
-            // put the two in disagreement about the same item.
-            case "review" -> 0.85;
-            case "pr" -> 0.8;
-            case "task" -> 0.6;
-            case "calendar" -> 0.55;
-            case "doc" -> 0.4;
-            default -> 0.5;
-        };
-        signals.add(new SignalComponent("type", w.getType(), kind, 0.8));
-
-        // freshness — connectors emit newest-first within a source; earlier == fresher
-        int idx = Math.max(0, w.getSortOrder());
-        double freshness = 1.0 / (1.0 + (idx / 20.0));
-        signals.add(new SignalComponent("freshness", "recent", clamp(freshness), 0.4));
-
-        return signals;
+    /** True for a calendar item happening today (startsAt on today's local date) or right now
+     *  (status begins "now" — set by CalendarIcsConnector for an in-progress event). */
+    private static boolean isTodayOrNow(WorkItemEntity w, LocalDate today) {
+        boolean startsToday = w.getStartsAt() != null
+                && w.getStartsAt().atZone(ZONE).toLocalDate().equals(today);
+        boolean runningNow = w.getStatus() != null && w.getStatus().toLowerCase().startsWith("now");
+        return startsToday || runningNow;
     }
 
-    private Dto.Recommendation toRecommendation(PriorityEngine.Scored<Candidate> s) {
-        WorkItemEntity w = s.item().item();
-        boolean lead = s.rank() == 1;
-        return rec(w, s.rank(), lead ? Boolean.TRUE : null,
-                lead ? toSignalDtos(s.item().signals()) : null, s.score());
+    /** Section items → Recommendations, numbered 1..n within the section (the warp-spine number
+     *  each card is drawn against; every section is numbered on its own, not against the whole
+     *  payload, or every card below the first in a section would read "1"). */
+    private List<Dto.Recommendation> numbered(List<WorkItemEntity> items) {
+        List<Dto.Recommendation> out = new ArrayList<>(items.size());
+        int i = 1;
+        for (WorkItemEntity w : items) {
+            out.add(rec(w, i++, null, null, null));
+        }
+        return out;
     }
 
-    /** A non-ranked recommendation for the briefing (rank 0, no lead/signals/score). */
+    // ---- recommendation construction --------------------------------------------
+
+    /** A non-ranked recommendation (rank 0, no lead/signals/score) — snoozed list, etc. */
     private Dto.Recommendation recFor(WorkItemEntity w) {
         return rec(w, 0, null, null, null);
     }
 
-    /** Single construction point for a Recommendation, shared by the ranked list and the briefing. */
+    /** Single construction point for a Recommendation, shared by every section and the snoozed list. */
     private Dto.Recommendation rec(WorkItemEntity w, int rank, Boolean lead,
                                    List<Dto.SignalComponent> signals, Double score) {
         String type = w.getType();
@@ -267,15 +271,5 @@ public class TodayService {
         // build meta is "branch,repo" → show the repo; else the first token
         if ("build".equals(w.getType()) && parts.length >= 2) return parts[1].trim();
         return parts[0].trim();
-    }
-
-    private static double clamp(double v) {
-        return v < 0 ? 0 : v > 1 ? 1 : v;
-    }
-
-    private List<Dto.SignalComponent> toSignalDtos(List<SignalComponent> signals) {
-        return signals.stream()
-                .map(s -> new Dto.SignalComponent(s.name(), s.display(), s.normalized(), s.weight()))
-                .toList();
     }
 }
