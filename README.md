@@ -16,8 +16,8 @@ remote provider key yourself.
 
 | Screen | What it does |
 | --- | --- |
-| **Today** | The ranked next few things, and a Briefing: what changed since yesterday, what needs you, today's plan |
-| **Work** | Every item from every connector in one list — PRs, builds, issues, reviews, calendar events, docs |
+| **Today** | Your day — schedule, urgent, planned, assigned; snooze/plan from anywhere |
+| **Work** | The triage home — everything, New, role filters, priority sort, actions on every row |
 | **Builds** | Failure analysis: the failing job/step/test, ranked hypotheses with cited evidence, suggested fixes |
 | **Handoffs** | A brief for a coding agent — context, point-of-failure log, safety rails — kept in a history you can revisit |
 | **Brainstorm** | Chat with a local or remote model, with repo and work-item context attached; or the real Claude Code TUI in a terminal |

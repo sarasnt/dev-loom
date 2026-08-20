@@ -3,13 +3,18 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import type { WorkRow } from '../types'
 import { fetchWork } from '../api'
+import { useDashboardStore } from '../stores/dashboard'
 import LoomLoader from '../components/LoomLoader.vue'
 
 const router = useRouter()
+const store = useDashboardStore()
 const rows = ref<WorkRow[]>([])
 const loading = ref(true)
-const filters = ['All', 'PRs', 'Reviews', 'Tasks', 'Builds', 'Calendar', 'Notes', 'mine', 'stale']
+const filters = ['All', 'New', 'PRs', 'Reviews', 'Tasks', 'Builds', 'Calendar', 'Notes', 'mine', 'stale']
 const active = ref('All')
+// updated (default) keeps the fetch order; priority sorts by PriorityEngine score, nulls last —
+// same ranking Today's Warp uses, exposed here as an order instead of a separate page (Decision 3).
+const sortMode = ref<'updated' | 'priority'>('updated')
 // Status sub-filter: 'open' (open & ongoing, the default), 'all', or an exact status string.
 const statusFilter = ref('open')
 // Source sub-filter: 'all' or an exact source (GitHub, Jira, Notion, Calendar).
@@ -41,6 +46,7 @@ onMounted(async () => {
 function matchesFilter(r: WorkRow): boolean {
   switch (active.value) {
     case 'All': return true
+    case 'New': return !!r.isNew
     case 'PRs': return r.type === 'pr'
     case 'Reviews': return r.type === 'review'
     case 'Tasks': return r.type === 'task'
@@ -82,9 +88,21 @@ function matchesSource(r: WorkRow): boolean {
   return sourceFilter.value === 'all' || r.source === sourceFilter.value
 }
 
-const filtered = computed(() =>
-  typeFiltered.value.filter((r) => matchesStatus(r) && matchesSource(r) && matchesRole(r)),
-)
+// Priority: PriorityEngine's score, descending; unscored rows (calendar, docs, most tasks) sort
+// last rather than to the top, where a null would otherwise read as "highest priority".
+function byPriority(a: WorkRow, b: WorkRow): number {
+  const sa = a.score ?? null
+  const sb = b.score ?? null
+  if (sa === null && sb === null) return 0
+  if (sa === null) return 1
+  if (sb === null) return -1
+  return sb - sa
+}
+
+const filtered = computed(() => {
+  const base = typeFiltered.value.filter((r) => matchesStatus(r) && matchesSource(r) && matchesRole(r))
+  return sortMode.value === 'priority' ? [...base].sort(byPriority) : base
+})
 const idsInView = computed(() => new Set(filtered.value.map((r) => r.id)))
 
 // Top-level rows: no parent, or a parent that isn't in the current (filtered) view.
@@ -137,6 +155,35 @@ function open(r: WorkRow) {
   }
   if (r.description) toggleDesc(r.id)
 }
+
+// Row hand actions: same store actions the Today cards use (they hit /today/* keyed by extId
+// and hand back the refreshed Today state), then Work re-fetches its own rows — the store only
+// carries Today, and WorkRow has no planned/handled flag to toggle a label off of, so these fire
+// and refresh rather than pretending to know the current state (see task-4 brief).
+const busy = ref<Set<string>>(new Set())
+async function runRowAction(id: string, fn: (id: string) => Promise<void>) {
+  if (busy.value.has(id)) return
+  busy.value = toggleIn(busy.value, id)
+  try {
+    await fn(id)
+    rows.value = await fetchWork()
+  } finally {
+    busy.value = toggleIn(busy.value, id)
+  }
+}
+function openExternal(r: WorkRow) {
+  const url = externalUrl(r)
+  if (url) window.open(url, '_blank', 'noopener')
+}
+function plan(r: WorkRow) {
+  runRowAction(r.id, store.planItem)
+}
+function snooze(r: WorkRow) {
+  runRowAction(r.id, store.snoozeItem)
+}
+function handle(r: WorkRow) {
+  runRowAction(r.id, store.handleItem)
+}
 </script>
 
 <template>
@@ -158,6 +205,11 @@ function open(r: WorkRow) {
       >
         {{ f }}
       </button>
+
+      <div class="sorttoggle mono" role="group" aria-label="Sort work">
+        <button class="sortbtn" :class="{ on: sortMode === 'updated' }" @click="sortMode = 'updated'">updated</button>
+        <button class="sortbtn" :class="{ on: sortMode === 'priority' }" @click="sortMode = 'priority'">priority</button>
+      </div>
 
       <select v-model="sourceFilter" class="statussel mono" aria-label="Filter by source">
         <option value="all">All sources</option>
@@ -208,6 +260,7 @@ function open(r: WorkRow) {
             <span class="srcpill">{{ r.source }}</span>
             <span v-if="hasChildren(r)" class="subcount">{{ childrenOf(r.id).length }} subtasks</span>
             <span class="dot" :class="r.statusTone" aria-hidden="true"></span> {{ r.status }}
+            <span v-if="(r.type === 'pr' || r.type === 'review') && r.author">by {{ r.author }}</span>
             <span v-for="m in r.meta" :key="m">{{ m }}</span>
             <span v-if="r.type === 'build'" class="go" aria-hidden="true">analyze ›</span>
             <span v-else-if="externalUrl(r)" class="go" aria-hidden="true">open ↗</span>
@@ -219,6 +272,12 @@ function open(r: WorkRow) {
             >
               {{ expandedDesc.has(r.id) ? 'collapse description ▴' : 'expand description ▾' }}
             </button>
+          </span>
+          <span class="rowacts" @click.stop>
+            <button v-if="externalUrl(r)" class="actbtn" @click="openExternal(r)">Open</button>
+            <button class="actbtn" :disabled="busy.has(r.id)" @click="plan(r)">Plan</button>
+            <button class="actbtn" :disabled="busy.has(r.id)" @click="snooze(r)">Snooze</button>
+            <button class="actbtn" :disabled="busy.has(r.id)" @click="handle(r)">Handled</button>
           </span>
         </div>
         <div v-if="expandedDesc.has(r.id) && r.description" class="desc">{{ r.description }}</div>
@@ -240,6 +299,7 @@ function open(r: WorkRow) {
               <span class="mt mono">
                 <span class="srcpill">{{ c.source }}</span>
                 <span class="dot" :class="c.statusTone" aria-hidden="true"></span> {{ c.status }}
+                <span v-if="(c.type === 'pr' || c.type === 'review') && c.author">by {{ c.author }}</span>
                 <span v-for="m in c.meta" :key="m">{{ m }}</span>
                 <button
                   v-if="c.description"
@@ -249,6 +309,12 @@ function open(r: WorkRow) {
                 >
                   {{ expandedDesc.has(c.id) ? 'collapse description ▴' : 'expand description ▾' }}
                 </button>
+              </span>
+              <span class="rowacts" @click.stop>
+                <button v-if="externalUrl(c)" class="actbtn" @click="openExternal(c)">Open</button>
+                <button class="actbtn" :disabled="busy.has(c.id)" @click="plan(c)">Plan</button>
+                <button class="actbtn" :disabled="busy.has(c.id)" @click="snooze(c)">Snooze</button>
+                <button class="actbtn" :disabled="busy.has(c.id)" @click="handle(c)">Handled</button>
               </span>
             </div>
             <div v-if="expandedDesc.has(c.id) && c.description" class="desc child">{{ c.description }}</div>
@@ -279,11 +345,22 @@ function open(r: WorkRow) {
 .chipbtn:hover { border-color: var(--warp); }
 .chipbtn.on { background: var(--warp-weft); border-color: var(--warp); color: var(--ink); }
 .statussel {
-  margin-left: auto; font-size: 12px; color: var(--ink); background: var(--chip-bg);
+  font-size: 12px; color: var(--ink); background: var(--chip-bg);
   border: 1px solid var(--line); border-radius: 6px; padding: 5px 9px; cursor: pointer;
 }
 .statussel:hover { border-color: var(--warp); }
 .statussel:focus { outline: none; border-color: var(--warp); }
+/* Sort toggle sits right before the dropdowns; margin-left:auto here (not on the selects) pushes
+   this whole trailing group — sort + source + status — to the right as one cluster. */
+.sorttoggle {
+  margin-left: auto; display: flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden;
+}
+.sortbtn {
+  font-size: 11.5px; padding: 5px 10px; border: 0; background: var(--chip-bg); color: var(--dim); cursor: pointer;
+}
+.sortbtn + .sortbtn { border-left: 1px solid var(--line); }
+.sortbtn:hover { color: var(--ink); }
+.sortbtn.on { background: var(--warp-weft); color: var(--warp-hi); }
 .wi {
   display: flex; align-items: center; gap: 12px; padding: 12px 14px;
   border: 1px solid var(--line); border-radius: 10px; background: var(--surface); margin-bottom: 8px;
@@ -304,6 +381,16 @@ function open(r: WorkRow) {
   font-size: 11px; color: var(--faint-text); margin-left: auto;
   display: flex; gap: 12px; align-items: center; white-space: nowrap;
 }
+/* Row hand actions: right-aligned (it trails .mt, which already carries the auto margin), dense
+   and mono like the rest of the row furniture — this is a browsing row, not a card. */
+.rowacts { display: flex; gap: 6px; flex-shrink: 0; }
+.actbtn {
+  font-family: var(--mono); font-size: 10.5px; color: var(--dim);
+  background: transparent; border: 1px solid var(--line); border-radius: 5px;
+  padding: 3px 8px; cursor: pointer; white-space: nowrap;
+}
+.actbtn:hover:not(:disabled) { border-color: var(--warp); color: var(--ink); }
+.actbtn:disabled { opacity: 0.5; cursor: default; }
 .subcount { color: var(--warp-hi); }
 .srcpill {
   color: var(--dim); border: 1px solid var(--line); border-radius: 5px;
