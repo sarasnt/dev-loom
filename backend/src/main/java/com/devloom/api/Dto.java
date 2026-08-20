@@ -26,7 +26,7 @@ public final class Dto {
             boolean isHypothesis, List<SignalChip> chips, Boolean lead,
             List<SignalComponent> signals, List<EvidenceRef> evidence, Double score,
             List<String> actions, String url, boolean handled, boolean planned,
-            String author, String prRole) {}
+            String author, String prRole, String startsAt) {}
     // Today "Briefing" mode (spec §5): since-yesterday diff + the urgent set + today's plan.
     public record Briefing(
             List<Recommendation> newItems, List<Recommendation> resolved,
@@ -41,7 +41,8 @@ public final class Dto {
             String id, String type, String glyph, String title, String status,
             String statusTone, List<String> meta, String source,
             String category, String description, String parentId, String url,
-            String author, String prRole) {}
+            String author, String prRole,
+            boolean isNew, Double score, String startsAt) {}
 
     // ---- Build failure ----
     public record LogLine(String text, String kind) {}

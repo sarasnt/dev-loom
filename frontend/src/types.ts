@@ -41,6 +41,7 @@ export interface Recommendation {
   planned: boolean // in today's plan
   author?: string | null // who created it (PRs) — rendered as "created by …"
   prRole?: 'mine' | 'review' | 'other' | null // what a PR wants from you, resolved at sync time
+  startsAt?: string | null // ISO instant — when this item happens (calendar events; else null)
 }
 
 // Today "Briefing" mode (spec §5): since-yesterday diff + the urgent set + today's plan.
@@ -93,6 +94,9 @@ export interface WorkRow {
   url?: string | null // where the item lives in its source, as the connector resolved it
   author?: string | null // who created it (PRs) — rendered as "created by …"
   prRole?: 'mine' | 'review' | 'other' | null // what a PR wants from you, resolved at sync time
+  isNew?: boolean
+  score?: number | null
+  startsAt?: string | null // ISO instant — when this item happens (calendar events; else null)
 }
 
 // ---- Build-failure analysis (SPEC §23) ----

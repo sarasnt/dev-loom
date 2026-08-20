@@ -106,7 +106,11 @@ public class CalendarIcsConnector implements SourceConnector {
                 if (extId.length() > 60) extId = extId.substring(0, 60);
                 out.add(WorkItemEntity.create(extId, "calendar",
                         e.summary == null || e.summary.isBlank() ? "(untitled event)" : e.summary,
-                        status, tone, "", source, order++));
+                        status, tone, "", source, order++)
+                        // e.start is a naive LocalDateTime already expressed in ZONE (all-day
+                        // events land at local midnight via LocalDate.atStartOfDay()), so this
+                        // is the same clock the display strings above are computed from.
+                        .withStartsAt(e.start.atZone(ZONE).toInstant()));
             }
             log.info("Calendar sync [{}]: {} events in window (of {} parsed)", source, out.size(), events.size());
             return out;

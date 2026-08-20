@@ -1,5 +1,7 @@
 package com.devloom.workmodel;
 
+import java.time.Instant;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
@@ -64,6 +66,10 @@ public class WorkItemEntity {
     @Column(name = "pr_role", length = 10)
     private String prRole;
 
+    /** When this item happens (calendar events today; other connectors leave it null). */
+    @Column(name = "starts_at")
+    private Instant startsAt;
+
     protected WorkItemEntity() {
     }
 
@@ -111,6 +117,12 @@ public class WorkItemEntity {
         return this;
     }
 
+    /** When this item happens, if known (currently: calendar event start). */
+    public WorkItemEntity withStartsAt(Instant startsAt) {
+        this.startsAt = startsAt;
+        return this;
+    }
+
     private static String trim(String s, int max) {
         if (s == null || s.isBlank()) return null;
         String t = s.strip();
@@ -136,4 +148,5 @@ public class WorkItemEntity {
     public void setAuthor(String author) { this.author = author; }
     public String getPrRole() { return prRole; }
     public void setPrRole(String prRole) { this.prRole = prRole; }
+    public Instant getStartsAt() { return startsAt; }
 }

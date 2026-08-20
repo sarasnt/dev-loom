@@ -218,7 +218,8 @@ public class BriefingService {
         for (Dto.Recommendation r : in) {
             out.add(new Dto.Recommendation(r.id(), i++, r.type(), r.title(), r.source(), r.why(),
                     r.isHypothesis(), r.chips(), r.lead(), r.signals(), r.evidence(), r.score(),
-                    r.actions(), r.url(), r.handled(), r.planned(), r.author(), r.prRole()));
+                    r.actions(), r.url(), r.handled(), r.planned(), r.author(), r.prRole(),
+                    r.startsAt()));
         }
         return out;
     }
