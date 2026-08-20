@@ -10,7 +10,9 @@ const router = useRouter()
 const store = useDashboardStore()
 const rows = ref<WorkRow[]>([])
 const loading = ref(true)
-const filters = ['All', 'New', 'PRs', 'Reviews', 'Tasks', 'Builds', 'Calendar', 'Notes', 'mine', 'stale']
+// No 'mine' here: authorship filtering lives in the PR-role sub-filter below — one owner per
+// question, or two rows of identical chips read as the same control twice.
+const filters = ['All', 'New', 'PRs', 'Reviews', 'Tasks', 'Builds', 'Calendar', 'Notes', 'stale']
 const active = ref('All')
 // updated (default) keeps the fetch order; priority sorts by PriorityEngine score, nulls last —
 // same ranking Today's Warp uses, exposed here as an order instead of a separate page (Decision 3).
@@ -57,7 +59,6 @@ function matchesFilter(r: WorkRow): boolean {
     // "CSW Calendar". Normalising every connector into one type is what the work model is for.
     case 'Calendar': return r.type === 'calendar'
     case 'Notes': return r.type === 'doc'
-    case 'mine': return r.prRole === 'mine'
     case 'stale': return r.type === 'stale' || r.statusTone === 'stale'
     default: return true
   }
@@ -231,7 +232,10 @@ function handle(r: WorkRow) {
       </select>
     </div>
 
+    <!-- A sub-filter, dressed as one: labelled, smaller, indented under the lens row — two rows
+         of identical chips read as the same control twice. -->
     <div v-if="active === 'PRs' || active === 'Reviews'" class="rolefilters">
+      <span class="rolelab mono">pr role</span>
       <button v-for="rf in roleFilters" :key="rf" class="chipbtn mono"
               :class="{ on: roleFilter === rf }" @click="roleFilter = rf">{{ rf }}</button>
     </div>
@@ -343,9 +347,10 @@ function handle(r: WorkRow) {
 }
 .fchip:hover { border-color: var(--warp); }
 .fchip.on { background: var(--warp-weft); border-color: var(--warp); color: var(--ink); }
-.rolefilters { display: flex; gap: 8px; align-items: center; margin: -8px 0 16px; }
+.rolefilters { display: flex; gap: 6px; align-items: center; margin: -8px 0 16px 14px; padding-left: 12px; border-left: 2px solid var(--warp); }
+.rolelab { font-size: 9.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--faint-text); margin-right: 4px; }
 .chipbtn {
-  font-size: 12.5px; padding: 5px 11px; border: 1px solid var(--line);
+  font-size: 11px; padding: 3px 10px; border: 1px solid var(--line);
   border-radius: 20px; color: var(--dim); background: transparent; cursor: pointer;
 }
 .chipbtn:hover { border-color: var(--warp); }

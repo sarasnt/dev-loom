@@ -325,6 +325,17 @@ const commitMsg = ref<Record<string, string>>({})
 const openBranch = ref<string | null>(null)
 const branchList = ref<Record<string, string[]>>({})
 const newBranch = ref<Record<string, string>>({})
+// Chips are pleasant at 5 branches and a wall at 20 — past this, the panel switches to a
+// filter box over a scrolling list, current branch pinned first.
+const BRANCH_CHIP_LIMIT = 6
+const branchQuery = ref<Record<string, string>>({})
+function visibleBranches(r: RepoView): string[] {
+  const all = branchList.value[r.id] ?? []
+  const q = (branchQuery.value[r.id] ?? '').trim().toLowerCase()
+  const hit = q ? all.filter((b) => b.toLowerCase().includes(q)) : all
+  // Current branch first, so "where am I" never needs scrolling.
+  return [...hit].sort((a, b) => (a === r.branch ? -1 : b === r.branch ? 1 : 0))
+}
 
 onMounted(() => { store.ensureLoaded(); load() })
 
@@ -860,9 +871,15 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
 
         <div v-if="openBranch === ar.id" class="branchpanel">
           <span class="clab mono">Switch branch</span>
-          <div class="branches">
+          <input
+            v-if="(branchList[ar.id] ?? []).length > BRANCH_CHIP_LIMIT"
+            v-model="branchQuery[ar.id]"
+            class="in sm brfilter mono"
+            :placeholder="`filter ${(branchList[ar.id] ?? []).length} branches…`"
+          />
+          <div class="branches" :class="{ tall: (branchList[ar.id] ?? []).length > BRANCH_CHIP_LIMIT }">
             <button
-              v-for="b in branchList[ar.id] ?? []"
+              v-for="b in visibleBranches(ar)"
               :key="b"
               class="brow mono"
               :class="{ cur: b === ar.branch }"
@@ -872,6 +889,7 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
               {{ b === ar.branch ? '● ' : '' }}{{ b }}
             </button>
             <span v-if="!(branchList[ar.id] ?? []).length" class="mono clean">no local branches</span>
+            <span v-else-if="!visibleBranches(ar).length" class="mono clean">no branch matches “{{ branchQuery[ar.id] }}”</span>
           </div>
           <div class="newbranch">
             <input v-model="newBranch[ar.id]" class="in sm" placeholder="new-branch-name" @keydown.enter="switchBranch(ar, newBranch[ar.id], true)" />
@@ -1180,6 +1198,10 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
 .branchbtn:disabled { opacity: 0.5; cursor: not-allowed; }
 .branchpanel { margin: 10px 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
 .branches { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+/* Past the chip limit the panel trades pretty for findable: one column, scrolling, filterable. */
+.branches.tall { flex-direction: column; align-items: stretch; max-height: 220px; overflow-y: auto; flex-wrap: nowrap; }
+.branches.tall .brow { text-align: left; }
+.brfilter { max-width: 260px; margin: 6px 0 2px; }
 .brow { font-size: 12px; background: transparent; border: 1px solid var(--line); border-radius: 5px; padding: 3px 9px; color: var(--dim); cursor: pointer; }
 .brow:hover { border-color: var(--warp); color: var(--ink); }
 .brow.cur { color: var(--warp-hi); border-color: var(--warp); }
