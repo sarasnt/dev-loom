@@ -45,7 +45,11 @@ function label(m: string): string {
 .btn:hover { border-color: var(--warp); }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn.brainstorm { border-color: var(--warp); color: var(--warp-hi); }
-.bmenu { position: absolute; top: calc(100% + 4px); right: 0; z-index: 20; min-width: 240px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 6px; box-shadow: 0 8px 24px rgba(0,0,0,0.35); }
+/* Anchored LEFT, not right: the trigger sits at the card's left edge, so a right-anchored menu
+   grew 240px leftward — straight under the sticky app rail, which paints above it and ate the
+   first characters of every model name. Left-anchored it grows into the card's own space; the
+   z-index bump covers the narrow-viewport case where it still meets the rail. */
+.bmenu { position: absolute; top: calc(100% + 4px); left: 0; z-index: 60; min-width: 240px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 6px; box-shadow: 0 8px 24px rgba(0,0,0,0.35); }
 .bmi { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; text-align: left; background: transparent; border: 0; border-radius: 7px; padding: 8px 10px; color: var(--ink); font-size: 13px; cursor: pointer; }
 .bmi:hover { background: var(--nav-hover); }
 .bmi .mono { font-size: 11px; color: var(--faint-text); }
