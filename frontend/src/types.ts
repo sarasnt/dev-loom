@@ -44,14 +44,6 @@ export interface Recommendation {
   startsAt?: string | null // ISO instant — when this item happens (calendar events; else null)
 }
 
-// Today "Briefing" mode (spec §5): since-yesterday diff + the urgent set + today's plan.
-export interface Briefing {
-  newItems: Recommendation[]
-  resolved: Recommendation[]
-  needsYou: Recommendation[]
-  plan: Recommendation[]
-}
-
 export interface SyncSource {
   key: string
   label: string
@@ -63,6 +55,8 @@ export interface Boundary {
   label: string
 }
 
+// Today = execute the day (design doc Decision 2): four deduped sections, an item renders in
+// exactly one (schedule > needsYou > planned > assigned, highest section wins).
 export interface TodayData {
   workspace: string
   user: string
@@ -71,11 +65,13 @@ export interface TodayData {
   sync: { sources: SyncSource[]; updated: string }
   model: { name: string; local: boolean }
   boundary: Boundary
-  next: Recommendation[]
+  schedule: Recommendation[]
+  needsYou: Recommendation[]
+  planned: Recommendation[]
+  assigned: Recommendation[]
   everythingCount: number
   snoozedCount: number
   snoozed: Recommendation[] // the snoozed items themselves, so the count can be shown and undone
-  briefing: Briefing
 }
 
 // ---- Work browser ----

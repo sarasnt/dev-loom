@@ -4,37 +4,44 @@ import { storeToRefs } from 'pinia'
 import { useRouter } from 'vue-router'
 import { useDashboardStore } from '../stores/dashboard'
 import WarpList from '../components/WarpList.vue'
+import type { Recommendation } from '../types'
 
 const store = useDashboardStore()
 const router = useRouter()
 const { today, loading, error } = storeToRefs(store)
 
-// A 43-item "new" list is a dump, not a briefing. Show a taste; the full list lives in Work.
-const NEW_CAP = 6
-const newCapped = computed(() => today.value?.briefing.newItems.slice(0, NEW_CAP) ?? [])
-const newOverflow = computed(() => Math.max(0, (today.value?.briefing.newItems.length ?? 0) - NEW_CAP))
-// On a machine's first sync everything is "new", which makes the diff meaningless — say so
-// instead of presenting the entire backlog as this morning's news.
-const firstSync = computed(() => {
-  const t = today.value
-  return !!t && t.briefing.newItems.length > 0 && t.briefing.newItems.length >= t.everythingCount
-})
 const snoozedOpen = ref(false)
 
-// Today has two lenses: Briefing (the morning framing) and Triage (the full ranked list). The
-// last explicit choice wins; otherwise default to Briefing in the morning, Triage later.
-const MODE_KEY = 'devloom.todayMode'
-function defaultMode(): 'briefing' | 'triage' {
-  const saved = localStorage.getItem(MODE_KEY)
-  if (saved === 'briefing' || saved === 'triage') return saved
-  return new Date().getHours() < 12 ? 'briefing' : 'triage'
+// The connector writes calendar status once per sync and it doubles as the ongoing signal: an
+// all-day event running today is exactly "today", a timed event still running is "now · until
+// HH:mm" (see CalendarIcsConnector, TodayService.isTodayOrNow). It's always the first chip.
+function statusOf(r: Recommendation): string {
+  return (r.chips?.[0]?.label ?? '').toLowerCase()
 }
-const resolvedOpen = ref(false)
-const mode = ref<'briefing' | 'triage'>(defaultMode())
-function setMode(m: 'briefing' | 'triage') {
-  mode.value = m
-  localStorage.setItem(MODE_KEY, m)
+// All-day: the connector says "today", or — belt and braces — startsAt lands on local midnight
+// (how CalendarIcsConnector stores an all-day event's start).
+function isAllDay(r: Recommendation): boolean {
+  if (statusOf(r) === 'today') return true
+  if (!r.startsAt) return false
+  const d = new Date(r.startsAt)
+  return d.getHours() === 0 && d.getMinutes() === 0
 }
+function isOngoing(r: Recommendation): boolean {
+  return statusOf(r).startsWith('now')
+}
+function isPastToday(r: Recommendation): boolean {
+  return statusOf(r).startsWith('ended')
+}
+function hhmm(startsAt?: string | null): string {
+  if (!startsAt) return ''
+  const d = new Date(startsAt)
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+// Backend already returns `schedule` sorted chronologically by startsAt (nulls last); splitting
+// into chip row / timed rows here preserves that order in both halves.
+const allDaySchedule = computed(() => (today.value?.schedule ?? []).filter(isAllDay))
+const timedSchedule = computed(() => (today.value?.schedule ?? []).filter((r) => !isAllDay(r)))
 
 onMounted(() => store.load())
 </script>
@@ -62,10 +69,6 @@ onMounted(() => store.load())
     <template v-else-if="today">
       <div class="head">
         <h1>Today</h1>
-        <div class="modes" role="tablist" aria-label="Today view">
-          <button class="seg" :class="{ on: mode === 'briefing' }" role="tab" :aria-selected="mode === 'briefing'" @click="setMode('briefing')">Briefing</button>
-          <button class="seg" :class="{ on: mode === 'triage' }" role="tab" :aria-selected="mode === 'triage'" @click="setMode('triage')">Triage</button>
-        </div>
         <span class="when mono">{{ today.now }}</span>
       </div>
 
@@ -75,92 +78,72 @@ onMounted(() => store.load())
         <span class="go">{{ today.changed.since }} ›</span>
       </section>
 
-      <!-- TRIAGE: the full ranked list -->
-      <template v-if="mode === 'triage'">
-        <div class="sectlab">
-          <span class="eyebrow">Next</span>
-          <span class="r">sorted: priority ▾</span>
-        </div>
-
-        <WarpList :items="today.next" />
-
-        <div class="more">
-          <button class="morelink" @click="router.push('/work')">▸ Everything ({{ today.everythingCount }})</button>
-          <button class="morelink" :disabled="!today.snoozedCount" :aria-expanded="snoozedOpen" @click="snoozedOpen = !snoozedOpen">
-            {{ snoozedOpen ? '▾' : '▸' }} Snoozed ({{ today.snoozedCount }})
-          </button>
-        </div>
-        <ul v-if="snoozedOpen && today.snoozed.length" class="donelist snoozelist">
-          <li v-for="r in today.snoozed" :key="r.id" class="doneitem">
-            <span class="donetitle">{{ r.title }}</span>
-            <span class="donesrc mono">{{ r.source }}</span>
-            <button class="unsnooze mono" @click="store.unsnoozeItem(r.id)">unsnooze</button>
-          </li>
+      <!-- SCHEDULE STRIP: today's calendar entries, chronological. Compact timeline rows, not
+           cards — a meeting is a fact about the day, not a task competing for attention. -->
+      <template v-if="allDaySchedule.length || timedSchedule.length">
+        <div class="sectlab"><span class="eyebrow">Schedule</span></div>
+        <ul v-if="allDaySchedule.length" class="chiprow" aria-label="All-day">
+          <li v-for="r in allDaySchedule" :key="r.id" class="daychip mono" :title="r.title">{{ r.title }}</li>
         </ul>
+        <ol v-if="timedSchedule.length" class="timeline">
+          <li
+            v-for="r in timedSchedule"
+            :key="r.id"
+            class="timerow"
+            :class="{ ongoing: isOngoing(r), past: isPastToday(r) }"
+          >
+            <span class="time mono">{{ hhmm(r.startsAt) }}</span>
+            <span class="dot" aria-hidden="true">·</span>
+            <span class="ttitle">{{ r.title }}</span>
+          </li>
+        </ol>
       </template>
 
-      <!-- BRIEFING: the morning framing. Plan first — "what did I decide to do today" is the
-           question this view exists to answer; it used to sit BELOW the since-yesterday list,
-           which on a fresh machine was 43 cards deep, so the two tabs looked identical. -->
-      <template v-else>
-        <div class="sectlab"><span class="eyebrow">Today's plan</span></div>
-        <WarpList v-if="today.briefing.plan.length" :items="today.briefing.plan" />
-        <div v-else class="subhead mono quiet">nothing planned yet — pick items with “+ Plan” in Triage</div>
-
-        <template v-if="today.briefing.needsYou.length">
-          <div class="sectlab"><span class="eyebrow">Needs you now</span></div>
-          <WarpList :items="today.briefing.needsYou" />
-        </template>
-
-        <div class="sectlab"><span class="eyebrow">Since yesterday</span></div>
-        <div v-if="firstSync" class="subhead mono quiet">
-          first sync on this machine — everything is “new”, so there is no diff to show yet
-        </div>
-        <template v-else-if="today.briefing.newItems.length">
-          <div class="subhead mono">New ({{ today.briefing.newItems.length }})</div>
-          <WarpList :items="newCapped" />
-          <button v-if="newOverflow" class="morelink overflow" @click="router.push('/work')">
-            ▸ and {{ newOverflow }} more — see Work
-          </button>
-        </template>
-        <!-- Resolved is acknowledgement, not work. As full cards it was most of the briefing —
-             sixteen closed tickets, each offering "+ Plan" and "Handled" on something already
-             done. One line each, folded away, and the morning read stays short. -->
-        <template v-if="today.briefing.resolved.length">
-          <button class="subhead mono fold" :aria-expanded="resolvedOpen" @click="resolvedOpen = !resolvedOpen">
-            <span class="caret">{{ resolvedOpen ? '▾' : '▸' }}</span>
-            Resolved ({{ today.briefing.resolved.length }})
-          </button>
-          <ul v-if="resolvedOpen" class="donelist">
-            <li v-for="r in today.briefing.resolved" :key="r.id" class="doneitem">
-              <span class="donetick" aria-hidden="true">✓</span>
-              <a v-if="r.url" :href="r.url" target="_blank" rel="noopener noreferrer" class="donetitle">{{ r.title }}</a>
-              <span v-else class="donetitle">{{ r.title }}</span>
-              <span class="donesrc mono">{{ r.source }}</span>
-            </li>
-          </ul>
-        </template>
-        <div v-if="!today.briefing.newItems.length && !today.briefing.resolved.length" class="subhead mono quiet">
-          nothing new since your last briefing
-        </div>
-
+      <!-- NEEDS YOU NOW: the urgency set (failed builds, review requests). Only when non-empty —
+           a header over nothing is noise. -->
+      <template v-if="today.needsYou.length">
+        <div class="sectlab"><span class="eyebrow">Needs you now</span></div>
+        <WarpList :items="today.needsYou" />
       </template>
+
+      <!-- PLANNED: the "+ Plan" set. Always renders — its empty state is the call to action that
+           sends you to Work to build today's plan, so it can't just disappear when empty. -->
+      <div class="sectlab"><span class="eyebrow">Planned</span></div>
+      <WarpList v-if="today.planned.length" :items="today.planned" />
+      <div v-else class="subhead mono quiet">nothing planned yet — pick items in Work</div>
+
+      <!-- ASSIGNED TO YOU: PRs where you're author/reviewer, plus tasks and reviews assigned to
+           you. Only when non-empty. -->
+      <template v-if="today.assigned.length">
+        <div class="sectlab"><span class="eyebrow">Assigned to you</span></div>
+        <WarpList :items="today.assigned" />
+      </template>
+
+      <div class="more">
+        <button class="morelink" @click="router.push('/work')">▸ Everything ({{ today.everythingCount }})</button>
+        <button class="morelink" :disabled="!today.snoozedCount" :aria-expanded="snoozedOpen" @click="snoozedOpen = !snoozedOpen">
+          {{ snoozedOpen ? '▾' : '▸' }} Snoozed ({{ today.snoozedCount }})
+        </button>
+      </div>
+      <ul v-if="snoozedOpen && today.snoozed.length" class="donelist snoozelist">
+        <li v-for="r in today.snoozed" :key="r.id" class="doneitem">
+          <span class="donetitle">{{ r.title }}</span>
+          <span class="donesrc mono">{{ r.source }}</span>
+          <button class="unsnooze mono" @click="store.unsnoozeItem(r.id)">unsnooze</button>
+        </li>
+      </ul>
     </template>
   </main>
 </template>
 
 <style scoped>
-.fold { background: none; border: 0; padding: 0; cursor: pointer; display: flex; align-items: center; gap: 6px; }
-.fold:hover { color: var(--ink); }
-.caret { color: var(--warp-hi); }
 .donelist { list-style: none; margin: 4px 0 18px; padding: 0 0 0 26px; display: flex; flex-direction: column; gap: 2px; }
 .doneitem { display: flex; align-items: baseline; gap: 9px; font-size: 12.5px; padding: 3px 0; }
-.donetick { color: var(--healthy, #6ea87f); font-size: 11px; }
 .donetitle { color: var(--dim); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 a.donetitle:hover { color: var(--ink); text-decoration: underline; }
 .donesrc { color: var(--faint-text); font-size: 10.5px; margin-left: auto; }
 .main { padding: 22px 26px; overflow: auto; }
-.head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 18px; }
+.head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
 .head h1 { font-size: 26px; }
 .when { font-size: 12px; color: var(--faint-text); }
 
@@ -175,21 +158,31 @@ a.donetitle:hover { color: var(--ink); text-decoration: underline; }
 .sectlab { display: flex; align-items: center; gap: 10px; margin: 4px 0 12px; }
 .sectlab .r { margin-left: auto; font-size: 12px; color: var(--faint-text); }
 
-/* Briefing | Triage segmented control */
-.modes { display: inline-flex; gap: 2px; margin-left: 16px; padding: 2px; border: 1px solid var(--line); border-radius: 8px; }
-.modes .seg { font-size: 12px; padding: 4px 12px; border: 0; border-radius: 6px; background: transparent; color: var(--faint-text); cursor: pointer; }
-.modes .seg:hover { color: var(--ink); }
-.modes .seg.on { background: var(--warp-weft); color: var(--warp-hi); }
-.head { align-items: center; }
 .subhead { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint-text); margin: 6px 0 8px; }
-.subhead.quiet { color: var(--faint-text); text-transform: none; letter-spacing: 0; font-size: 12px; }
-.emptybrief { color: var(--faint-text); font-size: 13px; padding: 18px 0; }
+.subhead.quiet { color: var(--faint-text); text-transform: none; letter-spacing: 0; font-size: 12px; margin: 0 0 18px; }
+
+/* Schedule strip: compact mono density, same spirit as .doneitem but its own row shape — a
+   timeline, not a list of finished work. */
+.chiprow { list-style: none; display: flex; flex-wrap: wrap; gap: 7px; margin: 0 0 12px; padding: 0; }
+.daychip {
+  font-size: 11px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px;
+  background: var(--raised); color: var(--dim); max-width: 220px; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap;
+}
+.timeline { list-style: none; margin: 0 0 22px; padding: 0; display: flex; flex-direction: column; }
+.timerow { display: flex; align-items: baseline; gap: 9px; font-size: 12.5px; padding: 4px 2px; border-radius: 5px; }
+.timerow .time { color: var(--warp-hi); min-width: 42px; }
+.timerow .dot { color: var(--faint-text); }
+.timerow .ttitle { color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.timerow.ongoing { background: var(--warp-weft); }
+.timerow.ongoing .time { color: var(--warp-hi); font-weight: 600; }
+.timerow.past { opacity: 0.5; }
+.timerow.past .time { color: var(--faint-text); }
 
 .more { display: flex; gap: 20px; margin-top: 16px; }
 .morelink { background: none; border: 0; padding: 0; color: var(--faint-text); font-size: 13px; cursor: pointer; }
 .morelink:hover:not(:disabled) { color: var(--ink); }
 .morelink:disabled { cursor: default; opacity: 0.6; }
-.morelink.overflow { margin: 2px 0 14px; }
 .snoozelist { margin-top: 10px; }
 .unsnooze { background: none; border: 1px solid var(--line); border-radius: 5px; padding: 1px 8px; font-size: 10.5px; color: var(--dim); cursor: pointer; }
 .unsnooze:hover { border-color: var(--warp); color: var(--ink); }

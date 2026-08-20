@@ -32,8 +32,10 @@ const TODAY: TodayData = {
   everythingCount: 0,
   snoozedCount: 0,
   snoozed: [],
-  next: [],
-  briefing: { newItems: [], resolved: [], needsYou: [], plan: [] },
+  schedule: [],
+  needsYou: [],
+  planned: [],
+  assigned: [],
 }
 
 // Generic latency wrapper so every screen exercises its loading state.
