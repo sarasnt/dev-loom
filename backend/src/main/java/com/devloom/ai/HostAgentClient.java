@@ -342,6 +342,19 @@ public class HostAgentClient {
         return post("/repos/checkout", Map.of("path", path, "branch", branch, "create", create));
     }
 
+    public Map<String, Object> worktreeRemove(String path, String worktree, boolean force) {
+        return post("/repos/worktree-remove",
+                Map.of("path", path, "worktree", worktree, "force", force));
+    }
+
+    public Map<String, Object> branchDelete(String path, String branch, boolean force) {
+        return post("/repos/branch-delete", Map.of("path", path, "branch", branch, "force", force));
+    }
+
+    public Map<String, Object> prune(String path) {
+        return post("/repos/prune", Map.of("path", path));
+    }
+
     // ---- Fleet: background agent runs ----
 
     /** Start a detached headless `claude -p` run in {@code cwd}; returns {@code {runId}}. */

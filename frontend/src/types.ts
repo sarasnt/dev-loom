@@ -225,6 +225,10 @@ export interface WorktreeInfo {
   locked: boolean
   tracked: boolean // DevLoom already tracks this worktree dir as its own repo
   repoId: string | null
+  // Its directory is gone but git still registers it — and still considers its branch checked
+  // out there, refusing that branch everywhere else until the registration is pruned.
+  prunable: boolean
+  prunableReason: string | null
 }
 
 // Where the current branch forks from + how far HEAD has drifted (repos spec §6/§7.3).

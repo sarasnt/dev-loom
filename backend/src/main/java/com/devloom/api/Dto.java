@@ -137,7 +137,12 @@ public final class Dto {
     // tracks this worktree dir as its own repo.
     public record WorktreeInfo(
             String path, String branch, String head, boolean bare, boolean detached,
-            boolean locked, boolean tracked, String repoId) {}
+            boolean locked, boolean tracked, String repoId,
+            // A worktree whose directory is gone: git still registers it and still considers its
+            // branch checked out there, so it must be visible as stale rather than as a checkout.
+            boolean prunable, String prunableReason) {}
+    public record RepoWorktreeRemove(String worktree, boolean force) {}
+    public record RepoBranchDelete(String branch, boolean force) {}
     public record RepoLocalOnly(boolean value) {}
     public record RepoAdd(String path, String root) {}
     public record RepoIdentity(String name, String email) {}

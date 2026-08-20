@@ -20,6 +20,9 @@ import {
   repoUnstage,
   repoCommit,
   repoBranches,
+  repoWorktreeRemove,
+  repoBranchDelete,
+  repoPrune,
   repoCheckout,
   repoSource,
   setRepoSource,
@@ -178,7 +181,11 @@ async function openSourceEdit(r: RepoView) {
   editSource.value = r.id
   sourceInput.value[r.id] = sourceStatus.value[r.id]?.source ?? ''
   if (!branchList.value[r.id]) {
-    try { branchList.value[r.id] = (await repoBranches(r.id)).local } catch { branchList.value[r.id] = [] }
+    try {
+    const b = await repoBranches(r.id)
+    branchList.value[r.id] = b.local
+    branchHolders.value[r.id] = b.holders ?? {}
+  } catch { branchList.value[r.id] = []; branchHolders.value[r.id] = {} }
   }
 }
 async function saveSource(r: RepoView) {
@@ -324,11 +331,36 @@ const commitMsg = ref<Record<string, string>>({})
 // per-repo branch switcher
 const openBranch = ref<string | null>(null)
 const branchList = ref<Record<string, string[]>>({})
+// branch -> the worktree holding it. A held branch cannot be checked out here; git refuses with a
+// fatal naming a directory you cannot see from this card.
+const branchHolders = ref<Record<string, Record<string, string>>>({})
 const newBranch = ref<Record<string, string>>({})
 // Chips are pleasant at 5 branches and a wall at 20 — past this, the panel switches to a
 // filter box over a scrolling list, current branch pinned first.
 const BRANCH_CHIP_LIMIT = 6
 const branchQuery = ref<Record<string, string>>({})
+// Is this branch checked out in a worktree other than the one the card is aimed at?
+function heldElsewhere(active: RepoView, branch: string): boolean {
+  const held = branchHolders.value[active.id]?.[branch]
+  return !!held && norm(held) !== norm(active.path)
+}
+// The tracked repo for the worktree holding a branch — null when DevLoom doesn't track it, which
+// is what makes the row inert rather than misleading.
+function holderRepo(primary: RepoView, branch: string): RepoView | null {
+  const held = branchHolders.value[activeRepo(primary).id]?.[branch]
+  if (!held) return null
+  const all = [primary, ...trackedChildren(primary)]
+  return all.find((c) => norm(c.path) === norm(held)) ?? null
+}
+function selectHolder(primary: RepoView, branch: string) {
+  const holder = holderRepo(primary, branch)
+  if (holder) { selectWt(primary, holder); openBranch.value = null }
+}
+// How many of this repo's worktrees are registered but gone from disk.
+function stalePrunable(primary: RepoView): number {
+  return (wtList.value[primary.id] ?? []).filter((w) => w.prunable).length
+}
+
 function visibleBranches(r: RepoView): string[] {
   const all = branchList.value[r.id] ?? []
   const q = (branchQuery.value[r.id] ?? '').trim().toLowerCase()
@@ -433,10 +465,78 @@ async function saveEdit(r: RepoView) {
   finally { busy.value = '' }
 }
 
-async function remove(r: RepoView) {
-  if (!confirm(`Remove ${r.name} from DevLoom? (your files are untouched)`)) return
+// Which card's Remove menu is open, and the force offer a refused attempt left behind.
+// The guard is git: the safe variant runs first, with no dialog in front of it, because a safe
+// command that succeeded destroyed nothing. Only its refusal earns a second, louder button.
+const rmenu = ref('')
+const rmForce = ref<Record<string, { label: string; reason: string; run: () => Promise<void> }>>({})
+
+function closeRemoveMenu(id: string) {
+  rmenu.value = ''
+  delete rmForce.value[id]
+}
+
+async function untrack(r: RepoView) {
+  closeRemoveMenu(r.id)
   busy.value = r.id
-  try { await removeRepo(r.id); await load({ silent: true }) } finally { busy.value = '' }
+  try {
+    await removeRepo(r.id)
+    say(`${repoLabel(r)} is no longer tracked. Its files are untouched.`)
+    await load({ silent: true })
+  } finally { busy.value = '' }
+}
+
+// `primary` owns the git dir; `wt` is the checkout being removed.
+async function removeWorktree(primary: RepoView, wt: RepoView, force = false) {
+  busy.value = primary.id
+  try {
+    const res = await repoWorktreeRemove(primary.id, wt.path, force)
+    if (!res.ok) {
+      rmForce.value[primary.id] = {
+        label: 'Force remove — discards uncommitted work',
+        reason: res.output || 'git refused',
+        run: () => removeWorktree(primary, wt, true),
+      }
+      return
+    }
+    closeRemoveMenu(primary.id)
+    selectWt(primary, primary)          // the card cannot stay aimed at a checkout that is gone
+    const freed = wt.branch
+    say(`Worktree removed.${freed ? ` Its branch ${freed} is now free.` : ''}`)
+    await load({ silent: true })
+  } catch { say('Could not remove the worktree — is the host agent running?', 'error') }
+  finally { busy.value = '' }
+}
+
+async function pruneWorktrees(primary: RepoView) {
+  busy.value = primary.id
+  try {
+    const res = await repoPrune(primary.id)
+    closeRemoveMenu(primary.id)
+    say(res.ok ? 'Pruned worktrees whose directories were gone.' : `Prune failed: ${res.output}`,
+        res.ok ? 'ok' : 'error')
+    await load({ silent: true })
+  } finally { busy.value = '' }
+}
+
+async function deleteBranch(r: RepoView, branch: string, force = false) {
+  busy.value = r.id
+  try {
+    const res = await repoBranchDelete(r.id, branch, force)
+    if (!res.ok) {
+      rmForce.value[r.id] = {
+        label: `Force delete ${branch} — it is not merged`,
+        reason: res.output || 'git refused',
+        run: () => deleteBranch(r, branch, true),
+      }
+      rmenu.value = r.id
+      return
+    }
+    delete rmForce.value[r.id]
+    say(`Deleted branch ${branch}.`)
+    await toggleBranches(r); await toggleBranches(r)   // refresh the list in place
+    await load({ silent: true })
+  } finally { busy.value = '' }
 }
 
 // ---- changes / staging / commit ----
@@ -650,7 +750,11 @@ async function doSquash(r: RepoView) {
 async function toggleBranches(r: RepoView) {
   if (openBranch.value === r.id) { openBranch.value = null; return }
   openBranch.value = r.id
-  try { branchList.value[r.id] = (await repoBranches(r.id)).local } catch { branchList.value[r.id] = [] }
+  try {
+    const b = await repoBranches(r.id)
+    branchList.value[r.id] = b.local
+    branchHolders.value[r.id] = b.holders ?? {}
+  } catch { branchList.value[r.id] = []; branchHolders.value[r.id] = {} }
 }
 async function switchBranch(r: RepoView, branch: string, create = false) {
   if (!branch || !branch.trim() || busy.value) return
@@ -769,8 +873,10 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
           <div v-for="w in untrackedWorktrees(r)" :key="w.path" class="wtrow untracked">
             <span class="wtbranch mono">⎇ {{ w.branch || (w.detached ? 'detached' : '—') }}</span>
             <span v-if="isRunWorktree(w.branch)" class="wtrun mono">run</span>
+            <span v-if="w.prunable" class="wtstale mono" :title="w.prunableReason || 'directory is gone'">stale</span>
             <span class="wtpath mono">{{ w.path }}</span>
-            <button class="btn tiny" :disabled="busy === 'add'" @click="addWorktree(w.path)">Add</button>
+            <button v-if="w.prunable" class="btn tiny" :disabled="busy === r.id" @click="pruneWorktrees(r)">Clear</button>
+            <button v-else class="btn tiny" :disabled="busy === 'add'" @click="addWorktree(w.path)">Add</button>
           </div>
           <div v-if="!trackedChildren(r).length && !untrackedWorktrees(r).length" class="wtempty mono">
             no additional worktrees — create one with <b>git worktree add</b>
@@ -878,16 +984,26 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
             :placeholder="`filter ${(branchList[ar.id] ?? []).length} branches…`"
           />
           <div class="branches" :class="{ tall: (branchList[ar.id] ?? []).length > BRANCH_CHIP_LIMIT }">
-            <button
-              v-for="b in visibleBranches(ar)"
-              :key="b"
-              class="brow mono"
-              :class="{ cur: b === ar.branch }"
-              :disabled="busy === ar.id"
-              @click="switchBranch(ar, b)"
-            >
-              {{ b === ar.branch ? '● ' : '' }}{{ b }}
-            </button>
+            <span v-for="b in visibleBranches(ar)" :key="b" class="brwrap">
+              <!-- Held by another worktree: checking it out here cannot succeed, so offer the
+                   thing you actually meant — switch the card to the checkout that has it. -->
+              <button
+                class="brow mono"
+                :class="{ cur: b === ar.branch, held: heldElsewhere(ar, b) }"
+                :disabled="busy === ar.id || (heldElsewhere(ar, b) && !holderRepo(r, b))"
+                :title="heldElsewhere(ar, b) ? 'Checked out in ' + branchHolders[ar.id][b] : ''"
+                @click="heldElsewhere(ar, b) ? selectHolder(r, b) : switchBranch(ar, b)"
+              >
+                {{ b === ar.branch ? '● ' : '' }}{{ b }}<span v-if="heldElsewhere(ar, b)" class="heldtag">⎇ in worktree</span>
+              </button>
+              <button
+                v-if="b !== ar.branch && !heldElsewhere(ar, b)"
+                class="brdel mono"
+                :disabled="busy === ar.id"
+                :title="'Delete branch ' + b"
+                @click="deleteBranch(ar, b)"
+              >✕</button>
+            </span>
             <span v-if="!(branchList[ar.id] ?? []).length" class="mono clean">no local branches</span>
             <span v-else-if="!visibleBranches(ar).length" class="mono clean">no branch matches “{{ branchQuery[ar.id] }}”</span>
           </div>
@@ -962,7 +1078,35 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
             @toggle="bmenu = bmenu === ar.id ? '' : ar.id"
             @pick="(m) => brainstormHere(ar, m)"
           />
-          <button class="btn ghost" :disabled="busy === ar.id" @click="remove(ar)">Remove</button>
+          <div class="splitwrap">
+            <button
+              class="btn ghost"
+              :disabled="busy === r.id"
+              @click="rmenu === r.id ? closeRemoveMenu(r.id) : (rmenu = r.id)"
+            >Remove ▾</button>
+            <div v-if="rmenu === r.id" class="bmenu">
+              <button class="bmi" @click="untrack(ar)">
+                Untrack from DevLoom<span class="mono">the DevLoom record only — your files are untouched</span>
+              </button>
+              <!-- A worktree whose directory is gone cannot be `worktree remove`d; prune is the
+                   command that clears it, and clearing it frees the branch it still holds. -->
+              <button
+                v-if="stalePrunable(r)"
+                class="bmi"
+                @click="pruneWorktrees(r)"
+              >Clear {{ stalePrunable(r) }} stale worktree{{ stalePrunable(r) > 1 ? 's' : '' }}<span class="mono">directory already gone — frees the branch it still holds</span></button>
+              <button
+                class="bmi"
+                :disabled="ar.id === r.id"
+                :title="ar.id === r.id ? 'The main checkout is not a worktree' : ''"
+                @click="removeWorktree(r, ar)"
+              >Remove worktree…<span class="mono">{{ ar.id === r.id ? 'select a worktree first — the main checkout cannot be removed' : 'deletes ' + ar.path }}</span></button>
+              <template v-if="rmForce[r.id]">
+                <div class="bmlab mono rmreason">✗ {{ rmForce[r.id].reason }}</div>
+                <button class="bmi danger" @click="rmForce[r.id].run()">{{ rmForce[r.id].label }}</button>
+              </template>
+            </div>
+          </div>
         </div>
 
         <!-- inline commit-message popover for the split button -->
@@ -1225,6 +1369,13 @@ async function switchBranch(r: RepoView, branch: string, create = false) {
 .wtpick { font-size: 11px; min-width: 74px; text-align: left; color: var(--dim); background: transparent; border: 1px solid var(--line); border-radius: 5px; padding: 2px 8px; cursor: pointer; }
 .wtpick[aria-pressed="true"] { color: var(--warp-hi); border-color: var(--warp); }
 .wtrow.sel { background: var(--warp-weft); border-radius: 6px; }
+.brwrap { display: inline-flex; align-items: stretch; }
+.brow.held { color: var(--faint-text); }
+.heldtag { margin-left: 7px; font-size: 10px; color: var(--warp-hi); }
+.brdel { font-size: 11px; color: var(--faint-text); background: transparent; border: 1px solid var(--line); border-left: 0; border-radius: 0 5px 5px 0; padding: 0 6px; cursor: pointer; }
+.brdel:hover:not(:disabled) { color: var(--chip-fail, #d88); border-color: var(--failed, #a55); }
+.wtstale { font-size: 10px; color: var(--chip-fail, #d88); border: 1px solid var(--failed, #a55); border-radius: 5px; padding: 1px 6px; }
+.rmreason { color: var(--chip-fail, #d88); text-transform: none; letter-spacing: 0; white-space: pre-wrap; }
 .wtoggle { margin-left: 16px; font-size: 11px; color: var(--faint-text); background: transparent; border: 1px solid var(--line); border-radius: 6px; padding: 3px 9px; cursor: pointer; }
 .wtoggle:hover { color: var(--ink); border-color: var(--warp); }
 .wtoggle.on { color: var(--warp-hi); border-color: var(--warp); }

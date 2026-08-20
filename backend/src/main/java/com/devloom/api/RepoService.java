@@ -355,6 +355,22 @@ public class RepoService {
         return agent.checkout(pathOf(id), branch, create);
     }
 
+    /**
+     * Remove a worktree of this repository. {@code id} is the repository; {@code worktree} is the
+     * checkout being removed, which is not necessarily a repo DevLoom tracks.
+     */
+    public Map<String, Object> worktreeRemove(String id, String worktree, boolean force) {
+        return agent.worktreeRemove(pathOf(id), worktree, force);
+    }
+
+    public Map<String, Object> branchDelete(String id, String branch, boolean force) {
+        return agent.branchDelete(pathOf(id), branch, force);
+    }
+
+    public Map<String, Object> prune(String id) {
+        return agent.prune(pathOf(id));
+    }
+
     // ---- helpers ----
 
     private GitRepoEntity persist(Map<String, Object> info) {
@@ -422,7 +438,9 @@ public class RepoService {
                         w.get("head") == null ? null : String.valueOf(w.get("head")),
                         Boolean.TRUE.equals(w.get("bare")), Boolean.TRUE.equals(w.get("detached")),
                         Boolean.TRUE.equals(w.get("locked")), tracked != null,
-                        tracked == null ? null : String.valueOf(tracked.getId())));
+                        tracked == null ? null : String.valueOf(tracked.getId()),
+                        Boolean.TRUE.equals(w.get("prunable")),
+                        w.get("prunableReason") == null ? null : String.valueOf(w.get("prunableReason"))));
             }
         }
         return out;

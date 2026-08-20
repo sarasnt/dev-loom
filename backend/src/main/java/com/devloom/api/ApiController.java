@@ -385,6 +385,23 @@ public class ApiController {
         return repoService.checkout(id, body.branch(), body.create());
     }
 
+    @PostMapping("/repos/{id}/worktree-remove")
+    public Map<String, Object> repoWorktreeRemove(@PathVariable String id,
+                                                  @RequestBody Dto.RepoWorktreeRemove body) {
+        return repoService.worktreeRemove(id, body.worktree(), body.force());
+    }
+
+    @PostMapping("/repos/{id}/branch-delete")
+    public Map<String, Object> repoBranchDelete(@PathVariable String id,
+                                                @RequestBody Dto.RepoBranchDelete body) {
+        return repoService.branchDelete(id, body.branch(), body.force());
+    }
+
+    @PostMapping("/repos/{id}/prune")
+    public Map<String, Object> repoPrune(@PathVariable String id) {
+        return repoService.prune(id);
+    }
+
     @GetMapping("/repos/{id}/worktrees")
     public List<Dto.WorktreeInfo> repoWorktrees(@PathVariable String id) {
         return repoService.worktrees(id);

@@ -371,8 +371,17 @@ export function repoUnstage() {
 export function repoCommit() {
   return delay({ ok: false, output: 'offline' })
 }
+export function repoWorktreeRemove() {
+  return Promise.resolve({ ok: true, output: '' })
+}
+export function repoBranchDelete() {
+  return Promise.resolve({ ok: true, output: '' })
+}
+export function repoPrune() {
+  return Promise.resolve({ ok: true, output: '' })
+}
 export function repoBranches() {
-  return delay({ current: '', local: [] as string[] })
+  return delay({ current: '', local: [] as string[], holders: {} as Record<string, string> })
 }
 export function repoCheckout(_id: string, branch: string) {
   return delay({ ok: false, branch, output: 'offline' })

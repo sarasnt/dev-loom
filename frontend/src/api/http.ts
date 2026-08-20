@@ -185,8 +185,15 @@ export const repoUnstage = (id: string, files: string[]) =>
   post<{ ok: boolean; output: string }>(`/repos/${id}/unstage`, { files })
 export const repoCommit = (id: string, message: string) =>
   post<{ ok: boolean; output: string }>(`/repos/${id}/commit`, { message })
+export const repoWorktreeRemove = (id: string, worktree: string, force = false) =>
+  post<{ ok: boolean; output: string }>(`/repos/${id}/worktree-remove`, { worktree, force })
+export const repoBranchDelete = (id: string, branch: string, force = false) =>
+  post<{ ok: boolean; output: string }>(`/repos/${id}/branch-delete`, { branch, force })
+export const repoPrune = (id: string) =>
+  post<{ ok: boolean; output: string }>(`/repos/${id}/prune`, {})
 export const repoBranches = (id: string) =>
-  post<{ current: string; local: string[] }>(`/repos/${id}/branches`, {})
+  post<{ current: string; local: string[]; holders: Record<string, string> }>(
+    `/repos/${id}/branches`, {})
 export const repoCheckout = (id: string, branch: string, create: boolean) =>
   post<{ ok: boolean; branch: string; output: string }>(`/repos/${id}/checkout`, { branch, create })
 export const repoSource = (id: string, branch: string) =>

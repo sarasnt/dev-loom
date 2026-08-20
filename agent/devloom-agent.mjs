@@ -1143,7 +1143,11 @@ async function worktrees(dir) {
   if (r.code !== 0) return { worktrees: [] }
   const out = []
   for (const block of r.out.split('\n\n')) {
-    const wt = { path: '', branch: null, head: null, bare: false, detached: false, locked: false }
+    // `prunable` is the state that bites: delete a worktree directory by hand and git keeps the
+    // registration, goes on considering its branch checked out, and refuses to check it out
+    // anywhere else — pointing at a directory that is no longer there.
+    const wt = { path: '', branch: null, head: null, bare: false, detached: false, locked: false,
+                 prunable: false, prunableReason: null }
     for (const line of block.split('\n')) {
       if (line.startsWith('worktree ')) wt.path = line.slice(9).trim()
       else if (line.startsWith('branch ')) wt.branch = line.slice(7).trim().replace(/^refs\/heads\//, '')
@@ -1151,6 +1155,7 @@ async function worktrees(dir) {
       else if (line === 'bare') wt.bare = true
       else if (line === 'detached') wt.detached = true
       else if (line.startsWith('locked')) wt.locked = true
+      else if (line.startsWith('prunable')) { wt.prunable = true; wt.prunableReason = line.slice(8).trim() || null }
     }
     if (wt.path) out.push(wt)
   }
@@ -1610,14 +1615,50 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'POST' && url.pathname === '/repos/branches') {
       const { path: p } = await readBody(req)
+      // %(worktreepath) is empty unless the branch is checked out somewhere. Without it the UI
+      // offers every branch and git rejects the ones already held, with a fatal naming a
+      // directory the user cannot see from here.
       const [cur, list] = await Promise.all([
         git(p, ['rev-parse', '--abbrev-ref', 'HEAD']),
-        git(p, ['branch', '--format=%(refname:short)']),
+        git(p, ['branch', '--format=%(refname:short)\t%(worktreepath)']),
       ])
-      const local = list.code === 0
-        ? list.out.split('\n').map((s) => s.trim()).filter(Boolean)
-        : []
-      return json(res, 200, { current: cur.out.trim(), local })
+      const local = []
+      const holders = {}
+      if (list.code === 0) {
+        for (const line of list.out.split('\n')) {
+          if (!line.trim()) continue
+          const [name, held] = line.split('\t')
+          const b = (name || '').trim()
+          if (!b) continue
+          local.push(b)
+          if ((held || '').trim()) holders[b] = held.trim()
+        }
+      }
+      return json(res, 200, { current: cur.out.trim(), local, holders })
+    }
+    // Destructive worktree/branch operations. Safe variant first, always: if git refuses, that
+    // refusal is the useful part and the caller shows it before offering the forceful repeat.
+    if (req.method === 'POST' && url.pathname === '/repos/worktree-remove') {
+      const { path: p, worktree, force } = await readBody(req)
+      if (!worktree) return json(res, 400, { ok: false, output: 'worktree path required' })
+      const args = force ? ['worktree', 'remove', '--force', worktree] : ['worktree', 'remove', worktree]
+      const r = await git(p, args)
+      return json(res, 200, { ok: r.code === 0, output: (r.out + r.err).trim().slice(0, 1000) })
+    }
+    if (req.method === 'POST' && url.pathname === '/repos/branch-delete') {
+      const { path: p, branch, force } = await readBody(req)
+      if (!branch) return json(res, 400, { ok: false, output: 'branch required' })
+      // -d refuses an unmerged branch; -D does not. That refusal is the guard, so it is the
+      // default and the caller has to ask for -D explicitly.
+      const r = await git(p, ['branch', force ? '-D' : '-d', branch])
+      return json(res, 200, { ok: r.code === 0, output: (r.out + r.err).trim().slice(0, 1000) })
+    }
+    if (req.method === 'POST' && url.pathname === '/repos/prune') {
+      const { path: p } = await readBody(req)
+      // Only ever drops registrations whose directory is already gone — it cannot remove a
+      // worktree that still exists, so it needs no force variant.
+      const r = await git(p, ['worktree', 'prune', '-v'])
+      return json(res, 200, { ok: r.code === 0, output: (r.out + r.err).trim().slice(0, 1000) })
     }
     if (req.method === 'POST' && url.pathname === '/repos/checkout') {
       const { path: p, branch, create } = await readBody(req)
