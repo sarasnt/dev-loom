@@ -8,8 +8,10 @@ import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,6 +24,12 @@ import com.devloom.workmodel.WorkItemEntity;
 /**
  * Calendar via a private iCal (ICS) feed (docs/SPEC-sources.md). Each instance supplies its
  * own feed URL (a secret). Events are classified upcoming → ongoing → ended by the clock.
+ *
+ * <p>Ext ids over 60 chars used to be truncated by keeping the head, which collided on Outlook's
+ * long UIDs (they share a common prefix and differ only in the tail) and violated
+ * {@code uq_work_item_ext}. Truncation now keeps the tail instead. Any per-item flag
+ * (snooze/handled) keyed on an ext_id from before that change was reset once when this shipped,
+ * since the id it was keyed on no longer matches.</p>
  */
 @Component
 public class CalendarIcsConnector implements SourceConnector {
@@ -81,6 +89,7 @@ public class CalendarIcsConnector implements SourceConnector {
                     .sorted(Comparator.comparing(e -> e.start))
                     .limit(maxEvents)
                     .toList();
+            Set<String> seenExtIds = new HashSet<>();
             for (Event e : window) {
                 LocalDateTime end = endOf(e);
                 String when = e.allDay ? e.start.toLocalDate().format(DISP_DATE) : e.start.format(DISP_DATETIME);
@@ -102,8 +111,26 @@ public class CalendarIcsConnector implements SourceConnector {
                     tone = "info";
                     status = when;
                 }
-                String extId = (e.uid != null && !e.uid.isBlank() ? e.uid : e.summary + "@" + e.start);
-                if (extId.length() > 60) extId = extId.substring(0, 60);
+                String rawExtId = (e.uid != null && !e.uid.isBlank() ? e.uid : e.summary + "@" + e.start);
+                // Outlook UIDs run well past 60 chars and share a long common prefix across an
+                // organizer's events, differing only near the tail — truncating the head (the old
+                // behavior) collapsed distinct events onto the same ext_id and tripped
+                // uq_work_item_ext. Keep the tail instead (same trap BitbucketConnector avoids).
+                String extId = rawExtId;
+                if (extId.length() > 60) extId = extId.substring(extId.length() - 60);
+                if (!seenExtIds.add(extId)) {
+                    // A recurring event's instances all share one UID outright, not just a
+                    // truncated prefix. Disambiguate with this occurrence's start time before
+                    // giving up on it.
+                    String retryExtId = rawExtId + "@" + e.start;
+                    if (retryExtId.length() > 60) retryExtId = retryExtId.substring(retryExtId.length() - 60);
+                    if (!seenExtIds.add(retryExtId)) {
+                        log.debug("Calendar sync [{}]: skipping event with duplicate ext id after retry: {}",
+                                source, e.summary);
+                        continue;
+                    }
+                    extId = retryExtId;
+                }
                 out.add(WorkItemEntity.create(extId, "calendar",
                         e.summary == null || e.summary.isBlank() ? "(untitled event)" : e.summary,
                         status, tone, "", source, order++)
