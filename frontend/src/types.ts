@@ -93,6 +93,8 @@ export interface WorkRow {
   isNew?: boolean
   score?: number | null
   startsAt?: string | null // ISO instant — when this item happens (calendar events; else null)
+  planned?: boolean // in today's plan — lets Work's button read "Plan"/"Unplan" honestly
+  handled?: boolean // marked done — lets Work's button read "Handled"/"Unhandle" honestly
 }
 
 // ---- Build-failure analysis (SPEC §23) ----

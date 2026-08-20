@@ -126,6 +126,11 @@ const sourceCount = computed(() => new Set(filtered.value.map((r) => r.source)).
 function externalUrl(r: WorkRow): string | null {
   return r.url && r.url.startsWith('http') ? r.url : null
 }
+// Role visible on the row too (spec: not just the PRs/Reviews chip filter) — a quiet suffix on
+// the same "by <author>" line, not a separate chip, since it's a fact about that author's PR.
+function roleSuffix(r: WorkRow): string {
+  return r.prRole === 'mine' ? ' · yours' : r.prRole === 'review' ? ' · for review' : ''
+}
 function actionable(r: WorkRow): boolean {
   return r.type === 'build' || externalUrl(r) !== null || !!r.description
 }
@@ -157,9 +162,9 @@ function open(r: WorkRow) {
 }
 
 // Row hand actions: same store actions the Today cards use (they hit /today/* keyed by extId
-// and hand back the refreshed Today state), then Work re-fetches its own rows — the store only
-// carries Today, and WorkRow has no planned/handled flag to toggle a label off of, so these fire
-// and refresh rather than pretending to know the current state (see task-4 brief).
+// and hand back the refreshed Today state, though Work doesn't consume it), then Work re-fetches
+// its own rows — WorkRow now carries planned/handled (WorkModelService), so the re-fetch is what
+// flips the button label to the honest opposite state, not a guess made client-side.
 const busy = ref<Set<string>>(new Set())
 async function runRowAction(id: string, fn: (id: string) => Promise<void>) {
   if (busy.value.has(id)) return
@@ -260,7 +265,7 @@ function handle(r: WorkRow) {
             <span class="srcpill">{{ r.source }}</span>
             <span v-if="hasChildren(r)" class="subcount">{{ childrenOf(r.id).length }} subtasks</span>
             <span class="dot" :class="r.statusTone" aria-hidden="true"></span> {{ r.status }}
-            <span v-if="(r.type === 'pr' || r.type === 'review') && r.author">by {{ r.author }}</span>
+            <span v-if="(r.type === 'pr' || r.type === 'review') && r.author">by {{ r.author }}{{ roleSuffix(r) }}</span>
             <span v-for="m in r.meta" :key="m">{{ m }}</span>
             <span v-if="r.type === 'build'" class="go" aria-hidden="true">analyze ›</span>
             <span v-else-if="externalUrl(r)" class="go" aria-hidden="true">open ↗</span>
@@ -275,9 +280,9 @@ function handle(r: WorkRow) {
           </span>
           <span class="rowacts" @click.stop>
             <button v-if="externalUrl(r)" class="actbtn" @click="openExternal(r)">Open</button>
-            <button class="actbtn" :disabled="busy.has(r.id)" @click="plan(r)">Plan</button>
+            <button class="actbtn" :class="{ on: r.planned }" :disabled="busy.has(r.id)" @click="plan(r)">{{ r.planned ? 'Unplan' : 'Plan' }}</button>
             <button class="actbtn" :disabled="busy.has(r.id)" @click="snooze(r)">Snooze</button>
-            <button class="actbtn" :disabled="busy.has(r.id)" @click="handle(r)">Handled</button>
+            <button class="actbtn" :class="{ on: r.handled }" :disabled="busy.has(r.id)" @click="handle(r)">{{ r.handled ? 'Unhandle' : 'Handled' }}</button>
           </span>
         </div>
         <div v-if="expandedDesc.has(r.id) && r.description" class="desc">{{ r.description }}</div>
@@ -299,7 +304,7 @@ function handle(r: WorkRow) {
               <span class="mt mono">
                 <span class="srcpill">{{ c.source }}</span>
                 <span class="dot" :class="c.statusTone" aria-hidden="true"></span> {{ c.status }}
-                <span v-if="(c.type === 'pr' || c.type === 'review') && c.author">by {{ c.author }}</span>
+                <span v-if="(c.type === 'pr' || c.type === 'review') && c.author">by {{ c.author }}{{ roleSuffix(c) }}</span>
                 <span v-for="m in c.meta" :key="m">{{ m }}</span>
                 <button
                   v-if="c.description"
@@ -312,9 +317,9 @@ function handle(r: WorkRow) {
               </span>
               <span class="rowacts" @click.stop>
                 <button v-if="externalUrl(c)" class="actbtn" @click="openExternal(c)">Open</button>
-                <button class="actbtn" :disabled="busy.has(c.id)" @click="plan(c)">Plan</button>
+                <button class="actbtn" :class="{ on: c.planned }" :disabled="busy.has(c.id)" @click="plan(c)">{{ c.planned ? 'Unplan' : 'Plan' }}</button>
                 <button class="actbtn" :disabled="busy.has(c.id)" @click="snooze(c)">Snooze</button>
-                <button class="actbtn" :disabled="busy.has(c.id)" @click="handle(c)">Handled</button>
+                <button class="actbtn" :class="{ on: c.handled }" :disabled="busy.has(c.id)" @click="handle(c)">{{ c.handled ? 'Unhandle' : 'Handled' }}</button>
               </span>
             </div>
             <div v-if="expandedDesc.has(c.id) && c.description" class="desc child">{{ c.description }}</div>
@@ -391,6 +396,7 @@ function handle(r: WorkRow) {
 }
 .actbtn:hover:not(:disabled) { border-color: var(--warp); color: var(--ink); }
 .actbtn:disabled { opacity: 0.5; cursor: default; }
+.actbtn.on { color: var(--warp-hi); border-color: var(--warp); }
 .subcount { color: var(--warp-hi); }
 .srcpill {
   color: var(--dim); border: 1px solid var(--line); border-radius: 5px;

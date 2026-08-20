@@ -44,7 +44,11 @@ public final class Dto {
             String statusTone, List<String> meta, String source,
             String category, String description, String parentId, String url,
             String author, String prRole,
-            boolean isNew, Double score, String startsAt) {}
+            boolean isNew, Double score, String startsAt,
+            // Appended last (not inserted with the other flags above) so existing positional
+            // callers/tests don't shift — Work's Plan/Handled buttons need real state to be
+            // honest toggles instead of a fire-and-hope POST (task-4 review, finding 1).
+            boolean planned, boolean handled) {}
 
     // ---- Build failure ----
     public record LogLine(String text, String kind) {}

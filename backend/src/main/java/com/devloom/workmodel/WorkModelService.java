@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 
 import com.devloom.api.Dto;
 import com.devloom.briefing.BriefingService;
+import com.devloom.common.AppConfigService;
 import com.devloom.priority.PriorityEngine;
 import com.devloom.priority.SignalComponent;
 
@@ -26,16 +27,30 @@ public class WorkModelService {
     private final WorkItemRepository repo;
     private final BriefingService briefing;
     private final PriorityEngine priority;
+    private final AppConfigService config;
 
-    public WorkModelService(WorkItemRepository repo, BriefingService briefing, PriorityEngine priority) {
+    public WorkModelService(WorkItemRepository repo, BriefingService briefing, PriorityEngine priority,
+                            AppConfigService config) {
         this.repo = repo;
         this.briefing = briefing;
         this.priority = priority;
+        this.config = config;
     }
 
     public List<Dto.WorkRow> allWork() {
-        List<WorkItemEntity> items = repo.findAllByOrderBySortOrderAsc();
+        // Snoozed items live in Today's fold, not here — Work was the only /work-shaped consumer
+        // that didn't filter them out, so pressing Snooze on a Work row left it sitting in place
+        // and looked like the button did nothing (task-4 review, finding 2).
+        Set<String> snoozed = config.snoozed();
+        List<WorkItemEntity> items = repo.findAllByOrderBySortOrderAsc().stream()
+                .filter(w -> !snoozed.contains(w.getExtId()))
+                .toList();
         Set<String> newIds = briefing.newExtIds();
+        // Computed once for the whole fetch, not per row, same reason as the score map below —
+        // Plan/Handled need to render as real toggles ("Plan"/"Unplan") instead of static labels
+        // hiding a direction-less backend flip (task-4 review, finding 1).
+        Set<String> plannedIds = briefing.plannedExtIds();
+        Set<String> handledIds = briefing.handledExtIds();
 
         // Rank ALL items once per fetch (not per row) so each score reflects this item's place
         // among everything, matching what the Work priority-sort toggle needs to be meaningful.
@@ -45,11 +60,12 @@ public class WorkModelService {
         }
 
         return items.stream()
-                .map(e -> toRow(e, newIds.contains(e.getExtId()), scoreByExtId.get(e.getExtId())))
+                .map(e -> toRow(e, newIds.contains(e.getExtId()), scoreByExtId.get(e.getExtId()),
+                        plannedIds.contains(e.getExtId()), handledIds.contains(e.getExtId())))
                 .toList();
     }
 
-    private Dto.WorkRow toRow(WorkItemEntity e, boolean isNew, Double score) {
+    private Dto.WorkRow toRow(WorkItemEntity e, boolean isNew, Double score, boolean planned, boolean handled) {
         List<String> meta = e.getMetaCsv().isBlank() ? List.of() : Arrays.asList(e.getMetaCsv().split(","));
         return new Dto.WorkRow(
                 e.getExtId(), e.getType(), glyph(e.getType()), e.getTitle(),
@@ -59,7 +75,8 @@ public class WorkModelService {
                 // rebuilding a GitHub URL from the id, which meant every other source had no way
                 // to be opened at all.
                 e.getUrl(), e.getAuthor(), e.getPrRole(),
-                isNew, score, e.getStartsAt() == null ? null : e.getStartsAt().toString());
+                isNew, score, e.getStartsAt() == null ? null : e.getStartsAt().toString(),
+                planned, handled);
     }
 
     /**
