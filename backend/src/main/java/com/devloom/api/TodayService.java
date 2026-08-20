@@ -15,8 +15,11 @@ import java.util.Set;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import com.devloom.priority.PriorityEngine;
+import com.devloom.priority.SignalComponent;
 import com.devloom.workmodel.WorkItemEntity;
 import com.devloom.workmodel.WorkItemRepository;
+import com.devloom.workmodel.WorkModelService;
 
 /**
  * Builds the Today dashboard from the <em>real</em> unified work model (SPEC.md §22, design doc
@@ -39,6 +42,7 @@ public class TodayService {
     private final ProvidersService providers;
     private final com.devloom.common.AppConfigService appConfig;
     private final com.devloom.briefing.BriefingService briefing;
+    private final PriorityEngine priority;
     private final String workspace;
     private final String user;
 
@@ -46,6 +50,7 @@ public class TodayService {
                         WorkItemRepository workItems, ProvidersService providers,
                         com.devloom.common.AppConfigService appConfig,
                         com.devloom.briefing.BriefingService briefing,
+                        PriorityEngine priority,
                         @Value("${devloom.workspace:My workspace}") String workspace,
                         @Value("${devloom.user:you}") String user) {
         this.changes = changes;
@@ -53,6 +58,7 @@ public class TodayService {
         this.providers = providers;
         this.appConfig = appConfig;
         this.briefing = briefing;
+        this.priority = priority;
         this.workspace = workspace;
         this.user = user;
     }
@@ -107,7 +113,10 @@ public class TodayService {
         Set<String> plannedIds = briefing.plannedExtIds();
         List<WorkItemEntity> plannedItems = all.stream()
                 .filter(w -> plannedIds.contains(w.getExtId()) && !placed.contains(w.getExtId())
-                        && !handled.contains(w.getExtId()))
+                        && !handled.contains(w.getExtId())
+                        // Finished = acknowledgement, not work: a done/closed/merged ticket has
+                        // nothing left to plan for, no matter what the plan flag says.
+                        && !com.devloom.briefing.BriefingService.isDoneStatus(w.getStatus()))
                 .toList();
         placed.addAll(plannedItems.stream().map(WorkItemEntity::getExtId).toList());
 
@@ -115,7 +124,10 @@ public class TodayService {
         List<WorkItemEntity> assignedItems = all.stream()
                 .filter(w -> !placed.contains(w.getExtId()) && !handled.contains(w.getExtId())
                         && ("mine".equals(w.getPrRole()) || "review".equals(w.getPrRole())
-                                || "task".equals(w.getType()) || "review".equals(w.getType())))
+                                || "task".equals(w.getType()) || "review".equals(w.getType()))
+                        // Same judgment as planned above — a finished ticket isn't still assigned
+                        // work just because its role/type still matches.
+                        && !com.devloom.briefing.BriefingService.isDoneStatus(w.getStatus()))
                 .toList();
 
         Dto.Changed changed = changes.changed();
@@ -163,21 +175,30 @@ public class TodayService {
         List<Dto.Recommendation> out = new ArrayList<>(items.size());
         int i = 1;
         for (WorkItemEntity w : items) {
-            out.add(rec(w, i++, null, null, null));
+            out.add(rec(w, i++, null));
         }
         return out;
     }
 
     // ---- recommendation construction --------------------------------------------
 
-    /** A non-ranked recommendation (rank 0, no lead/signals/score) — snoozed list, etc. */
+    /** A non-ranked recommendation (rank 0, no lead) — snoozed list, etc. Signals/score are still
+     *  filled in below: the Why panel reads the same field everywhere, so a snoozed card can't be
+     *  bar-less just because it isn't sorted. */
     private Dto.Recommendation recFor(WorkItemEntity w) {
-        return rec(w, 0, null, null, null);
+        return rec(w, 0, null);
     }
 
-    /** Single construction point for a Recommendation, shared by every section and the snoozed list. */
-    private Dto.Recommendation rec(WorkItemEntity w, int rank, Boolean lead,
-                                   List<Dto.SignalComponent> signals, Double score) {
+    /** Single construction point for a Recommendation, shared by every section and the snoozed
+     *  list. Signals/score come from {@link WorkModelService#signalsFor}, the same deterministic
+     *  computation Work's priority sort uses — numbered() used to pass signals=null for every
+     *  card, which left the Why panel's signal bars dead everywhere on Today. */
+    private Dto.Recommendation rec(WorkItemEntity w, int rank, Boolean lead) {
+        List<SignalComponent> raw = WorkModelService.signalsFor(w);
+        List<Dto.SignalComponent> signals = raw.stream()
+                .map(s -> new Dto.SignalComponent(s.name(), s.display(), s.normalized(), s.weight()))
+                .toList();
+        double score = priority.score(raw);
         String type = w.getType();
         return new Dto.Recommendation(
                 w.getExtId(), rank, type, w.getTitle(), w.getSource(),

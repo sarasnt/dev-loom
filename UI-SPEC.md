@@ -234,7 +234,7 @@ DevLoom
 
 Mapped to the SPEC journeys J1–J6.
 
-- **W1 Morning triage (J1).** Open → *Today* → warp shows ranked Next → top card already explains *why* (grotesque) with threaded evidence (mono chips) → act / snooze / **override with reason**. Target: understand the top item in < 5 seconds, no click.
+- **W1 Morning triage (J1).** Open → *Today* → schedule/needs-you-now/planned/assigned sections surface what's urgent first → top card already explains *why* (grotesque) with threaded evidence (mono chips) → act / snooze / **override with reason**. Target: understand the top item in < 5 seconds, no click. (Priority ranking itself lives in Work's sort, not Today's sections.)
 - **W2 Build-failure triage (J2).** *Builds* badge → failure → S5 streams summary → failing step + evidence → ranked causes (evidence vs hypothesis clearly split) → **Generate handoff**.
 - **W3 Handoff (J3).** S6 opens pre-filled → review boxed safety constraints → edit → **Copy** (and/or export) → paste into agent. DevLoom never runs it.
 - **W4 Catch-up (J4).** *Today* → "What changed since you last looked" strip → each change threaded to its source.

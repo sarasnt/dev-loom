@@ -45,7 +45,11 @@ public class WorkModelService {
         List<WorkItemEntity> items = repo.findAllByOrderBySortOrderAsc().stream()
                 .filter(w -> !snoozed.contains(w.getExtId()))
                 .toList();
-        Set<String> newIds = briefing.newExtIds();
+        Set<String> newIdsRaw = briefing.newExtIds();
+        // A diff with no baseline is not a diff — mirrors the old firstSync guard. If every active
+        // row reads "new" (first sync ever, or the digest snapshot never ran), the New chip stops
+        // meaning anything and just becomes noise painted on the whole list.
+        Set<String> newIds = newIdsRaw.size() >= items.size() ? Set.of() : newIdsRaw;
         // Computed once for the whole fetch, not per row, same reason as the score map below —
         // Plan/Handled need to render as real toggles ("Plan"/"Unplan") instead of static labels
         // hiding a direction-less backend flip (task-4 review, finding 1).
@@ -82,9 +86,11 @@ public class WorkModelService {
     /**
      * Deterministic priority signals for a real work item (SPEC §22). All normalized to [0,1].
      * Moved from TodayService when its ranked "next" list died — one implementation, not two that
-     * could drift, since this is now the only place a score is computed.
+     * could drift. Public because TodayService also calls this directly to populate the Why
+     * panel's signal bars (numbered() used to pass signals=null for every card); the score itself
+     * is still only sorted-on here.
      */
-    private static List<SignalComponent> signalsFor(WorkItemEntity w) {
+    public static List<SignalComponent> signalsFor(WorkItemEntity w) {
         List<SignalComponent> signals = new ArrayList<>();
 
         // urgency — how loudly the item's own status is asking for attention

@@ -6,10 +6,10 @@ defineProps<{ items: Recommendation[] }>()
 </script>
 
 <template>
-  <ol class="warp" aria-label="Next — ranked by priority">
+  <ol class="warp" aria-label="Work items">
     <li v-for="item in items" :key="item.id" class="item">
       <span class="rank" aria-hidden="true">{{ item.rank }}</span>
-      <span class="sr-only">Priority {{ item.rank }}:</span>
+      <span class="sr-only">Item {{ item.rank }}:</span>
       <RecommendationCard :item="item" />
     </li>
   </ol>

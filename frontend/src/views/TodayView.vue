@@ -83,7 +83,10 @@ onMounted(() => store.load())
       <template v-if="allDaySchedule.length || timedSchedule.length">
         <div class="sectlab"><span class="eyebrow">Schedule</span></div>
         <ul v-if="allDaySchedule.length" class="chiprow" aria-label="All-day">
-          <li v-for="r in allDaySchedule" :key="r.id" class="daychip mono" :title="r.title">{{ r.title }}</li>
+          <li v-for="r in allDaySchedule" :key="r.id" class="daychip mono" :title="r.title">
+            <a v-if="r.url" :href="r.url" target="_blank" rel="noopener noreferrer">{{ r.title }}</a>
+            <template v-else>{{ r.title }}</template>
+          </li>
         </ul>
         <ol v-if="timedSchedule.length" class="timeline">
           <li
@@ -94,7 +97,8 @@ onMounted(() => store.load())
           >
             <span class="time mono">{{ hhmm(r.startsAt) }}</span>
             <span class="dot" aria-hidden="true">·</span>
-            <span class="ttitle">{{ r.title }}</span>
+            <a v-if="r.url" class="ttitle" :href="r.url" target="_blank" rel="noopener noreferrer">{{ r.title }}</a>
+            <span v-else class="ttitle">{{ r.title }}</span>
           </li>
         </ol>
       </template>
@@ -169,11 +173,14 @@ a.donetitle:hover { color: var(--ink); text-decoration: underline; }
   background: var(--raised); color: var(--dim); max-width: 220px; overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap;
 }
+.daychip a { color: inherit; text-decoration: none; }
+.daychip a:hover { color: var(--ink); text-decoration: underline; }
 .timeline { list-style: none; margin: 0 0 22px; padding: 0; display: flex; flex-direction: column; }
 .timerow { display: flex; align-items: baseline; gap: 9px; font-size: 12.5px; padding: 4px 2px; border-radius: 5px; }
 .timerow .time { color: var(--warp-hi); min-width: 42px; }
 .timerow .dot { color: var(--faint-text); }
-.timerow .ttitle { color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.timerow .ttitle { color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: none; }
+a.ttitle:hover { color: var(--warp-hi); text-decoration: underline; }
 .timerow.ongoing { background: var(--warp-weft); }
 .timerow.ongoing .time { color: var(--warp-hi); font-weight: 600; }
 .timerow.past { opacity: 0.5; }

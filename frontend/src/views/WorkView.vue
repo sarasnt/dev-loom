@@ -88,8 +88,9 @@ function matchesSource(r: WorkRow): boolean {
   return sourceFilter.value === 'all' || r.source === sourceFilter.value
 }
 
-// Priority: PriorityEngine's score, descending; unscored rows (calendar, docs, most tasks) sort
-// last rather than to the top, where a null would otherwise read as "highest priority".
+// Priority: PriorityEngine's score, descending. Every synced row is scored today — WorkModelService
+// ranks the whole set on each fetch — but the nulls-last branch stays as a guard for any future
+// source that skips ranking, so a missing score sorts last instead of misreading as "highest priority".
 function byPriority(a: WorkRow, b: WorkRow): number {
   const sa = a.score ?? null
   const sb = b.score ?? null

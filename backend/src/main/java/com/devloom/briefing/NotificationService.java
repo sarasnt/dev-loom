@@ -49,14 +49,17 @@ public class NotificationService {
     @Scheduled(fixedRate = 60_000)
     public void digestTick() {
         NotifyConfig c = NotifyConfig.from(cfg);
-        if (!c.enabled()) return;
         LocalDateTime now = LocalDateTime.now(zone);
         if (!now.toLocalTime().truncatedTo(ChronoUnit.MINUTES).equals(parse(c.digestTime()))) return;
         if (now.toLocalDate().equals(lastDigestDate)) return;
-        if (quiet(now.toLocalTime(), c)) return;
         lastDigestDate = now.toLocalDate();
+        // Diff bookkeeping for Work's New chip, not a notification — must run whether or not
+        // notifications are enabled, or the baseline goes stale for as long as they're off
+        // (found: 9 days stale with notifications at their default of disabled).
+        briefing.writeSnapshot("digest");
+        if (!c.enabled()) return;
+        if (quiet(now.toLocalTime(), c)) return;
         send("DevLoom · morning briefing", composeDigest(c), "normal");
-        briefing.writeSnapshot("digest"); // establish today's "yesterday" baseline
     }
 
     /** Called after each sync: alert on newly-urgent items (unless quiet hours). */

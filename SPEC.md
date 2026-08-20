@@ -141,7 +141,7 @@ The system is **provider-neutral for AI and local-first**: free, open models run
 
 ## 6. Primary user journeys
 
-**J1 — Morning triage (the core loop).** Maya opens DevLoom → the dashboard shows a ranked "Next" list. Top card: "Review PR #482 — teammate blocked 2 days, CI green, merges the release." She expands it → sees the deterministic signals (blocked teammate, review wait 51h, release-labeled) and an LLM explanation citing the PR and the linked ticket. She acts, or snoozes, or overrides priority with a reason.
+**J1 — Morning triage (the core loop).** Maya opens DevLoom → Today groups her day into schedule, needs-you-now, planned, and assigned — no click required to see what's urgent. Top card under Needs you now: "Review PR #482 — teammate blocked 2 days, CI green, merges the release." She expands it → sees the deterministic signals (blocked teammate, review wait 51h, release-labeled) and an LLM explanation citing the PR and the linked ticket. She acts, or snoozes, or overrides priority with a reason (the ranked score itself lives in Work's priority sort).
 
 **J2 — Build-failure triage.** A card shows "CI failed on `feature/pricing` — 1st failure." She opens the build-failure screen → concise summary, exact failing job/test, ranked hypotheses with evidence (failing assertion + the commit that touched that file), suggested diagnostics, potential fixes, and a one-click **"Generate agent handoff."**
 

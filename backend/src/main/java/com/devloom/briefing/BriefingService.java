@@ -40,6 +40,22 @@ public class BriefingService {
 
     // ---- flags -----------------------------------------------------------------
 
+    /**
+     * True when a status string represents a finished/acknowledged state rather than open work.
+     * This judgment (and the old ranked-list {@code build()} it lived in) was deleted in 7f44f01;
+     * without it, Today's planned/assigned sections started showing done/closed tickets as if they
+     * still needed action, because nothing on the backend excluded them any more. Union of the old
+     * list (done/complete/closed/merged/shipped/archived/passed/success) plus resolved/cancelled.
+     */
+    public static boolean isDoneStatus(String status) {
+        if (status == null) return false;
+        String s = status.toLowerCase();
+        return s.contains("done") || s.contains("complete") || s.contains("closed")
+                || s.contains("merged") || s.contains("shipped") || s.contains("archived")
+                || s.contains("passed") || s.contains("success")
+                || s.contains("resolved") || s.contains("cancelled");
+    }
+
     public boolean isHandled(String extId) {
         return flags.findById(extId).map(f -> f.getHandledAt() != null).orElse(false);
     }
