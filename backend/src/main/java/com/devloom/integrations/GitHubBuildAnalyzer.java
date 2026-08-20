@@ -1,6 +1,7 @@
 package com.devloom.integrations;
 
 import java.net.http.HttpClient;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -200,8 +201,13 @@ public class GitHubBuildAnalyzer {
     private List<Dto.LogLine> logExcerpt(RestClient http, String repo, String jobId) {
         List<Dto.LogLine> out = new ArrayList<>();
         try {
-            String raw = http.get().uri("/repos/" + repo + "/actions/jobs/" + jobId + "/logs")
-                    .retrieve().body(String.class);
+            // Read bytes and decode UTF-8 ourselves. The log arrives with no charset in its
+            // Content-Type, and Spring's String converter then falls back to ISO-8859-1 — which
+            // turns every non-ASCII character in a log line into mojibake (a UTF-8 "…" came out
+            // as "â\u0080¦"). GitHub Actions logs are UTF-8.
+            byte[] rawBytes = http.get().uri("/repos/" + repo + "/actions/jobs/" + jobId + "/logs")
+                    .retrieve().body(byte[].class);
+            String raw = rawBytes == null ? null : new String(rawBytes, StandardCharsets.UTF_8);
             if (raw == null || raw.isBlank()) {
                 out.add(new Dto.LogLine("(log unavailable)", "omitted"));
                 return out;

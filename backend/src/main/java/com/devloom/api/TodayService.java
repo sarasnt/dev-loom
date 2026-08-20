@@ -123,6 +123,10 @@ public class TodayService {
         // assigned: prRole in ("mine","review") OR type in ("task","review"), minus placed
         List<WorkItemEntity> assignedItems = all.stream()
                 .filter(w -> !placed.contains(w.getExtId()) && !handled.contains(w.getExtId())
+                        // Builds reach Today through needsYou or not at all. This band matches
+                        // prRole mine OR review, so without the type test a reviewer's demoted
+                        // build would reappear one band lower — moved rather than demoted.
+                        && !"build".equals(w.getType())
                         && ("mine".equals(w.getPrRole()) || "review".equals(w.getPrRole())
                                 || "task".equals(w.getType()) || "review".equals(w.getType()))
                         // Same judgment as planned above — a finished ticket isn't still assigned

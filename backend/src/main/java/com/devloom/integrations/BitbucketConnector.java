@@ -176,7 +176,7 @@ public class BitbucketConnector implements SourceConnector {
                 String branch = str(asMap(pr.get("fromRef")), "displayId");
                 if (!sha.isBlank() && buildShas.add(sha)) {
                     List<WorkItemEntity> builds = failedBuildItems(http, sha, id, title, repo, branch, source,
-                            order++);
+                            order++, prAuthor, prRole);
                     out.addAll(builds);
                     buildCount += builds.size();
                 }
@@ -238,7 +238,8 @@ public class BitbucketConnector implements SourceConnector {
      */
     private List<WorkItemEntity> failedBuildItems(RestClient http, String sha, String prId,
                                                   String prTitle, String repo, String branch,
-                                                  String source, int order) {
+                                                  String source, int order,
+                                                  String prAuthor, String prRole) {
         try {
             Map<String, Object> stats = http.get()
                     .uri("/rest/build-status/1.0/commits/stats/" + sha)
@@ -267,8 +268,11 @@ public class BitbucketConnector implements SourceConnector {
             String title = "CI failed · #" + prId + " · " + prTitle;
             // meta = [branch, repo] — the Builds service recovers the repo from meta[1], the
             // same contract the GitHub connector's build items follow.
+            // The build inherits the PR's authorship: whose failure this is decides whether it
+            // interrupts you, and only the PR knows.
             return List.of(WorkItemEntity.create(sha, "build", title, "failed", "fail",
                     branch + "," + repo, source, order)
+                    .withAuthor(prAuthor, prRole)
                     .withUrl(url == null || url.isBlank() ? null : url)
                     .withMetadata(jenkinsName == null || jenkinsName.isBlank()
                             ? "" : "jenkins: " + jenkinsName));

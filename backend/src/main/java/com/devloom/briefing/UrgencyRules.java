@@ -27,7 +27,15 @@ public final class UrgencyRules {
     public static String urgencyKey(WorkItemEntity w, boolean ci, boolean review, int prWaitHours) {
         String type = w.getType() == null ? "" : w.getType();
         String tone = w.getStatusTone() == null ? "" : w.getStatusTone();
-        if (ci && "build".equals(type) && "fail".equals(tone)) return "ci-fail";
+        // Only your own red build is an interrupt. Someone else's is worth knowing and not worth
+        // interrupting for — it is their fix to make.
+        //
+        // Null role means "never resolved", not "not yours": GitHub builds set no role, and every
+        // row written before this existed has none. Demoting on null would silently stop your own
+        // GitHub failures being urgent, and would look exactly like this working correctly. Demote
+        // only on positive knowledge that a build belongs to someone else.
+        if (ci && "build".equals(type) && "fail".equals(tone)
+                && (w.getPrRole() == null || "mine".equals(w.getPrRole()))) return "ci-fail";
         if (review && ("review".equals(type) || (isPr(type) && isReviewRequested(w)))) return "review-req";
         if (isPr(type) && waitHours(w) >= prWaitHours) return "pr-wait";
         return null;
