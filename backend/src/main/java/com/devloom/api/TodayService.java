@@ -94,12 +94,17 @@ public class TodayService {
                 .toList();
         placed.addAll(needsYouItems.stream().map(WorkItemEntity::getExtId).toList());
 
+        // Captured here, right after needsYouExtIds(), because that call is load-bearing: it runs
+        // clearHandledOnReopen() before this read, so a handled item that reopened at the source
+        // is already un-handled by the time planned/assigned check this set. Reading
+        // handledExtIds() any earlier (or from a fresh call below) would risk seeing stale flags.
+        Set<String> handled = briefing.handledExtIds();
+
         // planned: briefing.plannedExtIds(), minus placed. plannedExtIds() is the raw flag set
         // (the notification digest also reads it) and, unlike needsYouExtIds(), does not already
         // exclude handled items — the dedup contract wants handled out of every section but
         // schedule, so that exclusion happens here.
         Set<String> plannedIds = briefing.plannedExtIds();
-        Set<String> handled = briefing.handledExtIds();
         List<WorkItemEntity> plannedItems = all.stream()
                 .filter(w -> plannedIds.contains(w.getExtId()) && !placed.contains(w.getExtId())
                         && !handled.contains(w.getExtId()))
@@ -137,12 +142,17 @@ public class TodayService {
                 all.size(), snoozedRecs.size(), snoozedRecs);
     }
 
-    /** True for a calendar item happening today (startsAt on today's local date) or right now
-     *  (status begins "now" — set by CalendarIcsConnector for an in-progress event). */
+    /** True for a calendar item happening today (startsAt on today's local date) or still going
+     *  on right now (status begins "now", or — for an ongoing all-day event, see
+     *  CalendarIcsConnector — is exactly "today"). A multi-day all-day event (OOO, holiday) keeps
+     *  startsAt pinned to its first day, so startsAt alone would drop it from Today on day two;
+     *  trusting the connector's own ongoing classification instead is correct on every day of the
+     *  span because every 5-minute sync recomputes that status from the clock. */
     private static boolean isTodayOrNow(WorkItemEntity w, LocalDate today) {
         boolean startsToday = w.getStartsAt() != null
                 && w.getStartsAt().atZone(ZONE).toLocalDate().equals(today);
-        boolean runningNow = w.getStatus() != null && w.getStatus().toLowerCase().startsWith("now");
+        String status = w.getStatus() == null ? "" : w.getStatus().toLowerCase();
+        boolean runningNow = status.startsWith("now") || status.equals("today");
         return startsToday || runningNow;
     }
 
